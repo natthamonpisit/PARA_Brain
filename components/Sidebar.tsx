@@ -1,16 +1,17 @@
 import React, { useRef } from 'react';
 import { ParaType } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History } from 'lucide-react';
 
 interface SidebarProps {
   activeType: ParaType | 'All';
   onSelectType: (type: ParaType | 'All') => void;
   stats: Record<string, number>;
-  onExport?: () => void; // New prop
-  onImport?: (file: File) => void; // New prop
+  onExport?: () => void;
+  onImport?: (file: File) => void;
+  onShowHistory: () => void; // New Prop
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeType, onSelectType, stats, onExport, onImport }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeType, onSelectType, stats, onExport, onImport, onShowHistory }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const menuItems = [
@@ -74,8 +75,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeType, onSelectType, stat
 
       {/* Data Management Section */}
       <div className="mt-auto pt-4 border-t border-slate-100 space-y-2">
-        <p className="px-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data Sync</p>
+        <p className="px-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">System</p>
         
+        <button 
+            onClick={onShowHistory}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+        >
+            <History className="w-4 h-4 text-indigo-500" />
+            Activity History
+        </button>
+
         <button 
             onClick={onExport}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"

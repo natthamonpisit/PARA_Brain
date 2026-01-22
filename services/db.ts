@@ -1,10 +1,12 @@
-import { ParaItem } from '../types';
+import { ParaItem, HistoryLog } from '../types';
 
 // JAY'S NOTE: Database Configuration
 // ใช้ IndexedDB แบบ Native เพื่อ performance สูงสุดและไม่ต้องลง lib เพิ่ม
 const DB_NAME = 'ParaBrainDB';
-const STORE_NAME = 'items';
-const DB_VERSION = 1;
+const STORE_ITEMS = 'items';
+const STORE_HISTORY = 'history';
+// UPDATE: Bump version to 2 to support History Store
+const DB_VERSION = 2; 
 
 export const db = {
   // เปิด Connection ไปยัง Database
@@ -14,9 +16,17 @@ export const db = {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          // สร้าง Object Store โดยใช้ 'id' เป็น Primary Key
-          db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        
+        // Store 1: Items (Main Data)
+        if (!db.objectStoreNames.contains(STORE_ITEMS)) {
+          db.createObjectStore(STORE_ITEMS, { keyPath: 'id' });
+        }
+
+        // Store 2: History (Logs) - New in v2
+        if (!db.objectStoreNames.contains(STORE_HISTORY)) {
+           const historyStore = db.createObjectStore(STORE_HISTORY, { keyPath: 'id' });
+           // Index for faster sorting by time
+           historyStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
 
@@ -30,12 +40,13 @@ export const db = {
     });
   },
 
-  // ดึงข้อมูลทั้งหมดออกมา
+  // --- ITEMS OPERATIONS ---
+
   async getAll(): Promise<ParaItem[]> {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction(STORE_ITEMS, 'readonly');
+      const store = transaction.objectStore(STORE_ITEMS);
       const request = store.getAll();
 
       request.onsuccess = () => resolve(request.result);
@@ -43,12 +54,11 @@ export const db = {
     });
   },
 
-  // เพิ่มข้อมูลใหม่
   async add(item: ParaItem): Promise<void> {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction(STORE_ITEMS, 'readwrite');
+      const store = transaction.objectStore(STORE_ITEMS);
       const request = store.add(item);
 
       request.onsuccess = () => resolve();
@@ -56,12 +66,11 @@ export const db = {
     });
   },
 
-  // ลบข้อมูล
   async delete(id: string): Promise<void> {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction(STORE_ITEMS, 'readwrite');
+      const store = transaction.objectStore(STORE_ITEMS);
       const request = store.delete(id);
 
       request.onsuccess = () => resolve();
@@ -69,26 +78,27 @@ export const db = {
     });
   },
 
-  // JAY'S NOTE: ฟังก์ชันสำหรับล้างข้อมูลเก่าทั้งหมด (ใช้ตอน Restore Backup)
   async clear(): Promise<void> {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.clear();
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
+        const transaction = db.transaction([STORE_ITEMS, STORE_HISTORY], 'readwrite');
+        
+        const store1 = transaction.objectStore(STORE_ITEMS);
+        store1.clear();
+        
+        const store2 = transaction.objectStore(STORE_HISTORY);
+        store2.clear();
+
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
     });
   },
 
-  // JAY'S NOTE: ฟังก์ชันสำหรับใส่ข้อมูลทีละเยอะๆ (Bulk Import)
   async bulkAdd(items: ParaItem[]): Promise<void> {
       const db = await this.open();
       return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_NAME, 'readwrite');
-          const store = transaction.objectStore(STORE_NAME);
-          
-          let successCount = 0;
+          const transaction = db.transaction(STORE_ITEMS, 'readwrite');
+          const store = transaction.objectStore(STORE_ITEMS);
           
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
@@ -99,13 +109,38 @@ export const db = {
       });
   },
   
-  // Helper สำหรับใส่ Mock Data ถ้าเปิด App ครั้งแรก
   async seedIfEmpty(initialItems: ParaItem[]): Promise<ParaItem[]> {
       const current = await this.getAll();
       if (current.length === 0) {
-          await this.bulkAdd(initialItems); // Reuse bulkAdd
+          await this.bulkAdd(initialItems); 
           return initialItems;
       }
       return current;
+  },
+
+  // --- HISTORY OPERATIONS ---
+
+  async addLog(log: HistoryLog): Promise<void> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_HISTORY, 'readwrite');
+      const store = transaction.objectStore(STORE_HISTORY);
+      const request = store.add(log);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  async getLogs(): Promise<HistoryLog[]> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_HISTORY, 'readonly');
+      const store = transaction.objectStore(STORE_HISTORY);
+      // Use index to get sorted data if needed, but for now getAll is fine
+      // We will sort in JS for simplicity
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
   }
 };

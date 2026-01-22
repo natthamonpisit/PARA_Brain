@@ -43,3 +43,24 @@ export interface ExistingItemContext {
   category: string;
   type: ParaType;
 }
+
+// JAY'S NOTE: Chat Message Structure สำหรับหน้าจอขวา
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  // ถ้า AI ทำการบันทึกข้อมูล จะแนบ Item ที่สร้างมาโชว์ด้วย
+  createdItem?: ParaItem; 
+  timestamp: Date;
+}
+
+// JAY'S NOTE: Structure สำหรับเก็บ History Log
+export type HistoryAction = 'CREATE' | 'UPDATE' | 'DELETE';
+
+export interface HistoryLog {
+  id: string;
+  action: HistoryAction;
+  itemTitle: string;
+  itemType: ParaType;
+  timestamp: string;
+}

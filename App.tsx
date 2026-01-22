@@ -1,55 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { MagicInput } from './components/MagicInput';
+import { ChatPanel } from './components/ChatPanel';
 import { ParaBoard } from './components/ParaBoard';
-import { ParaType, ParaItem, AIAnalysisResult, ExistingItemContext } from './types';
+import { HistoryModal } from './components/HistoryModal'; // New Component
+import { ParaType, ParaItem, AIAnalysisResult, ExistingItemContext, ChatMessage, HistoryAction, HistoryLog } from './types';
 import { analyzeParaInput } from './services/geminiService';
-import { db } from './services/db'; // Import Database Service
-import { CheckCircle2, AlertCircle, Loader2, KeyRound } from 'lucide-react';
-
-/*
- * =============================================================================
- * PROJECT: PARA AI Brain (Personal Knowledge Management)
- * MAINTAINER: Jay (Full-stack Developer)
- * =============================================================================
- *
- * 📖 SYSTEM ARCHITECTURE & DESIGN NOTES
- * -----------------------------------------------------------------------------
- * 1. CLIENT-SIDE FIRST (Local Database)
- *    - We use `IndexedDB` (via native API) to store all notes locally in the browser.
- *    - REASON: Maximum privacy, instant loading speed, zero server cost, works offline.
- *    - TRADE-OFF: Data does NOT sync across devices automatically.
- *      (e.g., Data on Mobile Chrome is separate from Desktop Chrome).
- *
- * 2. DATA SYNC STRATEGY (Manual Bridge)
- *    - Solution for the trade-off above: "Backup & Restore" feature.
- *    - Users export a JSON file to transfer the "Brain" between devices.
- *    - This keeps the system simple (no authentication/backend required).
- *
- * 3. AI INTELLIGENCE (The "Context" Engine)
- *    - We don't just send the prompt. We inject "Context" (Existing Items).
- *    - Function: `handleAiAnalyze`
- *    - This allows Gemini to see your existing Projects/Areas and link new notes
- *      to them automatically (creating a Knowledge Graph).
- *
- * 🚀 DEPLOYMENT GUIDE (VERCEL / NETLIFY)
- * -----------------------------------------------------------------------------
- * 1. Push code to GitHub.
- * 2. Create a new project on Vercel.
- * 3. **CRITICAL STEP**: Setup Environment Variables
- *    - Key:   `API_KEY`
- *    - Value: `AIzaSy...` (Your Google Gemini API Key)
- * 4. Deploy.
- *
- * ⚠️ IMPORTANT FOR MAINTAINERS
- * - Do NOT hardcode the API Key in the code. Always use `process.env.API_KEY`.
- * - The `geminiService.ts` handles the API call and safety checks.
- * =============================================================================
- */
+import { db } from './services/db';
+import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-// Mock Data สำหรับ Seed ลง Database ครั้งแรก เพื่อให้ User เห็นภาพการใช้งาน
 const INITIAL_ITEMS: ParaItem[] = [
   {
     id: '1',
@@ -85,30 +45,40 @@ const INITIAL_ITEMS: ParaItem[] = [
 
 export default function App() {
   const [items, setItems] = useState<ParaItem[]>([]);
-  const [isLoadingDB, setIsLoadingDB] = useState(true); // State สำหรับรอโหลด DB
-  
+  const [historyLogs, setHistoryLogs] = useState<HistoryLog[]>([]); // New State
+  const [isLoadingDB, setIsLoadingDB] = useState(true);
   const [activeType, setActiveType] = useState<ParaType | 'All'>('All');
+  
+  // UI States
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'warning'} | null>(null);
 
   // ---------------------------------------------------------------------------
-  // 1. LIFECYCLE: Data Loading
+  // 1. LIFECYCLE
   // ---------------------------------------------------------------------------
   useEffect(() => {
     loadData();
+    setMessages([{
+      id: 'welcome',
+      role: 'assistant',
+      text: 'Welcome back! I am your PARA AI. Tell me what is on your mind, and I will organize it for you.',
+      timestamp: new Date()
+    }]);
   }, []);
 
-  /**
-   * loads data from IndexedDB.
-   * If DB is empty, it seeds initial mock data to prevent a "Blank State" experience.
-   */
   const loadData = async () => {
       try {
           setIsLoadingDB(true);
           const data = await db.seedIfEmpty(INITIAL_ITEMS);
-          // Sort descending by created date (Newest first)
           const sorted = data.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           setItems(sorted);
+          
+          // Load Logs
+          const logs = await db.getLogs();
+          setHistoryLogs(logs);
+
       } catch (e) {
           console.error("Failed to load DB:", e);
           setNotification({ message: 'Database Error', type: 'error' });
@@ -118,13 +88,28 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------------------
-  // 2. CORE FUNCTION: AI Analysis & Data Insertion
+  // 2. HELPER: History Logger
+  // ---------------------------------------------------------------------------
+  const logHistory = async (action: HistoryAction, item: ParaItem) => {
+      const newLog: HistoryLog = {
+          id: generateId(),
+          action,
+          itemTitle: item.title,
+          itemType: item.type,
+          timestamp: new Date().toISOString()
+      };
+      
+      // Save to DB
+      await db.addLog(newLog);
+      
+      // Update UI
+      setHistoryLogs(prev => [newLog, ...prev]);
+  };
+
+  // ---------------------------------------------------------------------------
+  // 3. LOGIC: AI & Manual Import
   // ---------------------------------------------------------------------------
   
-  /**
-   * Fallback method: Handles the Manual JSON import when AI is unavailable.
-   * Checks for valid JSON structure before inserting.
-   */
   const handleManualJsonImport = async (jsonInput: string) => {
     try {
         const parsed = JSON.parse(jsonInput);
@@ -144,32 +129,45 @@ export default function App() {
         };
 
         await db.add(newItem);
+        await logHistory('CREATE', newItem); // Log it
+
         setItems(prev => [newItem, ...prev]);
-        setNotification({ message: 'Imported successfully!', type: 'success' });
+        
+        setMessages(prev => [...prev, {
+            id: generateId(),
+            role: 'assistant',
+            text: 'I have manually imported the JSON data.',
+            createdItem: newItem,
+            timestamp: new Date()
+        }]);
+
     } catch (e) {
-        setNotification({ message: 'Invalid JSON. Please check format.', type: 'error' });
+        setMessages(prev => [...prev, {
+            id: generateId(),
+            role: 'assistant',
+            text: 'Error importing JSON. Please check the format.',
+            timestamp: new Date()
+        }]);
     }
   };
 
-  /**
-   * 🧠 THE BRAIN: Connects UI -> Gemini Service -> Database
-   * 1. Collects Context (Existing items ID/Title)
-   * 2. Sends to `analyzeParaInput` (geminiService.ts)
-   * 3. Receives structured JSON
-   * 4. Saves to Local DB
-   */
-  const handleAiAnalyze = async (input: string) => {
-    // Detect JSON input for manual override
+  const handleSendMessage = async (input: string) => {
+    const userMsg: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        text: input,
+        timestamp: new Date()
+    };
+    setMessages(prev => [...prev, userMsg]);
+
     if (input.trim().startsWith('{')) {
-        await handleManualJsonImport(input); 
+        await handleManualJsonImport(input);
         return;
     }
 
     setIsProcessing(true);
-    setNotification(null);
 
     try {
-      // Optimization: Create lightweight context map to save Tokens
       const context: ExistingItemContext[] = items.map(i => ({
         id: i.id,
         title: i.title,
@@ -193,61 +191,64 @@ export default function App() {
       };
 
       await db.add(newItem);
+      await logHistory('CREATE', newItem); // Log it
+
       setItems(prev => [newItem, ...prev]);
       
-      setNotification({
-        message: `Saved to ${result.type} / ${result.category}`,
-        type: 'success'
-      });
+      setMessages(prev => [...prev, {
+          id: generateId(),
+          role: 'assistant',
+          text: result.reasoning || `I've organized this into your ${result.type}.`,
+          createdItem: newItem,
+          timestamp: new Date()
+      }]);
       
     } catch (error) {
       console.error(error);
-      
-      // Graceful Fallback for Missing API Key
+      let errorMsg = "I'm having trouble connecting to my brain right now.";
       if (error instanceof Error && error.message === "MISSING_API_KEY") {
-          setNotification({
-            message: 'API Key missing! Try using Manual Import (Paste JSON).',
-            type: 'warning'
-          });
-      } else {
-          setNotification({
-            message: 'Failed to organize. Please try again.',
-            type: 'error'
-          });
+          errorMsg = "I can't access the API Key. Please verify your deployment settings.";
       }
+      
+      setMessages(prev => [...prev, {
+        id: generateId(),
+        role: 'assistant',
+        text: errorMsg,
+        timestamp: new Date()
+      }]);
     } finally {
       setIsProcessing(false);
-      setTimeout(() => setNotification(null), 5000);
     }
   };
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this item?')) {
       try {
+          const itemToDelete = items.find(i => i.id === id);
+          if (itemToDelete) {
+             await logHistory('DELETE', itemToDelete); // Log it
+          }
+
           await db.delete(id);
           setItems(prev => prev.filter(i => i.id !== id));
       } catch (e) {
-          console.error("Delete failed:", e);
           setNotification({ message: 'Failed to delete', type: 'error' });
       }
     }
   };
 
   // ---------------------------------------------------------------------------
-  // 3. DATA SYNC: Backup & Restore
+  // 3. DATA SYNC
   // ---------------------------------------------------------------------------
-
-  /**
-   * Export DB to JSON file.
-   * Useful for backing up data before clearing cache or moving to another device.
-   */
   const handleExportDB = async () => {
     try {
         const allItems = await db.getAll();
-        const dataStr = JSON.stringify(allItems, null, 2);
+        const allHistory = await db.getLogs(); // Also export history? Maybe separation is better, keeping simple for now.
+        const exportData = { items: allItems, history: allHistory };
+        
+        const dataStr = JSON.stringify(exportData, null, 2);
         const blob = new Blob([dataStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
-        
         const a = document.createElement('a');
         a.href = url;
         a.download = `para-brain-backup-${new Date().toISOString().slice(0,10)}.json`;
@@ -255,38 +256,43 @@ export default function App() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
         setNotification({ message: 'Backup downloaded!', type: 'success' });
     } catch (e) {
         setNotification({ message: 'Export failed', type: 'error' });
     }
   };
 
-  /**
-   * Import JSON file to DB.
-   * WARNING: This is a destructive action (Wipes existing data).
-   */
   const handleImportDB = async (file: File) => {
-      if (!window.confirm('This will REPLACE all current data with the backup. Continue?')) {
+      if (!window.confirm('This will REPLACE all current data. Continue?')) {
           return;
       }
-      
       const reader = new FileReader();
       reader.onload = async (e) => {
           try {
               const content = e.target?.result as string;
-              const parsedData = JSON.parse(content) as ParaItem[];
+              const parsed = JSON.parse(content);
               
-              if (!Array.isArray(parsedData)) throw new Error("Invalid backup file");
-
+              // Support old backup format (array) and new format (object)
+              const newItems = Array.isArray(parsed) ? parsed : parsed.items;
+              // If importing old backup, history might be undefined
+              
               setIsLoadingDB(true);
-              await db.clear(); // 1. Wipe clean
-              await db.bulkAdd(parsedData); // 2. Insert new
-              await loadData(); // 3. Refresh UI
+              await db.clear(); // Clears both tables
+              await db.bulkAdd(newItems);
               
-              setNotification({ message: 'Database restored successfully!', type: 'success' });
+              // If new format has history, restore it too, otherwise start fresh history
+              // Not implementing bulkAddLog for now, relying on fresh start for simplicity or advanced import later
+              
+              await loadData();
+              setNotification({ message: 'Database restored!', type: 'success' });
+              
+              setMessages(prev => [...prev, {
+                  id: generateId(),
+                  role: 'assistant',
+                  text: 'I have restored your database from backup.',
+                  timestamp: new Date()
+              }]);
           } catch (err) {
-              console.error(err);
               setNotification({ message: 'Invalid backup file', type: 'error' });
               setIsLoadingDB(false);
           }
@@ -300,12 +306,12 @@ export default function App() {
   }, {} as Record<string, number>);
 
   // ---------------------------------------------------------------------------
-  // RENDER UI
+  // RENDER
   // ---------------------------------------------------------------------------
 
   if (isLoadingDB) {
       return (
-          <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+          <div className="h-screen bg-slate-50 flex items-center justify-center">
               <div className="flex flex-col items-center gap-4">
                   <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
                   <p className="text-slate-500 font-medium">Loading your second brain...</p>
@@ -315,7 +321,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900">
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
       
       <Sidebar 
         activeType={activeType} 
@@ -323,51 +329,54 @@ export default function App() {
         stats={stats}
         onExport={handleExportDB}
         onImport={handleImportDB}
+        onShowHistory={() => setIsHistoryOpen(true)} // Pass trigger
       />
 
-      <main className="flex-1 md:ml-64 relative min-h-screen">
-        
-        <header className="sticky top-0 z-30 bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-8 py-6 flex justify-between items-center">
+      <div className="flex-1 flex flex-col min-w-0 md:ml-64 relative">
+        <header className="sticky top-0 z-10 bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex justify-between items-center shrink-0">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">
               {activeType === 'All' ? 'Dashboard' : activeType}
             </h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Your intelligent second brain
-            </p>
           </div>
           
           {notification && (
             <div className={`
-              absolute top-6 right-8 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium animate-in slide-in-from-top-2 z-50
-              ${notification.type === 'success' ? 'bg-white border-green-200 text-green-700' : 
-                notification.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-                'bg-white border-red-200 text-red-700'}
+              flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium animate-in slide-in-from-top-2
+              ${notification.type === 'success' ? 'bg-green-50 text-green-700' : 
+                'bg-red-50 text-red-700'}
             `}>
-              {notification.type === 'success' && <CheckCircle2 className="w-4 h-4" />}
-              {notification.type === 'error' && <AlertCircle className="w-4 h-4" />}
-              {notification.type === 'warning' && <KeyRound className="w-4 h-4" />}
+              {notification.type === 'success' ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
               {notification.message}
             </div>
           )}
         </header>
 
-        <div className="p-8 max-w-7xl mx-auto">
-          {/* Pass all items to board so cards can look up their relations */}
-          <ParaBoard 
-            items={items} 
-            activeType={activeType} 
-            onDelete={handleDelete}
-            allItemsMap={items.reduce((acc, i) => ({...acc, [i.id]: i}), {})}
-          />
+        <div className="flex-1 overflow-y-auto p-8">
+            <div className="max-w-5xl mx-auto">
+                <ParaBoard 
+                    items={items} 
+                    activeType={activeType} 
+                    onDelete={handleDelete}
+                    allItemsMap={items.reduce((acc, i) => ({...acc, [i.id]: i}), {})}
+                />
+            </div>
         </div>
-        
-        <MagicInput 
-          onAnalyze={handleAiAnalyze} 
-          isProcessing={isProcessing} 
-        />
-        
-      </main>
+      </div>
+
+      <ChatPanel 
+        messages={messages}
+        onSendMessage={handleSendMessage}
+        isProcessing={isProcessing}
+      />
+
+      {/* History Modal */}
+      <HistoryModal 
+        isOpen={isHistoryOpen} 
+        onClose={() => setIsHistoryOpen(false)} 
+        logs={historyLogs}
+      />
+
     </div>
   );
 }

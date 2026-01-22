@@ -165,7 +165,9 @@ export default function App() {
         text: input,
         timestamp: new Date()
     };
-    setMessages(prev => [...prev, userMsg]);
+    // JAY'S NOTE: Optimistically update UI
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
 
     if (input.trim().startsWith('{')) {
         await handleManualJsonImport(input);
@@ -184,13 +186,13 @@ export default function App() {
         isCompleted: i.isCompleted
       }));
       
-      const result: AIAnalysisResult = await analyzeParaInput(input, context);
+      // JAY'S NOTE: Now passing chat history (updatedMessages) for context awareness
+      const result: AIAnalysisResult = await analyzeParaInput(input, context, updatedMessages);
 
       // --- LOGIC SPLIT: CREATE vs COMPLETE ---
       
       if (result.operation === 'COMPLETE') {
           // AI identified intent to complete a task
-          // Find candidates from the result IDs
           const candidateIds = result.relatedItemIdsCandidates || [];
           const candidateItems = items.filter(i => candidateIds.includes(i.id));
 
@@ -203,7 +205,6 @@ export default function App() {
                   timestamp: new Date()
               }]);
           } else {
-             // Fallback if AI said complete but found no IDs
              setMessages(prev => [...prev, {
                   id: generateId(),
                   role: 'assistant',
@@ -213,7 +214,7 @@ export default function App() {
           }
 
       } else {
-          // Standard Creation Logic
+          // Standard Creation Logic (Now Smarter/Proactive)
           const newItem: ParaItem = {
             id: generateId(),
             title: result.title,
@@ -225,7 +226,7 @@ export default function App() {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             isAiGenerated: true,
-            isCompleted: false // Default for new items
+            isCompleted: false 
           };
 
           await db.add(newItem);
@@ -296,11 +297,6 @@ export default function App() {
   // JAY'S NOTE: New handler for completion via Chat
   const handleChatCompletion = async (item: ParaItem) => {
      await handleToggleComplete(item.id, !!item.isCompleted);
-     // Note: We don't remove the message, but the button state in ChatPanel will update via prop re-render or internal logic check
-     // Actually, we need to update the message state to reflect the completion if we want strict UI sync, 
-     // but the ChatPanel uses the prop `item` which might be stale in the message array. 
-     // For simplicity, we just trigger the DB update. The ChatPanel buttons will check `item.isCompleted` but 
-     // since `messages` state holds a snapshot, we might need to manually update the message array to reflect the change visually in the chat immediately.
      
      setMessages(prev => prev.map(msg => {
          if (msg.suggestedCompletionItems) {
@@ -402,10 +398,7 @@ export default function App() {
         onClose={() => setIsMobileMenuOpen(false)}
       />
 
-      {/* 2. Main Area 
-          JAY'S NOTE: Removed md:ml-64 because sidebar is now static in flex flow.
-          This fixes the double spacing issue.
-      */}
+      {/* 2. Main Area */}
       <div className="flex-1 flex flex-col min-w-0 relative h-full">
         
         {/* Mobile Header */}
@@ -448,7 +441,6 @@ export default function App() {
                 h-full w-full overflow-y-auto p-4 md:p-8 
                 ${mobileTab === 'board' ? 'block' : 'hidden md:block'}
             `}>
-                {/* JAY'S NOTE: Removed max-w entirely to ensure it aligns left and fills space naturally */}
                 <div className="w-full pb-24 md:pb-0">
                     <ParaBoard 
                         items={items} 
@@ -460,7 +452,7 @@ export default function App() {
                 </div>
             </div>
 
-            {/* View 2: Mobile Chat (Hidden on Desktop here, moved to side) */}
+            {/* View 2: Mobile Chat */}
             <div className={`
                 h-full w-full absolute inset-0 bg-white z-30
                 ${mobileTab === 'chat' ? 'block' : 'hidden'} md:hidden

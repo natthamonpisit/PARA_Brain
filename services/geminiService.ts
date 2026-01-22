@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { ParaType, AIAnalysisResult, ExistingItemContext } from "../types";
+import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage } from "../types";
 
 // JAY'S NOTE: ย้ายการ init AI เข้าไปข้างในฟังก์ชันครับ
 // เพื่อป้องกัน App Crash ถ้า Environment ยังไม่ได้ Set API_KEY
@@ -9,10 +9,12 @@ import { ParaType, AIAnalysisResult, ExistingItemContext } from "../types";
  * ฟังก์ชันหลักในการให้ AI ตัดสินใจว่าจะเอาข้อมูลไปวางตรงไหนใน PARA
  * input: ข้อความจาก user
  * existingItems: รายการของที่มีอยู่แล้ว (ส่งไปแค่ id, title, category เพื่อประหยัด token)
+ * chatHistory: ประวัติการคุยล่าสุด เพื่อให้ AI เข้าใจ Context ต่อเนื่อง
  */
 export const analyzeParaInput = async (
   input: string,
-  existingItems: ExistingItemContext[]
+  existingItems: ExistingItemContext[],
+  chatHistory: ChatMessage[] = [] // JAY'S NOTE: รับ History เข้ามาวิเคราะห์
 ): Promise<AIAnalysisResult> => {
   
   // 1. Safety Check for API Key
@@ -23,6 +25,12 @@ export const analyzeParaInput = async (
 
   const ai = new GoogleGenAI({ apiKey: apiKey });
   const modelName = "gemini-3-flash-preview"; 
+
+  // เตรียม Chat Context ย้อนหลัง 5 ข้อความล่าสุด (ไม่รวมข้อความปัจจุบัน)
+  const recentContext = chatHistory
+    .slice(-5)
+    .map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.text}`)
+    .join('\n');
 
   const responseSchema = {
     type: Type.OBJECT,
@@ -35,15 +43,15 @@ export const analyzeParaInput = async (
       type: {
         type: Type.STRING,
         enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE, ParaType.TASK],
-        description: "The PARA method classification. Use 'Tasks' for specific actionable to-dos."
+        description: "The PARA method classification."
       },
       category: {
         type: Type.STRING,
-        description: "The specific category name. Use existing categories if relevant."
+        description: "The specific category name. IMPORTANT: Use an EXISTING category if the topic fits. Create a NEW high-level Category (Area) only if the topic is completely new."
       },
       title: {
         type: Type.STRING,
-        description: "A clear, concise title for this note/task."
+        description: "A clear, concise title."
       },
       summary: {
         type: Type.STRING,
@@ -57,39 +65,49 @@ export const analyzeParaInput = async (
       relatedItemIdsCandidates: {
         type: Type.ARRAY,
         items: { type: Type.STRING },
-        description: "List of IDs from 'Existing Items' that are strongly related. IMPORTANT: If operation is 'COMPLETE', this MUST contain the ID of the task to complete."
+        description: "List of IDs from 'Existing Items' that are strongly related. If creating a Task/Project, link to the parent Area."
       },
       reasoning: {
         type: Type.STRING,
-        description: "Brief explanation why this fits here."
+        description: "Brief explanation. If creating a new Area/Category, explain why it was necessary based on the conversation context."
       }
     },
     required: ["operation", "type", "category", "title", "summary", "suggestedTags", "reasoning"]
   };
 
   const prompt = `
-    You are an expert personal knowledge manager using the PARA method (Projects, Areas, Resources, Archives) + Tasks.
-    
-    Existing Items Context:
+    You are an expert Personal Knowledge Architect using the PARA method.
+    Your goal is to organize the user's life PROACTIVELY.
+
+    --- CONTEXT ---
+    Existing Database Structure:
     ${JSON.stringify(existingItems)}
+
+    Recent Conversation History:
+    ${recentContext || "No previous context."}
     
-    User Input: "${input}"
+    Current User Input: 
+    "${input}"
+
+    --- INTELLIGENT RULES ---
+    1. **Context Awareness**: Analyze the "Recent Conversation History". If the user is discussing a broad topic (e.g., "World War III", "Renovating House", "Learning Python"), and the "Existing Database" lacks a corresponding AREA or PROJECT, you must CREATE it.
     
-    Task:
-    1. Analyze the user input.
-    2. Determine Intent (Operation):
-       - If the user says "I finished X", "Done with Y", "Complete Z", set operation to 'COMPLETE'.
-       - Otherwise, set operation to 'CREATE'.
-    3. Classify into PARA + Task:
-       - Projects: Goals with deadlines.
-       - Areas: Responsibilities.
-       - Resources: Information/Notes.
-       - Tasks: Small, actionable units (e.g., "Buy milk", "Email John"). 
-    4. Connect Relations:
-       - Look at "Existing Items Context".
-       - If creating a TASK, try to link it to an existing PROJECT or AREA ID in 'relatedItemIdsCandidates'.
-       - If operation is 'COMPLETE', find the specific Task ID from context that matches the user's description and put it in 'relatedItemIdsCandidates'.
-    5. Return JSON.
+    2. **Proactive Structuring**:
+       - If the user talks about a Goal (deadline driven) -> Create a PROJECT.
+       - If the user talks about a Standard/Responsibility (ongoing) -> Create an AREA.
+       - If the user talks about specific actions -> Create a TASK and LINK it to the relevant Project/Area (find ID in Existing Database).
+       - If the user talks about knowledge/notes -> Create a RESOURCE.
+
+    3. **Deduplication**: 
+       - Before creating a new Category/Area, check "Existing Database Structure". 
+       - If a similar category exists (e.g., User says "Stocks", DB has "Finance"), USE THE EXISTING ONE. Do not create duplicates.
+
+    4. **Intent Recognition**:
+       - If the user implies they finished something ("I did it", "Check off the bug fix"), set operation: 'COMPLETE'.
+       - Otherwise, set operation: 'CREATE'.
+
+    --- OUTPUT ---
+    Return a JSON object matching the schema.
   `;
 
   try {

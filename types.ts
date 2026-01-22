@@ -7,7 +7,8 @@ export enum ParaType {
   PROJECT = 'Projects', // Goal with a deadline
   AREA = 'Areas',       // Responsibility to maintain
   RESOURCE = 'Resources', // Topic of ongoing interest
-  ARCHIVE = 'Archives'   // Inactive items
+  ARCHIVE = 'Archives',   // Inactive items
+  TASK = 'Tasks'        // JAY'S NOTE: New actionable unit linked to projects
 }
 
 export interface ParaItem {
@@ -22,10 +23,13 @@ export interface ParaItem {
   createdAt: string;
   updatedAt: string;
   isAiGenerated?: boolean;
+  // JAY'S NOTE: New field for Tasks
+  isCompleted?: boolean;
 }
 
 // โครงสร้างที่ส่งให้ AI ช่วยวิเคราะห์
 export interface AIAnalysisResult {
+  operation: 'CREATE' | 'COMPLETE'; // AI ตัดสินใจว่าจะสร้างใหม่ หรือ แค่จะมาปิดงาน
   type: ParaType;
   category: string;
   title: string;
@@ -42,6 +46,7 @@ export interface ExistingItemContext {
   title: string;
   category: string;
   type: ParaType;
+  isCompleted?: boolean;
 }
 
 // JAY'S NOTE: Chat Message Structure สำหรับหน้าจอขวา
@@ -51,11 +56,13 @@ export interface ChatMessage {
   text: string;
   // ถ้า AI ทำการบันทึกข้อมูล จะแนบ Item ที่สร้างมาโชว์ด้วย
   createdItem?: ParaItem; 
+  // JAY'S NOTE: ถ้า AI เสนอให้ปิดงาน จะส่งรายการ Task ที่น่าสงสัยมาให้ User กดเลือก
+  suggestedCompletionItems?: ParaItem[];
   timestamp: Date;
 }
 
 // JAY'S NOTE: Structure สำหรับเก็บ History Log
-export type HistoryAction = 'CREATE' | 'UPDATE' | 'DELETE';
+export type HistoryAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'COMPLETE';
 
 export interface HistoryLog {
   id: string;

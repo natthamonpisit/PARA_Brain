@@ -1,15 +1,23 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, Bot, User, Loader2, ArrowRight, Database, FileJson } from 'lucide-react';
-import { ChatMessage, ParaType } from '../types';
+import { Send, Bot, User, Loader2, ArrowRight, Database, FileJson, CheckCircle2 } from 'lucide-react';
+import { ChatMessage, ParaType, ParaItem } from '../types';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
+  // JAY'S NOTE: New prop to handle completion click from chat
+  onCompleteTask?: (item: ParaItem) => void; 
   isProcessing: boolean;
-  className?: string; // JAY'S NOTE: Allow external styling for responsive control
+  className?: string; 
 }
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onSendMessage, isProcessing, className = '' }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ 
+    messages, 
+    onSendMessage, 
+    onCompleteTask,
+    isProcessing, 
+    className = '' 
+}) => {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -73,7 +81,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onSendMessage, i
               {msg.text}
             </div>
 
-            {/* JAY'S NOTE: "Action Report" Card */}
+            {/* JAY'S NOTE: "Action Report" Card - Created Item */}
             {msg.createdItem && (
               <div className="mt-2 w-[90%] bg-indigo-50 border border-indigo-100 rounded-xl p-3 animate-in slide-in-from-left-2">
                 <div className="flex items-center gap-2 text-xs font-semibold text-indigo-700 mb-2">
@@ -88,6 +96,38 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onSendMessage, i
                   <div className="font-medium text-slate-800 text-sm truncate">{msg.createdItem.title}</div>
                 </div>
               </div>
+            )}
+
+            {/* JAY'S NOTE: "Completion Suggestion" Cards */}
+            {msg.suggestedCompletionItems && msg.suggestedCompletionItems.length > 0 && (
+                 <div className="mt-2 w-[90%] bg-emerald-50 border border-emerald-100 rounded-xl p-3 animate-in slide-in-from-left-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700 mb-2">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Did you mean to complete these?</span>
+                    </div>
+                    <div className="space-y-2">
+                        {msg.suggestedCompletionItems.map(item => (
+                            <div key={item.id} className="bg-white rounded-lg border border-emerald-100 p-2 shadow-sm flex items-center justify-between">
+                                <div className="flex-1 min-w-0 mr-2">
+                                     <div className="font-medium text-slate-800 text-xs truncate">{item.title}</div>
+                                     <div className="text-[10px] text-slate-400">{item.category}</div>
+                                </div>
+                                <button 
+                                    onClick={() => onCompleteTask && onCompleteTask(item)}
+                                    disabled={item.isCompleted}
+                                    className={`
+                                        px-2 py-1 rounded text-[10px] font-bold transition-colors
+                                        ${item.isCompleted 
+                                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                                            : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}
+                                    `}
+                                >
+                                    {item.isCompleted ? 'Done' : 'Complete'}
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                 </div>
             )}
             
             {/* Timestamp */}

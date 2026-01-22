@@ -27,10 +27,15 @@ export const analyzeParaInput = async (
   const responseSchema = {
     type: Type.OBJECT,
     properties: {
+      operation: {
+        type: Type.STRING,
+        enum: ['CREATE', 'COMPLETE'],
+        description: "Set to 'COMPLETE' ONLY if user explicitly says they finished/completed a specific task. Otherwise 'CREATE'."
+      },
       type: {
         type: Type.STRING,
-        enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE],
-        description: "The PARA method classification based on user input."
+        enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE, ParaType.TASK],
+        description: "The PARA method classification. Use 'Tasks' for specific actionable to-dos."
       },
       category: {
         type: Type.STRING,
@@ -38,7 +43,7 @@ export const analyzeParaInput = async (
       },
       title: {
         type: Type.STRING,
-        description: "A clear, concise title for this note."
+        description: "A clear, concise title for this note/task."
       },
       summary: {
         type: Type.STRING,
@@ -52,18 +57,18 @@ export const analyzeParaInput = async (
       relatedItemIdsCandidates: {
         type: Type.ARRAY,
         items: { type: Type.STRING },
-        description: "List of IDs from 'Existing Items' that are strongly related to this new input."
+        description: "List of IDs from 'Existing Items' that are strongly related. IMPORTANT: If operation is 'COMPLETE', this MUST contain the ID of the task to complete."
       },
       reasoning: {
         type: Type.STRING,
         description: "Brief explanation why this fits here."
       }
     },
-    required: ["type", "category", "title", "summary", "suggestedTags", "reasoning"]
+    required: ["operation", "type", "category", "title", "summary", "suggestedTags", "reasoning"]
   };
 
   const prompt = `
-    You are an expert personal knowledge manager using the PARA method (Projects, Areas, Resources, Archives).
+    You are an expert personal knowledge manager using the PARA method (Projects, Areas, Resources, Archives) + Tasks.
     
     Existing Items Context:
     ${JSON.stringify(existingItems)}
@@ -72,13 +77,19 @@ export const analyzeParaInput = async (
     
     Task:
     1. Analyze the user input.
-    2. Classify it into one of the PARA types.
-    3. Determine a Category. Prefer using one from the "Existing Items" list if it fits well.
-    4. **CRITICAL**: Look at "Existing Items Context". Does this new input relate to any existing items? 
-       - If yes, add their IDs to 'relatedItemIdsCandidates'.
-       - Example: If input is "Buy running shoes" and there is an existing Area "Health" or Project "Marathon", link them.
-    5. Generate a clean Title and Summary.
-    6. Return the result in JSON format.
+    2. Determine Intent (Operation):
+       - If the user says "I finished X", "Done with Y", "Complete Z", set operation to 'COMPLETE'.
+       - Otherwise, set operation to 'CREATE'.
+    3. Classify into PARA + Task:
+       - Projects: Goals with deadlines.
+       - Areas: Responsibilities.
+       - Resources: Information/Notes.
+       - Tasks: Small, actionable units (e.g., "Buy milk", "Email John"). 
+    4. Connect Relations:
+       - Look at "Existing Items Context".
+       - If creating a TASK, try to link it to an existing PROJECT or AREA ID in 'relatedItemIdsCandidates'.
+       - If operation is 'COMPLETE', find the specific Task ID from context that matches the user's description and put it in 'relatedItemIdsCandidates'.
+    5. Return JSON.
   `;
 
   try {
@@ -98,16 +109,15 @@ export const analyzeParaInput = async (
 
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
-    // Rethrow specific errors so App.tsx can handle them nicely
     if (error instanceof Error && error.message === "MISSING_API_KEY") {
         throw error;
     }
     
-    // Fallback for other AI errors
     return {
-      type: ParaType.RESOURCE,
+      operation: 'CREATE',
+      type: ParaType.TASK,
       category: "Inbox",
-      title: "Untitled Note",
+      title: "Untitled Task",
       summary: input,
       suggestedTags: ["error-fallback"],
       reasoning: "AI Service unavailable, saved to Inbox.",

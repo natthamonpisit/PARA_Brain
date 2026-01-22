@@ -40,6 +40,18 @@ const INITIAL_ITEMS: ParaItem[] = [
     tags: ['react', 'performance'],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+  },
+  {
+      id: '4',
+      title: 'Fix Navigation Bug',
+      content: 'Mobile menu is not closing on selection.',
+      type: ParaType.TASK,
+      category: 'Coding',
+      tags: ['bug', 'ui'],
+      relatedItemIds: ['1'], // Linked to "Launch Personal Website"
+      isCompleted: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
   }
 ];
 
@@ -121,7 +133,8 @@ export default function App() {
             relatedItemIds: parsed.relatedItemIdsCandidates || [],
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            isAiGenerated: true 
+            isAiGenerated: true,
+            isCompleted: false
         };
 
         await db.add(newItem);
@@ -162,39 +175,71 @@ export default function App() {
     setIsProcessing(true);
 
     try {
+      // JAY'S NOTE: Send context to AI including completion status
       const context: ExistingItemContext[] = items.map(i => ({
         id: i.id,
         title: i.title,
         category: i.category,
-        type: i.type
+        type: i.type,
+        isCompleted: i.isCompleted
       }));
       
       const result: AIAnalysisResult = await analyzeParaInput(input, context);
 
-      const newItem: ParaItem = {
-        id: generateId(),
-        title: result.title,
-        content: result.summary, 
-        type: result.type,
-        category: result.category,
-        tags: result.suggestedTags,
-        relatedItemIds: result.relatedItemIdsCandidates, 
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        isAiGenerated: true
-      };
+      // --- LOGIC SPLIT: CREATE vs COMPLETE ---
+      
+      if (result.operation === 'COMPLETE') {
+          // AI identified intent to complete a task
+          // Find candidates from the result IDs
+          const candidateIds = result.relatedItemIdsCandidates || [];
+          const candidateItems = items.filter(i => candidateIds.includes(i.id));
 
-      await db.add(newItem);
-      await logHistory('CREATE', newItem);
+          if (candidateItems.length > 0) {
+              setMessages(prev => [...prev, {
+                  id: generateId(),
+                  role: 'assistant',
+                  text: result.reasoning || "I found these tasks. Would you like to mark them as done?",
+                  suggestedCompletionItems: candidateItems,
+                  timestamp: new Date()
+              }]);
+          } else {
+             // Fallback if AI said complete but found no IDs
+             setMessages(prev => [...prev, {
+                  id: generateId(),
+                  role: 'assistant',
+                  text: "I understand you finished something, but I couldn't find a matching task in your database.",
+                  timestamp: new Date()
+              }]);
+          }
 
-      setItems(prev => [newItem, ...prev]);
-      setMessages(prev => [...prev, {
-          id: generateId(),
-          role: 'assistant',
-          text: result.reasoning || `I've organized this into your ${result.type}.`,
-          createdItem: newItem,
-          timestamp: new Date()
-      }]);
+      } else {
+          // Standard Creation Logic
+          const newItem: ParaItem = {
+            id: generateId(),
+            title: result.title,
+            content: result.summary, 
+            type: result.type,
+            category: result.category,
+            tags: result.suggestedTags,
+            relatedItemIds: result.relatedItemIdsCandidates, 
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isAiGenerated: true,
+            isCompleted: false // Default for new items
+          };
+
+          await db.add(newItem);
+          await logHistory('CREATE', newItem);
+
+          setItems(prev => [newItem, ...prev]);
+          setMessages(prev => [...prev, {
+              id: generateId(),
+              role: 'assistant',
+              text: result.reasoning || `I've organized this into your ${result.type}.`,
+              createdItem: newItem,
+              timestamp: new Date()
+          }]);
+      }
       
     } catch (error) {
       console.error(error);
@@ -224,6 +269,50 @@ export default function App() {
           setNotification({ message: 'Failed to delete', type: 'error' });
       }
     }
+  };
+
+  // JAY'S NOTE: New handler for toggling completion
+  const handleToggleComplete = async (id: string, currentStatus: boolean) => {
+      try {
+          const itemToUpdate = items.find(i => i.id === id);
+          if (!itemToUpdate) return;
+
+          const updatedItem = { ...itemToUpdate, isCompleted: !currentStatus, updatedAt: new Date().toISOString() };
+          
+          await db.add(updatedItem); // IndexedDB put (update)
+          await logHistory(updatedItem.isCompleted ? 'COMPLETE' : 'UPDATE', updatedItem);
+          
+          setItems(prev => prev.map(i => i.id === id ? updatedItem : i));
+          setNotification({ 
+              message: updatedItem.isCompleted ? 'Task completed!' : 'Task reopened', 
+              type: 'success' 
+          });
+
+      } catch (e) {
+          setNotification({ message: 'Failed to update task', type: 'error' });
+      }
+  };
+
+  // JAY'S NOTE: New handler for completion via Chat
+  const handleChatCompletion = async (item: ParaItem) => {
+     await handleToggleComplete(item.id, !!item.isCompleted);
+     // Note: We don't remove the message, but the button state in ChatPanel will update via prop re-render or internal logic check
+     // Actually, we need to update the message state to reflect the completion if we want strict UI sync, 
+     // but the ChatPanel uses the prop `item` which might be stale in the message array. 
+     // For simplicity, we just trigger the DB update. The ChatPanel buttons will check `item.isCompleted` but 
+     // since `messages` state holds a snapshot, we might need to manually update the message array to reflect the change visually in the chat immediately.
+     
+     setMessages(prev => prev.map(msg => {
+         if (msg.suggestedCompletionItems) {
+             return {
+                 ...msg,
+                 suggestedCompletionItems: msg.suggestedCompletionItems.map(i => 
+                     i.id === item.id ? { ...i, isCompleted: !i.isCompleted } : i
+                 )
+             };
+         }
+         return msg;
+     }));
   };
 
   // ---------------------------------------------------------------------------
@@ -365,6 +454,7 @@ export default function App() {
                         items={items} 
                         activeType={activeType} 
                         onDelete={handleDelete}
+                        onToggleComplete={handleToggleComplete}
                         allItemsMap={items.reduce((acc, i) => ({...acc, [i.id]: i}), {})}
                     />
                 </div>
@@ -378,6 +468,7 @@ export default function App() {
                <ChatPanel 
                     messages={messages}
                     onSendMessage={handleSendMessage}
+                    onCompleteTask={handleChatCompletion}
                     isProcessing={isProcessing}
                     className="w-full h-[calc(100%-4rem)]" // Subtract bottom nav height
                />
@@ -390,6 +481,7 @@ export default function App() {
         <ChatPanel 
             messages={messages}
             onSendMessage={handleSendMessage}
+            onCompleteTask={handleChatCompletion}
             isProcessing={isProcessing}
             className="w-96"
         />

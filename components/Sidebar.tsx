@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { ParaType } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare } from 'lucide-react';
 
 interface SidebarProps {
   activeType: ParaType | 'All';
@@ -28,6 +28,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = [
     { type: 'All', label: 'Dashboard', icon: Box, color: 'text-slate-500' },
+    // JAY'S NOTE: Added Tasks here
+    { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },
     { type: ParaType.PROJECT, label: 'Projects', icon: FolderKanban, color: 'text-red-500' },
     { type: ParaType.AREA, label: 'Areas', icon: LayoutGrid, color: 'text-orange-500' },
     { type: ParaType.RESOURCE, label: 'Resources', icon: Library, color: 'text-blue-500' },

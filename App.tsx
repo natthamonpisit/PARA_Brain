@@ -179,9 +179,9 @@ export default function App() {
                 </div>
             </div>
 
-            {/* View 2: Mobile Chat */}
+            {/* View 2: Mobile Chat - PB-14 Adjusted for smaller footer */}
             <div className={`
-                h-full w-full absolute inset-0 bg-white z-30
+                h-full w-full absolute inset-0 bg-white z-30 pb-14
                 ${mobileTab === 'chat' ? 'block' : 'hidden'} md:hidden
             `}>
                <ChatPanel 
@@ -189,7 +189,7 @@ export default function App() {
                     onSendMessage={handleSendMessage}
                     onCompleteTask={handleChatCompletion}
                     isProcessing={isProcessing}
-                    className="w-full h-[calc(100%-4rem)]" 
+                    className="w-full h-full" 
                />
             </div>
         </div>
@@ -206,24 +206,24 @@ export default function App() {
         />
       </div>
 
-      {/* 4. Bottom Navigation (Mobile Only) */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 flex justify-around items-center z-50 safe-area-bottom">
+      {/* 4. Bottom Navigation (Mobile Only) - FIXED: Shrunk height and sizes */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-white border-t border-slate-200 flex justify-around items-center z-50 safe-area-bottom">
         <button 
             onClick={() => setMobileTab('board')}
-            className={`flex flex-col items-center gap-1 p-2 ${mobileTab === 'board' ? 'text-indigo-600' : 'text-slate-400'}`}
+            className={`flex flex-col items-center gap-0.5 p-1 transition-colors ${mobileTab === 'board' ? 'text-indigo-600' : 'text-slate-400'}`}
         >
-            <LayoutDashboard className="w-6 h-6" />
-            <span className="text-[10px] font-medium">Board</span>
+            <LayoutDashboard className="w-5 h-5" />
+            <span className="text-[9px] font-semibold">Board</span>
         </button>
         <button 
             onClick={() => setMobileTab('chat')}
-            className={`flex flex-col items-center gap-1 p-2 ${mobileTab === 'chat' ? 'text-indigo-600' : 'text-slate-400'}`}
+            className={`flex flex-col items-center gap-0.5 p-1 transition-colors ${mobileTab === 'chat' ? 'text-indigo-600' : 'text-slate-400'}`}
         >
             <div className="relative">
-                <MessageSquare className="w-6 h-6" />
-                {isProcessing && <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span></span>}
+                <MessageSquare className="w-5 h-5" />
+                {isProcessing && <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span></span>}
             </div>
-            <span className="text-[10px] font-medium">Chat</span>
+            <span className="text-[9px] font-semibold">Chat</span>
         </button>
       </div>
 

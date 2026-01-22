@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatPanel } from './components/ChatPanel';
 import { ParaBoard } from './components/ParaBoard';
-import { HistoryModal } from './components/HistoryModal'; // New Component
+import { HistoryModal } from './components/HistoryModal'; 
 import { ParaType, ParaItem, AIAnalysisResult, ExistingItemContext, ChatMessage, HistoryAction, HistoryLog } from './types';
 import { analyzeParaInput } from './services/geminiService';
 import { db } from './services/db';
-import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare } from 'lucide-react';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -43,9 +43,11 @@ const INITIAL_ITEMS: ParaItem[] = [
   }
 ];
 
+type MobileTab = 'board' | 'chat';
+
 export default function App() {
   const [items, setItems] = useState<ParaItem[]>([]);
-  const [historyLogs, setHistoryLogs] = useState<HistoryLog[]>([]); // New State
+  const [historyLogs, setHistoryLogs] = useState<HistoryLog[]>([]);
   const [isLoadingDB, setIsLoadingDB] = useState(true);
   const [activeType, setActiveType] = useState<ParaType | 'All'>('All');
   
@@ -54,6 +56,10 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'warning'} | null>(null);
+
+  // Mobile Specific States
+  const [mobileTab, setMobileTab] = useState<MobileTab>('board');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // ---------------------------------------------------------------------------
   // 1. LIFECYCLE
@@ -74,11 +80,8 @@ export default function App() {
           const data = await db.seedIfEmpty(INITIAL_ITEMS);
           const sorted = data.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           setItems(sorted);
-          
-          // Load Logs
           const logs = await db.getLogs();
           setHistoryLogs(logs);
-
       } catch (e) {
           console.error("Failed to load DB:", e);
           setNotification({ message: 'Database Error', type: 'error' });
@@ -87,9 +90,6 @@ export default function App() {
       }
   };
 
-  // ---------------------------------------------------------------------------
-  // 2. HELPER: History Logger
-  // ---------------------------------------------------------------------------
   const logHistory = async (action: HistoryAction, item: ParaItem) => {
       const newLog: HistoryLog = {
           id: generateId(),
@@ -98,16 +98,12 @@ export default function App() {
           itemType: item.type,
           timestamp: new Date().toISOString()
       };
-      
-      // Save to DB
       await db.addLog(newLog);
-      
-      // Update UI
       setHistoryLogs(prev => [newLog, ...prev]);
   };
 
   // ---------------------------------------------------------------------------
-  // 3. LOGIC: AI & Manual Import
+  // 2. LOGIC: AI & Manual Import
   // ---------------------------------------------------------------------------
   
   const handleManualJsonImport = async (jsonInput: string) => {
@@ -129,10 +125,9 @@ export default function App() {
         };
 
         await db.add(newItem);
-        await logHistory('CREATE', newItem); // Log it
+        await logHistory('CREATE', newItem);
 
         setItems(prev => [newItem, ...prev]);
-        
         setMessages(prev => [...prev, {
             id: generateId(),
             role: 'assistant',
@@ -140,7 +135,6 @@ export default function App() {
             createdItem: newItem,
             timestamp: new Date()
         }]);
-
     } catch (e) {
         setMessages(prev => [...prev, {
             id: generateId(),
@@ -191,10 +185,9 @@ export default function App() {
       };
 
       await db.add(newItem);
-      await logHistory('CREATE', newItem); // Log it
+      await logHistory('CREATE', newItem);
 
       setItems(prev => [newItem, ...prev]);
-      
       setMessages(prev => [...prev, {
           id: generateId(),
           role: 'assistant',
@@ -209,7 +202,6 @@ export default function App() {
       if (error instanceof Error && error.message === "MISSING_API_KEY") {
           errorMsg = "I can't access the API Key. Please verify your deployment settings.";
       }
-      
       setMessages(prev => [...prev, {
         id: generateId(),
         role: 'assistant',
@@ -225,10 +217,7 @@ export default function App() {
     if (window.confirm('Are you sure you want to delete this item?')) {
       try {
           const itemToDelete = items.find(i => i.id === id);
-          if (itemToDelete) {
-             await logHistory('DELETE', itemToDelete); // Log it
-          }
-
+          if (itemToDelete) await logHistory('DELETE', itemToDelete);
           await db.delete(id);
           setItems(prev => prev.filter(i => i.id !== id));
       } catch (e) {
@@ -243,9 +232,8 @@ export default function App() {
   const handleExportDB = async () => {
     try {
         const allItems = await db.getAll();
-        const allHistory = await db.getLogs(); // Also export history? Maybe separation is better, keeping simple for now.
+        const allHistory = await db.getLogs();
         const exportData = { items: allItems, history: allHistory };
-        
         const dataStr = JSON.stringify(exportData, null, 2);
         const blob = new Blob([dataStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
@@ -271,18 +259,11 @@ export default function App() {
           try {
               const content = e.target?.result as string;
               const parsed = JSON.parse(content);
-              
-              // Support old backup format (array) and new format (object)
               const newItems = Array.isArray(parsed) ? parsed : parsed.items;
-              // If importing old backup, history might be undefined
               
               setIsLoadingDB(true);
-              await db.clear(); // Clears both tables
+              await db.clear();
               await db.bulkAdd(newItems);
-              
-              // If new format has history, restore it too, otherwise start fresh history
-              // Not implementing bulkAddLog for now, relying on fresh start for simplicity or advanced import later
-              
               await loadData();
               setNotification({ message: 'Database restored!', type: 'success' });
               
@@ -305,10 +286,6 @@ export default function App() {
     return acc;
   }, {} as Record<string, number>);
 
-  // ---------------------------------------------------------------------------
-  // RENDER
-  // ---------------------------------------------------------------------------
-
   if (isLoadingDB) {
       return (
           <div className="h-screen bg-slate-50 flex items-center justify-center">
@@ -320,20 +297,40 @@ export default function App() {
       );
   }
 
+  // JAY'S NOTE: Responsive Layout Architecture
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
       
+      {/* 1. Sidebar (Responsive Drawer) */}
       <Sidebar 
         activeType={activeType} 
         onSelectType={setActiveType}
         stats={stats}
         onExport={handleExportDB}
         onImport={handleImportDB}
-        onShowHistory={() => setIsHistoryOpen(true)} // Pass trigger
+        onShowHistory={() => setIsHistoryOpen(true)}
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 md:ml-64 relative">
-        <header className="sticky top-0 z-10 bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex justify-between items-center shrink-0">
+      {/* 2. Main Area */}
+      <div className="flex-1 flex flex-col min-w-0 md:ml-64 relative h-full">
+        
+        {/* Mobile Header */}
+        <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-3">
+             <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-600">
+                <Menu className="w-6 h-6" />
+             </button>
+             <span className="font-bold text-slate-900">{activeType === 'All' ? 'Dashboard' : activeType}</span>
+          </div>
+          {notification && (
+            <div className={`w-2 h-2 rounded-full ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`} />
+          )}
+        </div>
+
+        {/* Desktop Header */}
+        <header className="hidden md:flex sticky top-0 z-10 bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 justify-between items-center shrink-0">
           <div>
             <h2 className="text-xl font-bold tracking-tight text-slate-900">
               {activeType === 'All' ? 'Dashboard' : activeType}
@@ -343,8 +340,7 @@ export default function App() {
           {notification && (
             <div className={`
               flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium animate-in slide-in-from-top-2
-              ${notification.type === 'success' ? 'bg-green-50 text-green-700' : 
-                'bg-red-50 text-red-700'}
+              ${notification.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}
             `}>
               {notification.type === 'success' ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
               {notification.message}
@@ -352,25 +348,71 @@ export default function App() {
           )}
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8">
-            <div className="max-w-5xl mx-auto">
-                <ParaBoard 
-                    items={items} 
-                    activeType={activeType} 
-                    onDelete={handleDelete}
-                    allItemsMap={items.reduce((acc, i) => ({...acc, [i.id]: i}), {})}
-                />
+        {/* Content Container (Scrollable) */}
+        <div className="flex-1 overflow-hidden relative">
+            
+            {/* View 1: PARA Board */}
+            <div className={`
+                h-full w-full overflow-y-auto p-4 md:p-8 
+                ${mobileTab === 'board' ? 'block' : 'hidden md:block'}
+            `}>
+                {/* JAY'S NOTE: Removed mx-auto, changed to w-full max-w-[1600px] to keep it left but allow wide content */}
+                <div className="w-full max-w-[1600px] pb-24 md:pb-0">
+                    <ParaBoard 
+                        items={items} 
+                        activeType={activeType} 
+                        onDelete={handleDelete}
+                        allItemsMap={items.reduce((acc, i) => ({...acc, [i.id]: i}), {})}
+                    />
+                </div>
+            </div>
+
+            {/* View 2: Mobile Chat (Hidden on Desktop here, moved to side) */}
+            <div className={`
+                h-full w-full absolute inset-0 bg-white z-30
+                ${mobileTab === 'chat' ? 'block' : 'hidden'} md:hidden
+            `}>
+               <ChatPanel 
+                    messages={messages}
+                    onSendMessage={handleSendMessage}
+                    isProcessing={isProcessing}
+                    className="w-full h-[calc(100%-4rem)]" // Subtract bottom nav height
+               />
             </div>
         </div>
       </div>
 
-      <ChatPanel 
-        messages={messages}
-        onSendMessage={handleSendMessage}
-        isProcessing={isProcessing}
-      />
+      {/* 3. Right Sidebar (Desktop Chat) */}
+      <div className="hidden md:block">
+        <ChatPanel 
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            isProcessing={isProcessing}
+            className="w-96"
+        />
+      </div>
 
-      {/* History Modal */}
+      {/* 4. Bottom Navigation (Mobile Only) */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 flex justify-around items-center z-50 safe-area-bottom">
+        <button 
+            onClick={() => setMobileTab('board')}
+            className={`flex flex-col items-center gap-1 p-2 ${mobileTab === 'board' ? 'text-indigo-600' : 'text-slate-400'}`}
+        >
+            <LayoutDashboard className="w-6 h-6" />
+            <span className="text-[10px] font-medium">Board</span>
+        </button>
+        <button 
+            onClick={() => setMobileTab('chat')}
+            className={`flex flex-col items-center gap-1 p-2 ${mobileTab === 'chat' ? 'text-indigo-600' : 'text-slate-400'}`}
+        >
+            <div className="relative">
+                <MessageSquare className="w-6 h-6" />
+                {isProcessing && <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span></span>}
+            </div>
+            <span className="text-[10px] font-medium">Chat</span>
+        </button>
+      </div>
+
       <HistoryModal 
         isOpen={isHistoryOpen} 
         onClose={() => setIsHistoryOpen(false)} 

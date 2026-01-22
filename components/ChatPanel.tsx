@@ -6,11 +6,10 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
   isProcessing: boolean;
+  className?: string; // JAY'S NOTE: Allow external styling for responsive control
 }
 
-// JAY'S NOTE: นี่คือส่วน "AI Command Center" ที่พี่อุ๊กขอมาครับ
-// แยกออกมาอยู่ขวาสุด เพื่อให้เห็น Flow การทำงานและการตอบโต้กับ AI
-export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onSendMessage, isProcessing }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onSendMessage, isProcessing, className = '' }) => {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -31,10 +30,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onSendMessage, i
   const isJsonInput = input.trim().startsWith('{');
 
   return (
-    <div className="flex flex-col h-screen bg-white border-l border-slate-200 w-96 flex-shrink-0 shadow-xl z-20">
+    <div className={`flex flex-col h-full bg-white border-l border-slate-200 shadow-xl z-20 ${className}`}>
       
       {/* Header */}
-      <div className="p-4 border-b border-slate-100 bg-slate-50/50 backdrop-blur">
+      <div className="p-4 border-b border-slate-100 bg-slate-50/50 backdrop-blur flex-shrink-0">
         <div className="flex items-center gap-2 text-slate-800">
           <Bot className="w-5 h-5 text-indigo-600" />
           <h3 className="font-semibold text-sm">AI Copilot</h3>
@@ -74,7 +73,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onSendMessage, i
               {msg.text}
             </div>
 
-            {/* JAY'S NOTE: "Action Report" Card - ถ้ามีการสร้าง Item จะโชว์ตรงนี้ */}
+            {/* JAY'S NOTE: "Action Report" Card */}
             {msg.createdItem && (
               <div className="mt-2 w-[90%] bg-indigo-50 border border-indigo-100 rounded-xl p-3 animate-in slide-in-from-left-2">
                 <div className="flex items-center gap-2 text-xs font-semibold text-indigo-700 mb-2">
@@ -107,7 +106,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onSendMessage, i
       </div>
 
       {/* Input Area */}
-      <div className="p-4 bg-white border-t border-slate-100">
+      <div className="p-4 bg-white border-t border-slate-100 flex-shrink-0">
         <form onSubmit={handleSubmit} className="relative">
             {isJsonInput && (
                 <div className="absolute -top-8 left-0 text-[10px] bg-orange-100 text-orange-700 px-2 py-1 rounded flex items-center gap-1">

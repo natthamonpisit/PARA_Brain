@@ -313,8 +313,11 @@ export default function App() {
         onClose={() => setIsMobileMenuOpen(false)}
       />
 
-      {/* 2. Main Area */}
-      <div className="flex-1 flex flex-col min-w-0 md:ml-64 relative h-full">
+      {/* 2. Main Area 
+          JAY'S NOTE: Removed md:ml-64 because sidebar is now static in flex flow.
+          This fixes the double spacing issue.
+      */}
+      <div className="flex-1 flex flex-col min-w-0 relative h-full">
         
         {/* Mobile Header */}
         <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 shrink-0">
@@ -356,8 +359,8 @@ export default function App() {
                 h-full w-full overflow-y-auto p-4 md:p-8 
                 ${mobileTab === 'board' ? 'block' : 'hidden md:block'}
             `}>
-                {/* JAY'S NOTE: Removed mx-auto, changed to w-full max-w-[1600px] to keep it left but allow wide content */}
-                <div className="w-full max-w-[1600px] pb-24 md:pb-0">
+                {/* JAY'S NOTE: Removed max-w entirely to ensure it aligns left and fills space naturally */}
+                <div className="w-full pb-24 md:pb-0">
                     <ParaBoard 
                         items={items} 
                         activeType={activeType} 

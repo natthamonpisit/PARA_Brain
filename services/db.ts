@@ -1,3 +1,4 @@
+
 import { ParaItem, HistoryLog } from '../types';
 
 // JAY'S NOTE: Database Configuration
@@ -59,7 +60,8 @@ export const db = {
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_ITEMS, 'readwrite');
       const store = transaction.objectStore(STORE_ITEMS);
-      const request = store.add(item);
+      // JAY'S FIX: ใช้ put แทน add เพื่อให้ Update ข้อมูลทับตัวเดิมได้ (Upsert)
+      const request = store.put(item);
 
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
@@ -104,7 +106,8 @@ export const db = {
           transaction.onerror = () => reject(transaction.error);
 
           items.forEach(item => {
-              store.add(item);
+              // JAY'S FIX: ใช้ put ใน bulkAdd ด้วยเพื่อความชัวร์เวลา Import ไฟล์ทับ
+              store.put(item);
           });
       });
   },
@@ -125,7 +128,7 @@ export const db = {
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_HISTORY, 'readwrite');
       const store = transaction.objectStore(STORE_HISTORY);
-      const request = store.add(log);
+      const request = store.add(log); // Log ใช้ add ได้ เพราะ ID ไม่ซ้ำแน่นอน (สร้างใหม่ตลอด)
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });

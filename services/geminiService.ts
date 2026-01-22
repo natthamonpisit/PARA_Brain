@@ -1,9 +1,29 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage } from "../types";
 
-// JAY'S NOTE: ย้ายการ init AI เข้าไปข้างในฟังก์ชันครับ
-// เพื่อป้องกัน App Crash ถ้า Environment ยังไม่ได้ Set API_KEY
-// ทำให้พี่อุ๊กเปิด App ขึ้นมาดู UI ได้ก่อนแม้จะยังไม่มี Key
+// JAY'S NOTE: Helper to safely retrieve API Key from various environment configurations
+const getApiKey = (): string | undefined => {
+  // 1. Try standard process.env (if polyfilled by Webpack/CRA/Next.js)
+  if (typeof process !== 'undefined' && process.env) {
+    if (process.env.API_KEY) return process.env.API_KEY;
+    if (process.env.REACT_APP_API_KEY) return process.env.REACT_APP_API_KEY;
+  }
+  
+  // 2. Try Vite's import.meta.env (Modern standard)
+  try {
+    // @ts-ignore
+    if (import.meta && import.meta.env) {
+       // @ts-ignore
+       if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
+       // @ts-ignore
+       if (import.meta.env.API_KEY) return import.meta.env.API_KEY;
+    }
+  } catch (e) {
+    // Ignore error if import.meta is not available
+  }
+
+  return undefined;
+};
 
 /**
  * ฟังก์ชันหลักในการให้ AI ตัดสินใจว่าจะเอาข้อมูลไปวางตรงไหนใน PARA
@@ -17,9 +37,11 @@ export const analyzeParaInput = async (
   chatHistory: ChatMessage[] = [] // JAY'S NOTE: รับ History เข้ามาวิเคราะห์
 ): Promise<AIAnalysisResult> => {
   
-  // 1. Safety Check for API Key
-  const apiKey = process.env.API_KEY;
+  // 1. Safety Check for API Key with robust getter
+  const apiKey = getApiKey();
+  
   if (!apiKey) {
+    console.error("API Key not found in environment variables. Checked: API_KEY, VITE_API_KEY, REACT_APP_API_KEY");
     throw new Error("MISSING_API_KEY");
   }
 

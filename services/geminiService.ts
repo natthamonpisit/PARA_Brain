@@ -1,9 +1,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ParaType, AIAnalysisResult, ExistingItemContext } from "../types";
 
-// JAY'S NOTE: ใช้ process.env.API_KEY เท่านั้นตาม Best Practice 
-// ห้าม hardcode key เด็ดขาดครับพี่อุ๊ก
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// JAY'S NOTE: ย้ายการ init AI เข้าไปข้างในฟังก์ชันครับ
+// เพื่อป้องกัน App Crash ถ้า Environment ยังไม่ได้ Set API_KEY
+// ทำให้พี่อุ๊กเปิด App ขึ้นมาดู UI ได้ก่อนแม้จะยังไม่มี Key
 
 /**
  * ฟังก์ชันหลักในการให้ AI ตัดสินใจว่าจะเอาข้อมูลไปวางตรงไหนใน PARA
@@ -15,6 +15,13 @@ export const analyzeParaInput = async (
   existingItems: ExistingItemContext[]
 ): Promise<AIAnalysisResult> => {
   
+  // 1. Safety Check for API Key
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("MISSING_API_KEY");
+  }
+
+  const ai = new GoogleGenAI({ apiKey: apiKey });
   const modelName = "gemini-3-flash-preview"; 
 
   const responseSchema = {
@@ -55,8 +62,6 @@ export const analyzeParaInput = async (
     required: ["type", "category", "title", "summary", "suggestedTags", "reasoning"]
   };
 
-  // JAY'S NOTE: พี่อุ๊กครับ ตรงนี้คือ Magic ที่ทำให้ Database เรา Relate กันเองได้
-  // เราส่งรายการของที่มีอยู่ไปให้ AI ดูด้วย มันจะได้รู้ว่าควร Link กับอะไร
   const prompt = `
     You are an expert personal knowledge manager using the PARA method (Projects, Areas, Resources, Archives).
     
@@ -93,6 +98,12 @@ export const analyzeParaInput = async (
 
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
+    // Rethrow specific errors so App.tsx can handle them nicely
+    if (error instanceof Error && error.message === "MISSING_API_KEY") {
+        throw error;
+    }
+    
+    // Fallback for other AI errors
     return {
       type: ParaType.RESOURCE,
       category: "Inbox",

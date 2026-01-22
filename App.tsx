@@ -4,10 +4,12 @@ import { MagicInput } from './components/MagicInput';
 import { ParaBoard } from './components/ParaBoard';
 import { ParaType, ParaItem, AIAnalysisResult, ExistingItemContext } from './types';
 import { analyzeParaInput } from './services/geminiService';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { db } from './services/db'; // Import Database Service
+import { CheckCircle2, AlertCircle, Loader2, KeyRound } from 'lucide-react';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
+// Mock Data สำหรับ Seed ลง Database ครั้งแรก
 const INITIAL_ITEMS: ParaItem[] = [
   {
     id: '1',
@@ -42,25 +44,35 @@ const INITIAL_ITEMS: ParaItem[] = [
 ];
 
 export default function App() {
-  const [items, setItems] = useState<ParaItem[]>(() => {
-    const saved = localStorage.getItem('para-items');
-    return saved ? JSON.parse(saved) : INITIAL_ITEMS;
-  });
+  const [items, setItems] = useState<ParaItem[]>([]);
+  const [isLoadingDB, setIsLoadingDB] = useState(true); // State สำหรับรอโหลด DB
   
   const [activeType, setActiveType] = useState<ParaType | 'All'>('All');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'warning'} | null>(null);
 
+  // JAY'S NOTE: Load Data from IndexedDB on Mount
   useEffect(() => {
-    localStorage.setItem('para-items', JSON.stringify(items));
-  }, [items]);
+    loadData();
+  }, []);
 
-  // JAY'S NOTE: Manual JSON Import logic
-  // อันนี้ตอบโจทย์ข้อ 2 ของพี่อุ๊กครับ
-  const handleManualJsonImport = (jsonInput: string) => {
+  const loadData = async () => {
+      try {
+          setIsLoadingDB(true);
+          const data = await db.seedIfEmpty(INITIAL_ITEMS);
+          const sorted = data.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setItems(sorted);
+      } catch (e) {
+          console.error("Failed to load DB:", e);
+          setNotification({ message: 'Database Error', type: 'error' });
+      } finally {
+          setIsLoadingDB(false);
+      }
+  };
+
+  const handleManualJsonImport = async (jsonInput: string) => {
     try {
         const parsed = JSON.parse(jsonInput);
-        // Basic validation
         if (!parsed.type || !parsed.title) throw new Error("Invalid JSON format");
 
         const newItem: ParaItem = {
@@ -70,13 +82,17 @@ export default function App() {
             type: parsed.type,
             category: parsed.category || 'Inbox',
             tags: parsed.suggestedTags || [],
-            relatedItemIds: parsed.relatedItemIdsCandidates || [], // Support relations from manual import
+            relatedItemIds: parsed.relatedItemIdsCandidates || [],
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            isAiGenerated: true // Even if manually imported, it came from AI
+            isAiGenerated: true 
         };
 
+        // Save to DB
+        await db.add(newItem);
+        // Update UI
         setItems(prev => [newItem, ...prev]);
+        
         setNotification({ message: 'Imported successfully!', type: 'success' });
     } catch (e) {
         setNotification({ message: 'Invalid JSON. Please check format.', type: 'error' });
@@ -84,9 +100,8 @@ export default function App() {
   };
 
   const handleAiAnalyze = async (input: string) => {
-    // Check if user is trying to paste JSON manually (starts with {)
     if (input.trim().startsWith('{')) {
-        handleManualJsonImport(input);
+        await handleManualJsonImport(input); 
         return;
     }
 
@@ -94,8 +109,6 @@ export default function App() {
     setNotification(null);
 
     try {
-      // 1. Create context specifically for AI (lighter payload)
-      // ส่งแค่ข้อมูลจำเป็นให้ AI หาความสัมพันธ์ (Relation)
       const context: ExistingItemContext[] = items.map(i => ({
         id: i.id,
         title: i.title,
@@ -103,10 +116,8 @@ export default function App() {
         type: i.type
       }));
       
-      // 2. Call AI Service
       const result: AIAnalysisResult = await analyzeParaInput(input, context);
 
-      // 3. Create new Item
       const newItem: ParaItem = {
         id: generateId(),
         title: result.title,
@@ -114,13 +125,15 @@ export default function App() {
         type: result.type,
         category: result.category,
         tags: result.suggestedTags,
-        relatedItemIds: result.relatedItemIdsCandidates, // Here is the relationship magic
+        relatedItemIds: result.relatedItemIdsCandidates, 
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isAiGenerated: true
       };
 
-      // 4. Update State
+      // Save to DB
+      await db.add(newItem);
+      // Update UI
       setItems(prev => [newItem, ...prev]);
       
       setNotification({
@@ -130,26 +143,104 @@ export default function App() {
       
     } catch (error) {
       console.error(error);
-      setNotification({
-        message: 'Failed to organize. Please try again.',
-        type: 'error'
-      });
+      
+      // JAY'S NOTE: Handle Missing API Key Gracefully
+      if (error instanceof Error && error.message === "MISSING_API_KEY") {
+          setNotification({
+            message: 'API Key missing! Try using Manual Import (Paste JSON).',
+            type: 'warning'
+          });
+      } else {
+          setNotification({
+            message: 'Failed to organize. Please try again.',
+            type: 'error'
+          });
+      }
     } finally {
       setIsProcessing(false);
-      setTimeout(() => setNotification(null), 3000);
+      // Clear notification after delay (longer for warning)
+      setTimeout(() => setNotification(null), 5000);
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this item?')) {
-      setItems(prev => prev.filter(i => i.id !== id));
+      try {
+          await db.delete(id);
+          setItems(prev => prev.filter(i => i.id !== id));
+      } catch (e) {
+          console.error("Delete failed:", e);
+          setNotification({ message: 'Failed to delete', type: 'error' });
+      }
     }
+  };
+
+  // JAY'S NOTE: Backup Logic
+  const handleExportDB = async () => {
+    try {
+        const allItems = await db.getAll();
+        const dataStr = JSON.stringify(allItems, null, 2);
+        const blob = new Blob([dataStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `para-brain-backup-${new Date().toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        setNotification({ message: 'Backup downloaded!', type: 'success' });
+    } catch (e) {
+        setNotification({ message: 'Export failed', type: 'error' });
+    }
+  };
+
+  // JAY'S NOTE: Restore Logic
+  const handleImportDB = async (file: File) => {
+      if (!window.confirm('This will REPLACE all current data with the backup. Continue?')) {
+          return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+          try {
+              const content = e.target?.result as string;
+              const parsedData = JSON.parse(content) as ParaItem[];
+              
+              if (!Array.isArray(parsedData)) throw new Error("Invalid backup file");
+
+              setIsLoadingDB(true);
+              await db.clear(); // Wipe clean
+              await db.bulkAdd(parsedData); // Insert new
+              await loadData(); // Reload UI
+              
+              setNotification({ message: 'Database restored successfully!', type: 'success' });
+          } catch (err) {
+              console.error(err);
+              setNotification({ message: 'Invalid backup file', type: 'error' });
+              setIsLoadingDB(false);
+          }
+      };
+      reader.readAsText(file);
   };
 
   const stats = items.reduce((acc, item) => {
     acc[item.type] = (acc[item.type] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+
+  if (isLoadingDB) {
+      return (
+          <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
+                  <p className="text-slate-500 font-medium">Loading your second brain...</p>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900">
@@ -158,6 +249,8 @@ export default function App() {
         activeType={activeType} 
         onSelectType={setActiveType}
         stats={stats}
+        onExport={handleExportDB}
+        onImport={handleImportDB}
       />
 
       <main className="flex-1 md:ml-64 relative min-h-screen">
@@ -174,10 +267,14 @@ export default function App() {
           
           {notification && (
             <div className={`
-              absolute top-6 right-8 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium animate-in slide-in-from-top-2
-              ${notification.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'}
+              absolute top-6 right-8 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium animate-in slide-in-from-top-2 z-50
+              ${notification.type === 'success' ? 'bg-white border-green-200 text-green-700' : 
+                notification.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                'bg-white border-red-200 text-red-700'}
             `}>
-              {notification.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+              {notification.type === 'success' && <CheckCircle2 className="w-4 h-4" />}
+              {notification.type === 'error' && <AlertCircle className="w-4 h-4" />}
+              {notification.type === 'warning' && <KeyRound className="w-4 h-4" />}
               {notification.message}
             </div>
           )}

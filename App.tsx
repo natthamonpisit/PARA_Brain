@@ -7,9 +7,41 @@ import { analyzeParaInput } from './services/geminiService';
 import { db } from './services/db'; // Import Database Service
 import { CheckCircle2, AlertCircle, Loader2, KeyRound } from 'lucide-react';
 
+/*
+ * -----------------------------------------------------------------------------
+ * PROJECT: PARA AI Brain (MVP Version)
+ * ARCHITECT: Jay (The Full-stack Guy)
+ * -----------------------------------------------------------------------------
+ *
+ * SYSTEM OVERVIEW (DESIGN DOCUMENT):
+ * This is a "Local-First" Personal Knowledge Management (PKM) application based
+ * on the PARA Method (Projects, Areas, Resources, Archives).
+ *
+ * CORE ARCHITECTURE:
+ * 1. Client-Side Only (Zero-Backend): 
+ *    - We use IndexedDB (browser native DB) to store data.
+ *    - Pros: Extremely fast, Private, Free hosting on Vercel, Works offline.
+ *    - Cons: Data lives in the browser. Clearing cache wipes data. No native sync.
+ *
+ * 2. Data Synchronization Strategy:
+ *    - Since we don't have a server, we use a "Backup/Restore" pattern.
+ *    - Users export a JSON file to transfer data between devices (e.g., Work <-> Home).
+ *
+ * 3. AI Intelligence Strategy (The "Brain"):
+ *    - We don't just ask AI to summarize. We use "Context Injection".
+ *    - Every time we send a request, we send a lightweight list of existing items (id, title).
+ *    - This allows Gemini to create "Relations" (`relatedItemIds`) automatically, linking
+ *      new notes to existing Projects or Areas, mimicking how a human brain connects dots.
+ *
+ * 4. Fallback Mechanisms:
+ *    - If API_KEY is missing, the App switches to "Manual Mode" automatically.
+ *    - Users can paste the JSON structure directly to bypass the AI generation step.
+ * -----------------------------------------------------------------------------
+ */
+
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-// Mock Data สำหรับ Seed ลง Database ครั้งแรก
+// Mock Data สำหรับ Seed ลง Database ครั้งแรก เพื่อให้ User เห็นภาพการใช้งาน
 const INITIAL_ITEMS: ParaItem[] = [
   {
     id: '1',
@@ -51,15 +83,22 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'warning'} | null>(null);
 
-  // JAY'S NOTE: Load Data from IndexedDB on Mount
+  // ---------------------------------------------------------------------------
+  // LIFECYCLE: Initialization
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     loadData();
   }, []);
 
+  /**
+   * Loads data from IndexedDB.
+   * If DB is empty, it seeds initial mock data to prevent a "Blank State" experience.
+   */
   const loadData = async () => {
       try {
           setIsLoadingDB(true);
           const data = await db.seedIfEmpty(INITIAL_ITEMS);
+          // Sort descending by created date (Newest first)
           const sorted = data.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           setItems(sorted);
       } catch (e) {
@@ -70,6 +109,14 @@ export default function App() {
       }
   };
 
+  // ---------------------------------------------------------------------------
+  // CORE FUNCTION: AI Analysis & Data Insertion
+  // ---------------------------------------------------------------------------
+  
+  /**
+   * Handles the Manual JSON import when AI is unavailable or User prefers manual entry.
+   * Format: { type, title, content/summary, ... }
+   */
   const handleManualJsonImport = async (jsonInput: string) => {
     try {
         const parsed = JSON.parse(jsonInput);
@@ -88,18 +135,23 @@ export default function App() {
             isAiGenerated: true 
         };
 
-        // Save to DB
+        // Transactional: Add to DB -> Update State -> Notify
         await db.add(newItem);
-        // Update UI
         setItems(prev => [newItem, ...prev]);
-        
         setNotification({ message: 'Imported successfully!', type: 'success' });
     } catch (e) {
         setNotification({ message: 'Invalid JSON. Please check format.', type: 'error' });
     }
   };
 
+  /**
+   * The "Brain" of the application.
+   * 1. Prepares Context (Existing items) to help AI understand the user's current world.
+   * 2. Calls Gemini API to classify and organize the input.
+   * 3. Saves the structured result to IndexedDB.
+   */
   const handleAiAnalyze = async (input: string) => {
+    // Detect JSON input for manual override
     if (input.trim().startsWith('{')) {
         await handleManualJsonImport(input); 
         return;
@@ -109,6 +161,7 @@ export default function App() {
     setNotification(null);
 
     try {
+      // Create lightweight context map (ID, Title, Category) to save Tokens
       const context: ExistingItemContext[] = items.map(i => ({
         id: i.id,
         title: i.title,
@@ -131,9 +184,7 @@ export default function App() {
         isAiGenerated: true
       };
 
-      // Save to DB
       await db.add(newItem);
-      // Update UI
       setItems(prev => [newItem, ...prev]);
       
       setNotification({
@@ -144,7 +195,7 @@ export default function App() {
     } catch (error) {
       console.error(error);
       
-      // JAY'S NOTE: Handle Missing API Key Gracefully
+      // JAY'S NOTE: Graceful Fallback for Missing Key
       if (error instanceof Error && error.message === "MISSING_API_KEY") {
           setNotification({
             message: 'API Key missing! Try using Manual Import (Paste JSON).',
@@ -158,7 +209,6 @@ export default function App() {
       }
     } finally {
       setIsProcessing(false);
-      // Clear notification after delay (longer for warning)
       setTimeout(() => setNotification(null), 5000);
     }
   };
@@ -175,7 +225,14 @@ export default function App() {
     }
   };
 
-  // JAY'S NOTE: Backup Logic
+  // ---------------------------------------------------------------------------
+  // DATA MANAGEMENT: Backup & Restore (Zero-Server Solution)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Exports the entire IndexedDB content as a JSON file.
+   * Allows users to migrate data between devices manually.
+   */
   const handleExportDB = async () => {
     try {
         const allItems = await db.getAll();
@@ -197,7 +254,10 @@ export default function App() {
     }
   };
 
-  // JAY'S NOTE: Restore Logic
+  /**
+   * Imports a JSON file and REPLACES the current database.
+   * CRITICAL: This is a destructive operation (Wipe & Load).
+   */
   const handleImportDB = async (file: File) => {
       if (!window.confirm('This will REPLACE all current data with the backup. Continue?')) {
           return;
@@ -212,9 +272,9 @@ export default function App() {
               if (!Array.isArray(parsedData)) throw new Error("Invalid backup file");
 
               setIsLoadingDB(true);
-              await db.clear(); // Wipe clean
-              await db.bulkAdd(parsedData); // Insert new
-              await loadData(); // Reload UI
+              await db.clear(); // 1. Wipe clean
+              await db.bulkAdd(parsedData); // 2. Insert new
+              await loadData(); // 3. Refresh UI
               
               setNotification({ message: 'Database restored successfully!', type: 'success' });
           } catch (err) {
@@ -230,6 +290,10 @@ export default function App() {
     acc[item.type] = (acc[item.type] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+
+  // ---------------------------------------------------------------------------
+  // RENDER
+  // ---------------------------------------------------------------------------
 
   if (isLoadingDB) {
       return (

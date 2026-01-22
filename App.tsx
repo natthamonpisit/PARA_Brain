@@ -8,35 +8,43 @@ import { db } from './services/db'; // Import Database Service
 import { CheckCircle2, AlertCircle, Loader2, KeyRound } from 'lucide-react';
 
 /*
+ * =============================================================================
+ * PROJECT: PARA AI Brain (Personal Knowledge Management)
+ * MAINTAINER: Jay (Full-stack Developer)
+ * =============================================================================
+ *
+ * 📖 SYSTEM ARCHITECTURE & DESIGN NOTES
  * -----------------------------------------------------------------------------
- * PROJECT: PARA AI Brain (MVP Version)
- * ARCHITECT: Jay (The Full-stack Guy)
+ * 1. CLIENT-SIDE FIRST (Local Database)
+ *    - We use `IndexedDB` (via native API) to store all notes locally in the browser.
+ *    - REASON: Maximum privacy, instant loading speed, zero server cost, works offline.
+ *    - TRADE-OFF: Data does NOT sync across devices automatically.
+ *      (e.g., Data on Mobile Chrome is separate from Desktop Chrome).
+ *
+ * 2. DATA SYNC STRATEGY (Manual Bridge)
+ *    - Solution for the trade-off above: "Backup & Restore" feature.
+ *    - Users export a JSON file to transfer the "Brain" between devices.
+ *    - This keeps the system simple (no authentication/backend required).
+ *
+ * 3. AI INTELLIGENCE (The "Context" Engine)
+ *    - We don't just send the prompt. We inject "Context" (Existing Items).
+ *    - Function: `handleAiAnalyze`
+ *    - This allows Gemini to see your existing Projects/Areas and link new notes
+ *      to them automatically (creating a Knowledge Graph).
+ *
+ * 🚀 DEPLOYMENT GUIDE (VERCEL / NETLIFY)
  * -----------------------------------------------------------------------------
+ * 1. Push code to GitHub.
+ * 2. Create a new project on Vercel.
+ * 3. **CRITICAL STEP**: Setup Environment Variables
+ *    - Key:   `API_KEY`
+ *    - Value: `AIzaSy...` (Your Google Gemini API Key)
+ * 4. Deploy.
  *
- * SYSTEM OVERVIEW (DESIGN DOCUMENT):
- * This is a "Local-First" Personal Knowledge Management (PKM) application based
- * on the PARA Method (Projects, Areas, Resources, Archives).
- *
- * CORE ARCHITECTURE:
- * 1. Client-Side Only (Zero-Backend): 
- *    - We use IndexedDB (browser native DB) to store data.
- *    - Pros: Extremely fast, Private, Free hosting on Vercel, Works offline.
- *    - Cons: Data lives in the browser. Clearing cache wipes data. No native sync.
- *
- * 2. Data Synchronization Strategy:
- *    - Since we don't have a server, we use a "Backup/Restore" pattern.
- *    - Users export a JSON file to transfer data between devices (e.g., Work <-> Home).
- *
- * 3. AI Intelligence Strategy (The "Brain"):
- *    - We don't just ask AI to summarize. We use "Context Injection".
- *    - Every time we send a request, we send a lightweight list of existing items (id, title).
- *    - This allows Gemini to create "Relations" (`relatedItemIds`) automatically, linking
- *      new notes to existing Projects or Areas, mimicking how a human brain connects dots.
- *
- * 4. Fallback Mechanisms:
- *    - If API_KEY is missing, the App switches to "Manual Mode" automatically.
- *    - Users can paste the JSON structure directly to bypass the AI generation step.
- * -----------------------------------------------------------------------------
+ * ⚠️ IMPORTANT FOR MAINTAINERS
+ * - Do NOT hardcode the API Key in the code. Always use `process.env.API_KEY`.
+ * - The `geminiService.ts` handles the API call and safety checks.
+ * =============================================================================
  */
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -84,14 +92,14 @@ export default function App() {
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'warning'} | null>(null);
 
   // ---------------------------------------------------------------------------
-  // LIFECYCLE: Initialization
+  // 1. LIFECYCLE: Data Loading
   // ---------------------------------------------------------------------------
   useEffect(() => {
     loadData();
   }, []);
 
   /**
-   * Loads data from IndexedDB.
+   * loads data from IndexedDB.
    * If DB is empty, it seeds initial mock data to prevent a "Blank State" experience.
    */
   const loadData = async () => {
@@ -110,12 +118,12 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------------------
-  // CORE FUNCTION: AI Analysis & Data Insertion
+  // 2. CORE FUNCTION: AI Analysis & Data Insertion
   // ---------------------------------------------------------------------------
   
   /**
-   * Handles the Manual JSON import when AI is unavailable or User prefers manual entry.
-   * Format: { type, title, content/summary, ... }
+   * Fallback method: Handles the Manual JSON import when AI is unavailable.
+   * Checks for valid JSON structure before inserting.
    */
   const handleManualJsonImport = async (jsonInput: string) => {
     try {
@@ -135,7 +143,6 @@ export default function App() {
             isAiGenerated: true 
         };
 
-        // Transactional: Add to DB -> Update State -> Notify
         await db.add(newItem);
         setItems(prev => [newItem, ...prev]);
         setNotification({ message: 'Imported successfully!', type: 'success' });
@@ -145,10 +152,11 @@ export default function App() {
   };
 
   /**
-   * The "Brain" of the application.
-   * 1. Prepares Context (Existing items) to help AI understand the user's current world.
-   * 2. Calls Gemini API to classify and organize the input.
-   * 3. Saves the structured result to IndexedDB.
+   * 🧠 THE BRAIN: Connects UI -> Gemini Service -> Database
+   * 1. Collects Context (Existing items ID/Title)
+   * 2. Sends to `analyzeParaInput` (geminiService.ts)
+   * 3. Receives structured JSON
+   * 4. Saves to Local DB
    */
   const handleAiAnalyze = async (input: string) => {
     // Detect JSON input for manual override
@@ -161,7 +169,7 @@ export default function App() {
     setNotification(null);
 
     try {
-      // Create lightweight context map (ID, Title, Category) to save Tokens
+      // Optimization: Create lightweight context map to save Tokens
       const context: ExistingItemContext[] = items.map(i => ({
         id: i.id,
         title: i.title,
@@ -195,7 +203,7 @@ export default function App() {
     } catch (error) {
       console.error(error);
       
-      // JAY'S NOTE: Graceful Fallback for Missing Key
+      // Graceful Fallback for Missing API Key
       if (error instanceof Error && error.message === "MISSING_API_KEY") {
           setNotification({
             message: 'API Key missing! Try using Manual Import (Paste JSON).',
@@ -226,12 +234,12 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------------------
-  // DATA MANAGEMENT: Backup & Restore (Zero-Server Solution)
+  // 3. DATA SYNC: Backup & Restore
   // ---------------------------------------------------------------------------
 
   /**
-   * Exports the entire IndexedDB content as a JSON file.
-   * Allows users to migrate data between devices manually.
+   * Export DB to JSON file.
+   * Useful for backing up data before clearing cache or moving to another device.
    */
   const handleExportDB = async () => {
     try {
@@ -255,8 +263,8 @@ export default function App() {
   };
 
   /**
-   * Imports a JSON file and REPLACES the current database.
-   * CRITICAL: This is a destructive operation (Wipe & Load).
+   * Import JSON file to DB.
+   * WARNING: This is a destructive action (Wipes existing data).
    */
   const handleImportDB = async (file: File) => {
       if (!window.confirm('This will REPLACE all current data with the backup. Continue?')) {
@@ -292,7 +300,7 @@ export default function App() {
   }, {} as Record<string, number>);
 
   // ---------------------------------------------------------------------------
-  // RENDER
+  // RENDER UI
   // ---------------------------------------------------------------------------
 
   if (isLoadingDB) {

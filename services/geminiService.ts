@@ -2,14 +2,13 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage } from "../types";
 
 // JAY'S NOTE: Helper to safely retrieve API Key from various environment configurations
-const getApiKey = (): string | undefined => {
-  // 1. Try standard process.env (if polyfilled by Webpack/CRA/Next.js)
-  if (typeof process !== 'undefined' && process.env) {
-    if (process.env.API_KEY) return process.env.API_KEY;
-    if (process.env.REACT_APP_API_KEY) return process.env.REACT_APP_API_KEY;
+const getApiKey = (manualOverride?: string): string | undefined => {
+  // 1. Priority: Manual Override (from UI Settings)
+  if (manualOverride && manualOverride.trim().length > 0) {
+    return manualOverride;
   }
-  
-  // 2. Try Vite's import.meta.env (Modern standard)
+
+  // 2. Try Vite's import.meta.env (Standard for Vite apps)
   try {
     // @ts-ignore
     if (import.meta && import.meta.env) {
@@ -22,6 +21,12 @@ const getApiKey = (): string | undefined => {
     // Ignore error if import.meta is not available
   }
 
+  // 3. Try standard process.env (Fallback for CRA/Next.js)
+  if (typeof process !== 'undefined' && process.env) {
+    if (process.env.API_KEY) return process.env.API_KEY;
+    if (process.env.REACT_APP_API_KEY) return process.env.REACT_APP_API_KEY;
+  }
+
   return undefined;
 };
 
@@ -30,18 +35,20 @@ const getApiKey = (): string | undefined => {
  * input: ข้อความจาก user
  * existingItems: รายการของที่มีอยู่แล้ว (ส่งไปแค่ id, title, category เพื่อประหยัด token)
  * chatHistory: ประวัติการคุยล่าสุด เพื่อให้ AI เข้าใจ Context ต่อเนื่อง
+ * manualApiKey: (Optional) API Key ที่ user กรอกเองผ่าน UI
  */
 export const analyzeParaInput = async (
   input: string,
   existingItems: ExistingItemContext[],
-  chatHistory: ChatMessage[] = [] // JAY'S NOTE: รับ History เข้ามาวิเคราะห์
+  chatHistory: ChatMessage[] = [], 
+  manualApiKey?: string
 ): Promise<AIAnalysisResult> => {
   
   // 1. Safety Check for API Key with robust getter
-  const apiKey = getApiKey();
+  const apiKey = getApiKey(manualApiKey);
   
   if (!apiKey) {
-    console.error("API Key not found in environment variables. Checked: API_KEY, VITE_API_KEY, REACT_APP_API_KEY");
+    console.error("API Key missing. If using Vercel/Vite, ensure env var is named 'VITE_API_KEY'.");
     throw new Error("MISSING_API_KEY");
   }
 
@@ -160,7 +167,7 @@ export const analyzeParaInput = async (
       title: "Untitled Task",
       summary: input,
       suggestedTags: ["error-fallback"],
-      reasoning: "AI Service unavailable, saved to Inbox.",
+      reasoning: "AI Service unavailable. Please check your API Key settings.",
       relatedItemIdsCandidates: []
     };
   }

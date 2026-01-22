@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatPanel } from './components/ChatPanel';
 import { ParaBoard } from './components/ParaBoard';
@@ -24,8 +23,20 @@ export default function App() {
     addItem 
   } = useParaData();
 
-  // 2. AI & Chat Layer
-  // Pass persistence methods to AI controller so it can modify DB
+  // 2. API Key Management (Local State for Quick Fix)
+  const [apiKey, setApiKey] = useState('');
+
+  useEffect(() => {
+    const savedKey = localStorage.getItem('para_ai_key');
+    if (savedKey) setApiKey(savedKey);
+  }, []);
+
+  const handleSetApiKey = (key: string) => {
+    setApiKey(key);
+    localStorage.setItem('para_ai_key', key);
+  };
+
+  // 3. AI & Chat Layer
   const { 
     messages, 
     isProcessing, 
@@ -34,23 +45,22 @@ export default function App() {
   } = useAIChat({
     items,
     onAddItem: addItem,
-    onToggleComplete: toggleComplete
+    onToggleComplete: toggleComplete,
+    apiKey // Pass the manual key
   });
   
-  // 3. UI State Layer
+  // 4. UI State Layer
   const [activeType, setActiveType] = useState<ParaType | 'All'>('All');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('board');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Helper for UI Notifications
   const showNotification = (message: string, type: 'success' | 'error') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Wrapped Handlers to inject notifications
   const handleDeleteWrapper = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this item?')) {
       try {
@@ -98,7 +108,6 @@ export default function App() {
       );
   }
 
-  // JAY'S NOTE: The View Layer is now much cleaner, focusing only on Layout
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
       
@@ -112,6 +121,8 @@ export default function App() {
         onShowHistory={() => setIsHistoryOpen(true)}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
+        apiKey={apiKey}
+        onSetApiKey={handleSetApiKey}
       />
 
       {/* 2. Main Area */}

@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { ParaType } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key } from 'lucide-react';
 
 interface SidebarProps {
   activeType: ParaType | 'All';
@@ -9,9 +9,11 @@ interface SidebarProps {
   onExport?: () => void;
   onImport?: (file: File) => void;
   onShowHistory: () => void;
-  // JAY'S NOTE: Props for Mobile Drawer Control
   isOpen: boolean;
   onClose: () => void;
+  // JAY'S NOTE: New props for manual API Key management
+  apiKey: string;
+  onSetApiKey: (key: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -22,13 +24,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onImport, 
   onShowHistory,
   isOpen,
-  onClose
+  onClose,
+  apiKey,
+  onSetApiKey
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const menuItems = [
     { type: 'All', label: 'Dashboard', icon: Box, color: 'text-slate-500' },
-    // JAY'S NOTE: Added Tasks here
     { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },
     { type: ParaType.PROJECT, label: 'Projects', icon: FolderKanban, color: 'text-red-500' },
     { type: ParaType.AREA, label: 'Areas', icon: LayoutGrid, color: 'text-orange-500' },
@@ -46,17 +49,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleMenuClick = (type: ParaType | 'All') => {
       onSelectType(type);
-      onClose(); // Close drawer on mobile selection
+      onClose();
   };
 
-  // Base classes for the sidebar container
+  const handleSetKey = () => {
+    const newKey = window.prompt("Enter your Gemini API Key manually (it will be saved locally):", apiKey);
+    if (newKey !== null) {
+      onSetApiKey(newKey);
+    }
+  };
+
   const baseClasses = "w-64 h-full bg-white border-r border-slate-200 flex flex-col p-4 transition-transform duration-300 ease-in-out z-50";
-  // Mobile specific: fixed position, slide-in logic
   const mobileClasses = `fixed inset-y-0 left-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static`;
 
   return (
     <>
-      {/* Mobile Backdrop */}
       {isOpen && (
         <div 
             className="fixed inset-0 bg-slate-900/50 z-40 md:hidden backdrop-blur-sm"
@@ -72,7 +79,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <h1 className="font-bold text-lg tracking-tight text-slate-900">PARA Brain</h1>
           </div>
-          {/* Close button for mobile */}
           <button onClick={onClose} className="md:hidden p-1 text-slate-400 hover:text-slate-600">
              <X className="w-6 h-6" />
           </button>
@@ -115,6 +121,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="mt-auto pt-4 border-t border-slate-100 space-y-2">
           <p className="px-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">System</p>
           
+          <button 
+              onClick={handleSetKey}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+              <Key className={`w-4 h-4 ${apiKey ? 'text-green-500' : 'text-slate-400'}`} />
+              {apiKey ? 'API Key Configured' : 'Set API Key'}
+          </button>
+
           <button 
               onClick={() => { onShowHistory(); onClose(); }}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"

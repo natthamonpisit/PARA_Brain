@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { ChatMessage, ParaItem, ExistingItemContext } from '../types';
 import { analyzeParaInput } from '../services/geminiService';
@@ -8,9 +7,11 @@ interface UseAIChatProps {
   items: ParaItem[];
   onAddItem: (item: ParaItem) => Promise<ParaItem>;
   onToggleComplete: (id: string, currentStatus: boolean) => Promise<ParaItem>;
+  // JAY'S NOTE: Accept manual API Key
+  apiKey?: string;
 }
 
-export const useAIChat = ({ items, onAddItem, onToggleComplete }: UseAIChatProps) => {
+export const useAIChat = ({ items, onAddItem, onToggleComplete, apiKey }: UseAIChatProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     role: 'assistant',
@@ -21,10 +22,6 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete }: UseAIChatProps
 
   const addMessage = (msg: ChatMessage) => {
     setMessages(prev => [...prev, msg]);
-  };
-
-  const updateMessage = (id: string, updates: Partial<ChatMessage>) => {
-    setMessages(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
   };
 
   // Logic for manual JSON import
@@ -76,11 +73,9 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete }: UseAIChatProps
       timestamp: new Date()
     };
     
-    // Optimistic update for UI speed
     const currentMessages = [...messages, userMsg];
     setMessages(currentMessages);
 
-    // Check for JSON mode
     if (input.trim().startsWith('{')) {
       await handleManualJsonImport(input);
       return;
@@ -98,8 +93,8 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete }: UseAIChatProps
         isCompleted: i.isCompleted
       }));
 
-      // 3. Call AI Service
-      const result = await analyzeParaInput(input, context, currentMessages);
+      // 3. Call AI Service with manual key
+      const result = await analyzeParaInput(input, context, currentMessages, apiKey);
 
       // 4. Handle Result
       if (result.operation === 'COMPLETE') {
@@ -152,9 +147,11 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete }: UseAIChatProps
     } catch (error) {
       console.error(error);
       let errorMsg = "I'm having trouble connecting to my brain right now.";
+      
       if (error instanceof Error && error.message === "MISSING_API_KEY") {
-        errorMsg = "I can't access the API Key. Please verify your deployment settings.";
+        errorMsg = "⚠️ **Missing API Key**\n\nI can't access your brain because the API Key is missing.\n\n**Option 1 (Quick Fix):** Click 'Set API Key' in the sidebar and paste your key.\n\n**Option 2 (Deploy Fix):** Rename your environment variable in Vercel to `VITE_API_KEY` and redeploy.";
       }
+      
       addMessage({
         id: generateId(),
         role: 'assistant',
@@ -170,7 +167,6 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete }: UseAIChatProps
       try {
           await onToggleComplete(item.id, !!item.isCompleted);
           
-          // Update chat UI to reflect change without re-fetching everything
           setMessages(prev => prev.map(msg => {
             if (msg.suggestedCompletionItems) {
                 return {

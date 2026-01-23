@@ -1,7 +1,17 @@
 
 // ---------------------------------------------------------------------------
-// JAY'S NOTE: Core Data Structure
-// ออกแบบให้ flexible ครับ ทุกอย่างคือ "Item" ที่ถูก Tag ด้วย PARA Type
+// 🧠 JAY'S LIFE OS: DATA DNA
+// ---------------------------------------------------------------------------
+//
+// [PHILOSOPHY]
+// This file defines the shape of the user's life. 
+// We distinguish between:
+// 1. "Hard" Types (PARA, Finance) - Things that require specific business logic.
+// 2. "Soft" Types (Modules) - Flexible data containers for anything else.
+//
+// [AI INTERACTION]
+// The AIAnalysisResult interface is crucial. It acts as the API Contract 
+// between the fuzzy world of LLMs (Gemini) and the strict world of App Code.
 // ---------------------------------------------------------------------------
 
 export enum ParaType {
@@ -64,6 +74,8 @@ export interface Transaction {
 }
 
 // --- DYNAMIC MODULE TYPES (PLATFORM ENGINE) ---
+// This allows the user to build their own "mini-apps" inside the system.
+// The AI reads this schema to understand how to insert data.
 
 export interface ModuleField {
   key: string;
@@ -94,10 +106,12 @@ export interface ModuleItem {
 }
 
 // ---------------------------
+// AI INTERFACE LAYER
+// This is the structure we force Gemini to output.
+// ---------------------------
 
-// โครงสร้างที่ส่งให้ AI ช่วยวิเคราะห์
 export interface AIAnalysisResult {
-  // JAY'S NOTE: Expanded operations to cover Finance and Modules
+  // JAY'S NOTE: The 'Dispatcher' Field. This tells the UI Hook what function to call.
   operation: 'CREATE' | 'COMPLETE' | 'CHAT' | 'TRANSACTION' | 'MODULE_ITEM' | 'SUMMARY'; 
   
   // PARA Fields
@@ -122,7 +136,7 @@ export interface AIAnalysisResult {
   reasoning: string; 
 }
 
-// Context structures for AI
+// Context structures for AI (What we feed INTO the brain)
 export interface ExistingItemContext {
   id: string;
   title: string;
@@ -141,21 +155,21 @@ export interface ModuleContext {
   fields: ModuleField[];
 }
 
-// JAY'S NOTE: Chat Message Structure สำหรับหน้าจอขวา
+// Chat Message Structure for UI
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
-  // ถ้า AI ทำการบันทึกข้อมูล จะแนบ Item ที่สร้างมาโชว์ด้วย
+  // If AI took an action, we attach the object here to render a nice UI card
   createdItem?: ParaItem | Transaction | ModuleItem; 
-  itemType?: 'PARA' | 'TRANSACTION' | 'MODULE'; // To help UI render correctly
+  itemType?: 'PARA' | 'TRANSACTION' | 'MODULE'; 
   
-  // JAY'S NOTE: ถ้า AI เสนอให้ปิดงาน จะส่งรายการ Task ที่น่าสงสัยมาให้ User กดเลือก
+  // Suggestion UI for completing tasks
   suggestedCompletionItems?: ParaItem[];
   timestamp: Date;
 }
 
-// JAY'S NOTE: Structure สำหรับเก็บ History Log
+// Activity Logging (Audit Trail)
 export type HistoryAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'COMPLETE' | 'DAILY_SUMMARY';
 
 export interface HistoryLog {
@@ -166,7 +180,7 @@ export interface HistoryLog {
   timestamp: string;
 }
 
-// JAY'S NOTE: New Interface for Daily Summary (Memory)
+// Memory System (Long Term)
 export interface DailySummary {
   id: string;
   date: string; // YYYY-MM-DD
@@ -176,7 +190,7 @@ export interface DailySummary {
   created_at: string;
 }
 
-// JAY'S NOTE: New Interface for Line Debugger
+// Line Debugger Logs
 export interface SystemLog {
   id: string;
   event_source: 'LINE' | 'WEB';

@@ -28,6 +28,16 @@ const getApiKey = (manualOverride?: string): string | undefined => {
   return FALLBACK_API_KEY;
 };
 
+/**
+ * 🧠 THE BRAIN FUNCTION
+ * 
+ * This function creates the "Context Window" for Gemini. 
+ * Instead of just sending the user's text, we construct a massive prompt that includes:
+ * 1. Who Jay is (Persona)
+ * 2. What Jay knows (Long-term Memory/Summaries)
+ * 3. What Jay sees (Current Tasks, Bank Balance, Custom Modules)
+ * 4. How Jay should act (Schema definition for JSON output)
+ */
 export const analyzeParaInput = async (
   input: string,
   paraItems: ExistingItemContext[],
@@ -47,21 +57,26 @@ export const analyzeParaInput = async (
     const ai = new GoogleGenAI({ apiKey: apiKey });
     const modelName = "gemini-3-flash-preview"; 
 
+    // 1. Construct Chat History Context
     const recentContext = chatHistory
         .slice(-10) 
         .map(msg => `${msg.role === 'user' ? 'User' : 'Jay'}: ${msg.text}`)
         .join('\n');
 
-    // Generate Dynamic Manual for Modules
+    // 2. Construct Dynamic Module Manual
+    // This tells AI how to structure data for user-created apps (e.g. Reading Tracker)
     const modulesManual = moduleContext.map((m, i) => {
         const fields = m.fields.map(f => `- ${f.key} (${f.type}): ${f.label}`).join('\n');
         return `MODULE ${i+1}: "${m.name}" (ID: ${m.id})\nFields:\n${fields}`;
     }).join('\n\n');
 
+    // 3. Construct Memory Context (LTM)
     const summariesContext = recentSummaries
         .map(s => `[${s.date}] Summary: ${s.summary}`)
         .join('\n');
 
+    // 4. Define Strict Output Schema
+    // This ensures we get executable JSON, not just markdown text.
     const responseSchema = {
         type: Type.OBJECT,
         properties: {

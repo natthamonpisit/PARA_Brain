@@ -26,6 +26,13 @@ export interface ParaItem {
   isAiGenerated?: boolean;
   // JAY'S NOTE: New field for Tasks
   isCompleted?: boolean;
+  
+  // Sync with Supabase Schema (Optional Fields)
+  emoji?: string;      // For Areas
+  dueDate?: string;    // For Tasks
+  deadline?: string;   // For Projects
+  status?: string;     // For Projects
+  energyLevel?: string;// For Tasks
 }
 
 // โครงสร้างที่ส่งให้ AI ช่วยวิเคราะห์

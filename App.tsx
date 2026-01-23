@@ -3,8 +3,9 @@ import { Sidebar } from './components/Sidebar';
 import { ChatPanel } from './components/ChatPanel';
 import { ParaBoard } from './components/ParaBoard';
 import { HistoryModal } from './components/HistoryModal'; 
+import { ManualEntryModal } from './components/ManualEntryModal';
 import { ParaType } from './types';
-import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useAIChat } from './hooks/useAIChat';
 
@@ -52,6 +53,7 @@ export default function App() {
   // 4. UI State Layer
   const [activeType, setActiveType] = useState<ParaType | 'All'>('All');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('board');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -136,17 +138,27 @@ export default function App() {
              </button>
              <span className="font-bold text-slate-900">{activeType === 'All' ? 'Dashboard' : activeType}</span>
           </div>
-          {notification && (
-            <div className={`w-2 h-2 rounded-full ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`} />
-          )}
+          <button 
+            onClick={() => setIsManualModalOpen(true)}
+            className="p-2 bg-indigo-600 text-white rounded-full shadow-md hover:bg-indigo-700 active:scale-95 transition-all"
+          >
+             <Plus className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Desktop Header */}
         <header className="hidden md:flex sticky top-0 z-10 bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 justify-between items-center shrink-0">
-          <div>
+          <div className="flex items-center gap-4">
             <h2 className="text-xl font-bold tracking-tight text-slate-900">
               {activeType === 'All' ? 'Dashboard' : activeType}
             </h2>
+            <button 
+              onClick={() => setIsManualModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New Item
+            </button>
           </div>
           
           {notification && (
@@ -231,6 +243,16 @@ export default function App() {
         isOpen={isHistoryOpen} 
         onClose={() => setIsHistoryOpen(false)} 
         logs={historyLogs}
+      />
+
+      <ManualEntryModal
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
+        onSave={async (item) => {
+          await addItem(item);
+          showNotification('Item added successfully', 'success');
+        }}
+        defaultType={activeType}
       />
 
     </div>

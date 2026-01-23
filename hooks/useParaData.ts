@@ -5,7 +5,7 @@ import { generateId } from '../utils/helpers';
 
 const INITIAL_ITEMS: ParaItem[] = [
   {
-    id: '1',
+    id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01',
     title: 'Launch Personal Website',
     content: 'Need to finish the landing page and connect the contact form.',
     type: ParaType.PROJECT,
@@ -15,7 +15,7 @@ const INITIAL_ITEMS: ParaItem[] = [
     updatedAt: new Date().toISOString(),
   },
   {
-    id: '2',
+    id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02',
     title: 'Weekly Cardio Routine',
     content: 'Run 5km every Monday, Wednesday, and Friday.',
     type: ParaType.AREA,
@@ -25,7 +25,7 @@ const INITIAL_ITEMS: ParaItem[] = [
     updatedAt: new Date().toISOString(),
   },
   {
-    id: '3',
+    id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a03',
     title: 'React 18 Concurrent Mode Notes',
     content: 'Key concepts: `useTransition`, `useDeferredValue`. Helps with UI responsiveness.',
     type: ParaType.RESOURCE,
@@ -35,13 +35,13 @@ const INITIAL_ITEMS: ParaItem[] = [
     updatedAt: new Date().toISOString(),
   },
   {
-      id: '4',
+      id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a04',
       title: 'Fix Navigation Bug',
       content: 'Mobile menu is not closing on selection.',
       type: ParaType.TASK,
       category: 'Coding',
       tags: ['bug', 'ui'],
-      relatedItemIds: ['1'], 
+      relatedItemIds: ['a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01'], 
       isCompleted: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

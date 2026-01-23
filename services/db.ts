@@ -17,7 +17,7 @@ const toDb = (item: ParaItem) => {
     updated_at: item.updatedAt,
     is_ai_generated: item.isAiGenerated,
     is_completed: item.isCompleted,
-    attachments: item.attachments || [] // New Field
+    attachments: item.attachments || []
   };
 
   if (item.type === ParaType.AREA) {
@@ -62,7 +62,7 @@ const fromDb = (row: any): ParaItem => {
     deadline: row.deadline,
     status: row.status,
     energyLevel: row.energy_level,
-    attachments: row.attachments || [] // New Field
+    attachments: row.attachments || []
   };
 };
 

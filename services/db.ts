@@ -1,3 +1,4 @@
+
 import { ParaItem, HistoryLog, ParaType, FinanceAccount, Transaction, TransactionType, FinanceAccountType, AppModule, ModuleItem } from '../types';
 import { supabase } from './supabase';
 
@@ -86,7 +87,7 @@ export const db = {
         try {
           const { data, error } = await supabase.from(table).select('*');
           if (error) {
-            console.warn(`Warning: Could not fetch table '${table}'`, error.message);
+            // console.warn(`Warning: Could not fetch table '${table}'`, error.message);
             return;
           }
           if (data) {
@@ -134,7 +135,7 @@ export const db = {
   async getAccounts(): Promise<FinanceAccount[]> {
     const { data, error } = await supabase.from('accounts').select('*').order('name');
     if (error) {
-        console.warn("Could not fetch accounts:", error.message);
+        // console.warn("Could not fetch accounts:", error.message);
         return [];
     }
     return data.map((row: any) => ({
@@ -155,7 +156,7 @@ export const db = {
         .limit(limit);
         
     if (error) {
-        console.warn("Could not fetch transactions:", error.message);
+        // console.warn("Could not fetch transactions:", error.message);
         return [];
     }
     return data.map((row: any) => ({
@@ -203,7 +204,7 @@ export const db = {
   async getModules(): Promise<AppModule[]> {
       const { data, error } = await supabase.from('modules').select('*').order('created_at');
       if (error) {
-          console.warn("Could not fetch modules:", error.message);
+          // console.warn("Could not fetch modules:", error.message);
           return [];
       }
       return data.map((row: any) => ({
@@ -237,7 +238,7 @@ export const db = {
           .order('created_at', { ascending: false });
       
       if (error) {
-          console.warn("Could not fetch module items:", error.message);
+          // console.warn("Could not fetch module items:", error.message);
           return [];
       }
       return data.map((row: any) => ({
@@ -290,6 +291,16 @@ export const db = {
   
   async seedIfEmpty(initialItems: ParaItem[]): Promise<ParaItem[]> {
     const current = await this.getAll();
+    if (current.length === 0) {
+        console.log("[DB] Database appears empty. Seeding initial data...");
+        try {
+            await this.bulkAdd(initialItems);
+            // Return initial items so UI updates immediately
+            return initialItems; 
+        } catch (e) {
+            console.error("[DB] Seeding failed:", e);
+        }
+    }
     return current;
   },
 

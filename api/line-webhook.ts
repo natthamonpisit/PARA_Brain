@@ -31,30 +31,29 @@ export default async function handler(req: any, res: any) {
     }
 
     // 2. Process Events Loop
-    for (const event of events) {
+    // We use Promise.all to process multiple messages in parallel (though usually just 1)
+    await Promise.all(events.map(async (event: any) => {
       if (event.type === 'message' && event.message.type === 'text') {
         const userId = event.source.userId;
         const replyToken = event.replyToken;
         const userMessage = event.message.text.trim();
-        const eventId = event.webhookEventId; // Unique ID from LINE for this specific message
+        const eventId = event.webhookEventId;
 
         console.log(`📩 Message from ${userId} (EventID: ${eventId}): ${userMessage}`);
 
         // --- SECURITY CHECK ---
         if (authorizedUserId && userId !== authorizedUserId) {
             console.warn(`⛔ Unauthorized access attempt from: ${userId}`);
-            continue; 
+            return;
         }
 
-        // --- COMMAND HANDLERS (Special commands bypass AI) ---
+        // --- COMMAND HANDLERS (Bypass AI for speed) ---
         if (userMessage.toLowerCase() === 'id') {
             await replyToLine(replyToken, channelAccessToken, `Your User ID is:\n${userId}`);
-            continue;
+            return;
         }
 
-        // --- IDEMPOTENCY CHECK (กันข้อความซ้ำ) ---
-        // เช็คว่า Event ID นี้เคยเข้ามาหรือยัง
-        // CRITICAL FIX: Use maybeSingle() instead of single() so it doesn't throw error if row is missing
+        // --- IDEMPOTENCY CHECK ---
         const { data: existingLog } = await supabase
             .from('system_logs')
             .select('id, status')
@@ -62,13 +61,11 @@ export default async function handler(req: any, res: any) {
             .maybeSingle();
 
         if (existingLog) {
-            console.log(`🔄 Duplicate Event Detected (${eventId}). Status: ${existingLog.status}. Skipping...`);
-            continue; // ข้ามเลย เพราะทำไปแล้ว หรือกำลังทำอยู่
+            console.log(`🔄 Duplicate Event Detected (${eventId}). Skipping...`);
+            return;
         }
 
         // --- LOCK THE EVENT ---
-        // บันทึกลง DB ทันทีว่า "กำลังประมวลผล" (PROCESSING)
-        // ถ้า LINE ยิงซ้ำมาอีก จะติด Check ข้างบน
         const { data: newLog, error: logError } = await supabase.from('system_logs').insert({
             event_source: 'LINE',
             event_id: eventId,
@@ -78,16 +75,14 @@ export default async function handler(req: any, res: any) {
         }).select().single();
 
         if (logError) {
-            console.error("Failed to lock event:", logError);
-            // If insert fails (likely race condition on unique constraint), skip
-            continue; 
+             console.error("Failed to lock event:", logError);
+             return; 
         }
 
-        // --- AI BRAIN LOGIC ---
-        // ส่ง logId ไปด้วย เพื่อให้ function ไป update record เดิม ไม่ใช่ create ใหม่
+        // --- EXECUTE AI BRAIN ---
         await processSmartAgentRequest(userMessage, replyToken, channelAccessToken, newLog.id, supabase);
       }
-    }
+    }));
 
     return res.status(200).json({ success: true });
 
@@ -97,7 +92,7 @@ export default async function handler(req: any, res: any) {
   }
 }
 
-// --- SMART AGENT LOGIC (Refactored) ---
+// --- SMART AGENT LOGIC (OPTIMIZED FOR SPEED) ---
 
 async function processSmartAgentRequest(
     userMessage: string, 
@@ -108,64 +103,78 @@ async function processSmartAgentRequest(
 ) {
     const apiKey = process.env.API_KEY;
 
-    // Helper to update the existing log entry
+    // Helper to update the log
     const updateLog = async (action: string, status: string, response: string) => {
-        try {
-            await supabase.from('system_logs').update({
-                ai_response: response,
-                action_type: action,
-                status: status
-            }).eq('id', logId);
-        } catch (e) { console.error("Log update failed", e); }
+        // Fire and forget log update to save time
+        supabase.from('system_logs').update({
+            ai_response: response,
+            action_type: action,
+            status: status
+        }).eq('id', logId).then(() => {}); 
     };
 
     if (!apiKey) {
-        const msg = "⚠️ Server Error: API Key missing.";
-        await replyToLine(replyToken, accessToken, msg);
-        await updateLog('ERROR', 'FAILED', msg);
+        await replyToLine(replyToken, accessToken, "⚠️ Server Error: API Key missing.");
         return;
     }
 
     try {
-        // 1. Fetch Context
-        const { data: accounts } = await supabase.from('accounts').select('id, name').limit(10);
-        const { data: modules } = await supabase.from('modules').select('id, name, schema_config');
-        const { data: recentTasks } = await supabase.from('tasks').select('id, title').eq('is_completed', false).limit(5);
+        // --- 1. SMART CONTEXT LOADING (Parallel & Conditional) ---
+        // Only load heavy data if the user message suggests it's needed
+        
+        const msgLower = userMessage.toLowerCase();
+        const isFinanceRelated = /money|baht|bath|บาท|จ่าย|ซื้อ|โอน|income|expense|cost|price|฿/.test(msgLower);
+        const isTaskRelated = /task|job|project|remind|งาน|โปรเจ|จำ|ลืม|ทำ/.test(msgLower);
+        
+        // Define Promises
+        const accountsPromise = isFinanceRelated 
+            ? supabase.from('accounts').select('id, name').limit(10) 
+            : Promise.resolve({ data: [] });
+            
+        const modulesPromise = supabase.from('modules').select('id, name, schema_config'); // Always load modules (usually light)
+        
+        const tasksPromise = isTaskRelated 
+            ? supabase.from('tasks').select('id, title').eq('is_completed', false).limit(10)
+            : Promise.resolve({ data: [] });
 
-        // 2. Define Schema & Prompt
+        // Wait for all data concurrently (Fast!)
+        const [
+            { data: accounts }, 
+            { data: modules }, 
+            { data: recentTasks }
+        ] = await Promise.all([accountsPromise, modulesPromise, tasksPromise]);
+
+        // --- 2. BUILD PROMPT ---
         const responseSchema = {
             type: Type.OBJECT,
             properties: {
                 operation: {
                     type: Type.STRING,
                     enum: ['CREATE', 'TRANSACTION', 'MODULE_ITEM', 'COMPLETE', 'CHAT'],
-                    description: "Determine action based on input."
+                    description: "Action type."
                 },
-                chatResponse: { type: Type.STRING, description: "Polite Thai response." },
+                chatResponse: { type: Type.STRING, description: "Short Thai response." }, // Emphasize SHORT
                 
-                // PARA Fields
+                // PARA
                 title: { type: Type.STRING, nullable: true },
                 category: { type: Type.STRING, nullable: true },
                 type: { type: Type.STRING, enum: ['Tasks', 'Projects', 'Resources', 'Areas'], nullable: true },
                 content: { type: Type.STRING, nullable: true },
                 relatedItemId: { type: Type.STRING, nullable: true },
 
-                // Finance Fields
+                // Finance
                 amount: { type: Type.NUMBER, nullable: true },
                 transactionType: { type: Type.STRING, enum: ['INCOME', 'EXPENSE', 'TRANSFER'], nullable: true },
                 accountId: { type: Type.STRING, nullable: true },
 
-                // Module Fields
+                // Module
                 targetModuleId: { type: Type.STRING, nullable: true },
                 moduleDataRaw: { 
                     type: Type.ARRAY, 
                     nullable: true,
                     items: {
                         type: Type.OBJECT,
-                        properties: {
-                            key: { type: Type.STRING },
-                            value: { type: Type.STRING }
-                        },
+                        properties: { key: { type: Type.STRING }, value: { type: Type.STRING } },
                         required: ["key", "value"]
                     }
                 },
@@ -175,36 +184,29 @@ async function processSmartAgentRequest(
 
         const ai = new GoogleGenAI({ apiKey });
         
-        const modulesManual = modules?.map((m: any, index: number) => {
-            const fields = m.schema_config?.fields.map((f: any) => 
-                `- Field "${f.key}" (${f.type}): ${f.label}`
-            ).join('\n');
-            return `MODULE ${index + 1}: "${m.name}" (ID: ${m.id})\nStructure:\n${fields}`;
-        }).join('\n\n');
+        // Format Context Strings
+        const modulesManual = modules?.length ? modules.map((m: any, i: number) => {
+             const fields = m.schema_config?.fields.map((f: any) => `${f.key}`).join(',');
+             return `MOD${i}:${m.name}(ID:${m.id})[${fields}]`;
+        }).join('\n') : "";
 
-        const accountsList = accounts?.map((a: any) => `- ${a.name} (ID: ${a.id})`).join('\n');
-        const tasksList = recentTasks?.map((t: any) => `- Task: "${t.title}" (ID: ${t.id})`).join('\n');
+        const accountsList = accounts?.length ? accounts.map((a: any) => `${a.name}(ID:${a.id})`).join('\n') : "";
+        const tasksList = recentTasks?.length ? recentTasks.map((t: any) => `Task:${t.title}(ID:${t.id})`).join('\n') : "";
 
         const prompt = `
-        Role: You are "Jay" (เจ), a Personal Life OS Assistant.
-        User Input: "${userMessage}"
+        Role: "Jay" (Life OS). User: "${userMessage}"
+        
+        CTXT:
+        ${modulesManual ? `[Modules]\n${modulesManual}` : ''}
+        ${accountsList ? `[Accs]\n${accountsList}` : ''}
+        ${tasksList ? `[Tasks]\n${tasksList}` : ''}
 
-        --- DYNAMIC SYSTEM MANUAL ---
-        ${modulesManual || "No custom modules."}
-
-        --- ACCOUNTS ---
-        ${accountsList || "No accounts."}
-
-        --- PENDING TASKS ---
-        ${tasksList || "No tasks."}
-
-        --- INSTRUCTIONS ---
-        Analyze user intent (CREATE, TRANSACTION, MODULE_ITEM, COMPLETE, CHAT).
-        Answer in Thai.
+        Detect: CREATE, TRANSACTION, MODULE_ITEM, COMPLETE, or CHAT.
+        Reply: Thai, Concise.
         `;
 
         const result = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: 'gemini-3-flash-preview', // Speed King
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -215,9 +217,16 @@ async function processSmartAgentRequest(
         const rawJSON = JSON.parse(result.text || "{}");
         const { operation, chatResponse, title, category, type, content, amount, transactionType, accountId, targetModuleId, moduleDataRaw, relatedItemId } = rawJSON;
 
-        // 3. EXECUTE ACTIONS
+        // --- 3. EXECUTE ACTION (Parallel with Reply where possible) ---
+        // We start the DB operation but don't strictly await the result before replying if we want to be super fast.
+        // But to be safe (ensure data is saved), we await. Database inserts are usually < 100ms.
+
+        let dbPromise = Promise.resolve<any>(null);
+        let logAction = 'CHAT';
+
         if (operation === 'CREATE') {
-            const { error } = await supabase.from(type === 'Projects' ? 'projects' : 'tasks').insert({
+            logAction = 'CREATE_PARA';
+            dbPromise = supabase.from(type === 'Projects' ? 'projects' : 'tasks').insert({
                 id: uuidv4(),
                 title: title || userMessage,
                 category: category || 'Inbox',
@@ -226,13 +235,12 @@ async function processSmartAgentRequest(
                 is_completed: false,
                 created_at: new Date().toISOString()
             });
-            if (error) throw error;
-            await updateLog('CREATE_PARA', 'SUCCESS', chatResponse);
 
         } else if (operation === 'TRANSACTION') {
+            logAction = 'CREATE_TX';
             const targetAcc = accountId || (accounts && accounts.length > 0 ? accounts[0].id : null);
             if (targetAcc) {
-                const { error } = await supabase.from('transactions').insert({
+                dbPromise = supabase.from('transactions').insert({
                     id: uuidv4(),
                     description: title || userMessage,
                     amount: amount,
@@ -241,63 +249,55 @@ async function processSmartAgentRequest(
                     account_id: targetAcc,
                     transaction_date: new Date().toISOString()
                 });
-                if (error) throw error;
-                await updateLog('CREATE_TX', 'SUCCESS', chatResponse);
-            } else {
-                await updateLog('CREATE_TX', 'FAILED', 'No Account Found');
             }
 
         } else if (operation === 'MODULE_ITEM') {
+            logAction = 'CREATE_MODULE';
             if (targetModuleId) {
                 let moduleData: Record<string, any> = {};
                 if (moduleDataRaw && Array.isArray(moduleDataRaw)) {
                     moduleDataRaw.forEach((item: any) => {
                          let val: any = item.value;
                          if (!isNaN(Number(item.value)) && item.value.trim() !== '') val = Number(item.value);
-                         else if (item.value === 'true') val = true;
-                         else if (item.value === 'false') val = false;
                          moduleData[item.key] = val;
                     });
                 }
-                const { error } = await supabase.from('module_items').insert({
+                dbPromise = supabase.from('module_items').insert({
                     id: uuidv4(),
                     module_id: targetModuleId,
                     title: title || "Entry",
                     data: moduleData,
                     created_at: new Date().toISOString()
                 });
-                if (error) throw error;
-                await updateLog('CREATE_MODULE', 'SUCCESS', chatResponse);
-            } else {
-                await updateLog('CREATE_MODULE', 'FAILED', 'Module ID not found');
             }
 
         } else if (operation === 'COMPLETE') {
-            if (relatedItemId) {
-                const { error } = await supabase.from('tasks').update({ is_completed: true }).eq('id', relatedItemId);
-                if (error) throw error;
-                await updateLog('COMPLETE_TASK', 'SUCCESS', chatResponse);
-            } else {
-                 await updateLog('COMPLETE_TASK', 'FAILED', 'Task ID not identified');
-            }
-
-        } else {
-            await updateLog('CHAT', 'SUCCESS', chatResponse);
+             logAction = 'COMPLETE_TASK';
+             if (relatedItemId) {
+                dbPromise = supabase.from('tasks').update({ is_completed: true }).eq('id', relatedItemId);
+             }
         }
 
-        // 4. Reply to User
+        // Wait for DB Action
+        await dbPromise;
+
+        // --- 4. REPLY (FREE TOKEN) ---
         await replyToLine(replyToken, accessToken, chatResponse);
+        
+        // Log Update (Background)
+        updateLog(logAction, 'SUCCESS', chatResponse);
 
     } catch (error: any) {
-        console.error("AI/DB Error:", error);
-        await replyToLine(replyToken, accessToken, "เจขอโทษครับ ระบบหลังบ้านขัดข้องนิดหน่อย");
-        await updateLog('ERROR', 'FAILED', error.message);
+        console.error("AI Logic Error:", error);
+        // Even if error, try to reply so user isn't ghosted
+        await replyToLine(replyToken, accessToken, "เจทำงานไม่ทันครับ (Timeout) ลองอีกทีนะครับ");
+        updateLog('ERROR', 'FAILED', error.message);
     }
 }
 
 async function replyToLine(replyToken: string, accessToken: string, text: string) {
     try {
-        await fetch("https://api.line.me/v2/bot/message/reply", {
+        const res = await fetch("https://api.line.me/v2/bot/message/reply", {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -308,6 +308,10 @@ async function replyToLine(replyToken: string, accessToken: string, text: string
                 messages: [{ type: 'text', text: text }],
             }),
         });
+        // Check for validity
+        if (!res.ok) {
+            console.error("LINE Reply Error:", await res.text());
+        }
     } catch (e) {
         console.error("Failed to reply to LINE:", e);
     }

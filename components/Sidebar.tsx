@@ -1,7 +1,7 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, MessageCircle } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, MessageCircle, Send } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
@@ -227,14 +227,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {!isCollapsed && <span>{apiKey ? 'API Key Set' : 'Set Key'}</span>}
           </button>
           
-          {/* LINE CONNECT BUTTON */}
+          {/* TEST LINE ALERT BUTTON */}
           <button 
               onClick={() => { onOpenLine(); onClose(); }}
-              title={isCollapsed ? "Connect LINE" : ''}
+              title={isCollapsed ? "Test LINE" : ''}
               className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors`}
           >
-              <MessageCircle className="w-4 h-4 text-[#06C755]" />
-              {!isCollapsed && <span>Connect LINE</span>}
+              <Send className="w-4 h-4 text-[#06C755]" />
+              {!isCollapsed && <span>Test LINE Alert</span>}
           </button>
 
           <button 

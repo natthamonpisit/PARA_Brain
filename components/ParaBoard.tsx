@@ -2,7 +2,7 @@
 import React from 'react';
 import { ParaItem, ParaType, ViewMode } from '../types';
 import ReactMarkdown from 'react-markdown';
-import { Calendar, Tag, MoreHorizontal, Link2, CheckSquare, Square, Edit, Trash2 } from 'lucide-react';
+import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight } from 'lucide-react';
 
 interface ParaBoardProps {
   items: ParaItem[];
@@ -29,9 +29,149 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
     onSelectAll
 }) => {
   
-  const displayItems = activeType === 'All' 
-    ? items 
-    : items.filter(i => i.type === activeType);
+  // --- DASHBOARD VIEW (AREA HUB) ---
+  // Notion-style: Show Areas as main hubs with stats
+  if (activeType === 'All') {
+      const areas = items.filter(i => i.type === ParaType.AREA);
+      const unassignedItems = items.filter(i => i.type !== ParaType.AREA && !areas.some(a => a.title === i.category));
+
+      // Calculate Stats for each Area
+      const areaStats = areas.map(area => {
+          // Find items related to this Area (by matching category name or relation ID)
+          const relatedItems = items.filter(i => 
+              (i.category === area.title || i.relatedItemIds?.includes(area.id)) && i.id !== area.id
+          );
+
+          const projects = relatedItems.filter(i => i.type === ParaType.PROJECT);
+          const tasks = relatedItems.filter(i => i.type === ParaType.TASK);
+          const resources = relatedItems.filter(i => i.type === ParaType.RESOURCE);
+
+          const activeProjects = projects.filter(p => p.status !== 'Completed').length;
+          const pendingTasks = tasks.filter(t => !t.isCompleted).length;
+          const completedTasks = tasks.filter(t => t.isCompleted).length;
+          const totalTasks = tasks.length;
+          
+          const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+          return {
+              area,
+              stats: {
+                  projects: activeProjects,
+                  tasks: pendingTasks,
+                  resources: resources.length,
+                  progress
+              }
+          };
+      });
+
+      return (
+          <div className="pb-32 space-y-8 animate-in fade-in duration-500">
+              
+              {/* Header */}
+              <div className="flex flex-col gap-2 mb-6">
+                  <h1 className="text-3xl font-bold text-slate-800">Life Dashboard</h1>
+                  <p className="text-slate-500">Your areas of responsibility at a glance.</p>
+              </div>
+
+              {/* AREA CARDS GRID */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {areaStats.map(({ area, stats }) => (
+                      <div key={area.id} className="group bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-xl hover:border-indigo-100 transition-all duration-300 relative overflow-hidden">
+                          {/* Top Decorative Line */}
+                          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-orange-400 to-orange-500"></div>
+
+                          <div className="flex justify-between items-start mb-4">
+                              <div className="flex items-center gap-3">
+                                  <div className="p-2.5 bg-orange-50 text-orange-600 rounded-xl">
+                                     <Layers className="w-6 h-6" />
+                                  </div>
+                                  <div>
+                                     <h3 className="text-lg font-bold text-slate-900 leading-tight">{area.title}</h3>
+                                     <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Area</span>
+                                  </div>
+                              </div>
+                              <button onClick={() => onDelete(area.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1">
+                                  <Trash2 className="w-4 h-4" />
+                              </button>
+                          </div>
+
+                          {/* Stats Grid */}
+                          <div className="grid grid-cols-3 gap-2 mb-6">
+                              <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-100">
+                                  <div className="flex items-center justify-center gap-1 text-red-500 mb-1">
+                                      <Target className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="text-lg font-bold text-slate-800 leading-none">{stats.projects}</div>
+                                  <div className="text-[9px] text-slate-400 font-medium mt-1">Projects</div>
+                              </div>
+                              <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-100">
+                                  <div className="flex items-center justify-center gap-1 text-emerald-500 mb-1">
+                                      <CheckSquare className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="text-lg font-bold text-slate-800 leading-none">{stats.tasks}</div>
+                                  <div className="text-[9px] text-slate-400 font-medium mt-1">Tasks</div>
+                              </div>
+                              <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-100">
+                                  <div className="flex items-center justify-center gap-1 text-blue-500 mb-1">
+                                      <Book className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="text-lg font-bold text-slate-800 leading-none">{stats.resources}</div>
+                                  <div className="text-[9px] text-slate-400 font-medium mt-1">Resources</div>
+                              </div>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className="space-y-1.5">
+                              <div className="flex justify-between text-[10px] font-semibold text-slate-400">
+                                  <span>Task Completion</span>
+                                  <span>{stats.progress}%</span>
+                              </div>
+                              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-gradient-to-r from-orange-400 to-orange-500 rounded-full transition-all duration-500"
+                                    style={{ width: `${stats.progress}%` }}
+                                  ></div>
+                              </div>
+                          </div>
+                      </div>
+                  ))}
+
+                  {/* Add Area Placeholder */}
+                  {areaStats.length === 0 && (
+                      <div className="col-span-full py-16 text-center border-2 border-dashed border-slate-200 rounded-2xl">
+                          <Layers className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                          <h3 className="text-slate-500 font-medium">No Areas Defined</h3>
+                          <p className="text-sm text-slate-400 mt-1">Create an 'Area' (e.g., Health, Work) to see it here.</p>
+                      </div>
+                  )}
+              </div>
+
+              {/* Unassigned Items (Optional Section) */}
+              {unassignedItems.length > 0 && (
+                  <div className="mt-12 pt-8 border-t border-slate-100">
+                      <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                          Unassigned / Inbox
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-75 hover:opacity-100 transition-opacity">
+                          {unassignedItems.slice(0, 6).map(item => (
+                              <div key={item.id} className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center justify-between">
+                                  <div>
+                                      <p className="font-medium text-slate-700 text-sm truncate max-w-[150px]">{item.title}</p>
+                                      <p className="text-[10px] text-slate-400">{item.type} • {item.category}</p>
+                                  </div>
+                                  <ArrowRight className="w-4 h-4 text-slate-300" />
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              )}
+          </div>
+      );
+  }
+
+  // --- STANDARD FILTERED LIST VIEWS (Existing Logic) ---
+  const displayItems = items.filter(i => i.type === activeType);
 
   // Sorting
   const sortedItems = [...displayItems].sort((a, b) => {
@@ -57,7 +197,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
         <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
           <Tag className="w-8 h-8 opacity-50" />
         </div>
-        <p className="text-lg font-medium">No items yet</p>
+        <p className="text-lg font-medium">No {activeType} items yet</p>
         <p className="text-sm">Create your first item to get started.</p>
       </div>
     );

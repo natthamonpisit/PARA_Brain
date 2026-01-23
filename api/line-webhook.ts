@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 // Initialize Services
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+// Note: In Vercel Serverless, use process.env.API_KEY
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
 
 export default async function handler(req: any, res: any) {
@@ -45,9 +46,21 @@ export default async function handler(req: any, res: any) {
             continue;
         }
 
-        // Command: "test" -> System Check
+        // Command: "test" -> System Check (Diagnostic Mode)
         if (userMessage.toLowerCase() === 'test') {
-            await replyToLine(replyToken, channelAccessToken, "🟢 Ouk OS Webhook is active!");
+            const hasApiKey = !!process.env.API_KEY;
+            const hasSupabase = !!(supabaseUrl && supabaseKey);
+            
+            let statusMsg = "🟢 Ouk OS System Check:\n";
+            statusMsg += `• Webhook: Active ✅\n`;
+            statusMsg += `• API Key (Server): ${hasApiKey ? "✅ Ready" : "❌ Missing (Add 'API_KEY' in Vercel)"}\n`;
+            statusMsg += `• Database: ${hasSupabase ? "✅ Connected" : "❌ Config Error"}\n`;
+            
+            if (!hasApiKey) {
+                statusMsg += "\n⚠️ Please add 'API_KEY' to Vercel Environment Variables.";
+            }
+
+            await replyToLine(replyToken, channelAccessToken, statusMsg);
             continue;
         }
 
@@ -149,9 +162,13 @@ ${financeContext}
             contents: prompt
         });
         replyText = result.text || "เจคิดไม่ออกครับ (AI Error)";
-    } catch (error) {
+    } catch (error: any) {
         console.error("Gemini Error:", error);
-        replyText = "ขอโทษครับ เจมีปัญหาในการติดต่อ AI";
+        if (error.message && (error.message.includes("API key") || error.message.includes("403"))) {
+            replyText = "⚠️ API Key มีปัญหาบน Server (ตรวจสอบใน Vercel Env Vars นะครับ)";
+        } else {
+            replyText = "ขอโทษครับ เจมีปัญหาในการติดต่อ AI";
+        }
     }
 
     // 5. Send Reply

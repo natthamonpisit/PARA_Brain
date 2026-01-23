@@ -2,7 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage, FinanceContext, ModuleContext, TransactionType } from "../types";
 
-// JAY'S NOTE: Hardcoded fallback key provided by user
+// JAY'S NOTE: Hardcoded fallback key provided by user (WARNING: Restricted keys may fail on production domains)
 const FALLBACK_API_KEY = "AIzaSyA9r8ElHzC3OWERIe1dD1EiB-upunJzrfE";
 
 // JAY'S NOTE: Helper to safely retrieve API Key
@@ -10,7 +10,7 @@ const getApiKey = (manualOverride?: string): string | undefined => {
   if (manualOverride && manualOverride.trim().length > 0) return manualOverride;
   
   try {
-    // Check import.meta.env
+    // Check import.meta.env (Vite Standard)
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
        // @ts-ignore
@@ -19,7 +19,7 @@ const getApiKey = (manualOverride?: string): string | undefined => {
   } catch (e) {}
 
   try {
-    // Check process.env
+    // Check process.env (Node/Compat)
     // @ts-ignore
     if (typeof process !== 'undefined' && process.env && process.env.API_KEY) return process.env.API_KEY;
   } catch (e) {}
@@ -194,18 +194,30 @@ export const analyzeParaInput = async (
 
   } catch (error: any) {
     console.error("Gemini Analysis Error:", error);
+    const errorMsg = error.message || "";
     
-    if (error.message === "MISSING_API_KEY") {
+    // 1. Missing Key Case
+    if (errorMsg === "MISSING_API_KEY") {
         return {
             operation: 'CHAT',
-            chatResponse: "⛔ **ยังไม่ได้ใส่ API Key ครับพี่อุ๊ก**\n\nเจไม่สามารถคิดคำตอบได้ รบกวนพี่กดปุ่ม **System > Set Key** (รูปกุญแจ) ด้านซ้ายล่าง แล้วใส่ Gemini API Key ก่อนนะครับ",
+            chatResponse: "⛔ **ยังไม่ได้ใส่ API Key ครับพี่อุ๊ก**\n\nรบกวนพี่กดปุ่ม **System > Set Key** (รูปกุญแจ) แล้วใส่ Gemini API Key หรือตั้งค่า VITE_API_KEY ใน Vercel นะครับ",
             reasoning: "Missing API Key"
         };
     }
 
+    // 2. Invalid Key / Domain Restriction Case (Common on Production)
+    if (errorMsg.includes("403") || errorMsg.includes("API key not valid") || errorMsg.includes("fetch failed")) {
+         return {
+            operation: 'CHAT',
+            chatResponse: "⛔ **API Key ใช้งานไม่ได้บนเว็บจริงครับ**\n\nสาเหตุอาจเกิดจาก:\n1. Key นี้ถูกล็อคให้ใช้แค่ Localhost (Domain Restriction)\n2. ยังไม่ได้ใส่ `VITE_API_KEY` ใน Vercel\n3. Quota เต็ม\n\nลองสร้าง Key ใหม่แล้วใส่ใน Vercel หรือกดปุ่ม Set Key ด้านล่างซ้ายนะครับ",
+            reasoning: "Invalid API Key on Production"
+        };
+    }
+
+    // 3. General Fallback
     return {
       operation: 'CHAT',
-      chatResponse: `ระบบเจขัดข้องชั่วคราวครับพี่อุ๊ก (Error: ${error.message || "Unknown"})\nลองเช็คอินเทอร์เน็ตดูนะครับ`,
+      chatResponse: `ระบบเจขัดข้องชั่วคราวครับ (Error: ${errorMsg})\nลองเช็คอินเทอร์เน็ตดูนะครับ`,
       reasoning: "Error fallback"
     };
   }

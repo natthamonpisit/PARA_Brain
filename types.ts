@@ -163,3 +163,14 @@ export interface HistoryLog {
   itemType: ParaType | 'Finance' | 'Module';
   timestamp: string;
 }
+
+// JAY'S NOTE: New Interface for Line Debugger
+export interface SystemLog {
+  id: string;
+  event_source: 'LINE' | 'WEB';
+  user_message: string;
+  ai_response: string;
+  action_type: string;
+  status: 'SUCCESS' | 'FAILED';
+  created_at: string;
+}

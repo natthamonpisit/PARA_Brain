@@ -1,7 +1,7 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, MessageCircle, Send, ShieldCheck } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, MessageCircle, Send, ShieldCheck, Sparkles, BrainCircuit } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
@@ -20,6 +20,8 @@ interface SidebarProps {
   onCreateModule: () => void;
   // LINE Integration
   onOpenLine: () => void;
+  // NEW: Analysis
+  onAnalyzeLife: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -35,7 +37,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSetApiKey,
   modules,
   onCreateModule,
-  onOpenLine
+  onOpenLine,
+  onAnalyzeLife
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -223,75 +226,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </nav>
 
-        {/* System Footer */}
-        <div className="p-2 border-t border-slate-100 shrink-0 space-y-1">
-          {!isCollapsed && <p className="px-2 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">System</p>}
+        {/* Footer Actions */}
+        <div className="p-3 border-t border-slate-100 bg-slate-50 space-y-1">
           
-          <button 
-              onClick={handleSetKey}
-              title={isCollapsed ? "API Key" : ''}
-              className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium transition-colors ${isKeyReady ? 'text-slate-600 hover:bg-slate-50' : 'text-red-600 bg-red-50 hover:bg-red-100'}`}
+          {/* Analyze Life Button (Highlighted) */}
+          <button
+            onClick={onAnalyzeLife}
+            title={isCollapsed ? "AI Life Analysis" : ''}
+            className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3 px-3'} py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md hover:opacity-90 transition-all mb-2`}
           >
-              {apiKey ? (
-                  <Key className="w-4 h-4 text-orange-500" />
-              ) : envKeyExists ? (
-                  <ShieldCheck className="w-4 h-4 text-green-500" />
-              ) : (
-                  <Key className="w-4 h-4 text-red-500" />
-              )}
-              
+             <BrainCircuit className="w-5 h-5" />
+             {!isCollapsed && <span>Analyze My Life</span>}
+          </button>
+
+          <button
+            onClick={onOpenLine}
+            title={isCollapsed ? "Connect LINE" : ''}
+            className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium text-slate-500 hover:bg-white hover:text-[#06C755] transition-colors`}
+          >
+             <MessageCircle className="w-5 h-5" />
+             {!isCollapsed && <span>Connect LINE</span>}
+          </button>
+
+          <button
+            onClick={onShowHistory}
+            title={isCollapsed ? "History" : ''}
+            className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium text-slate-500 hover:bg-white hover:text-slate-900 transition-colors`}
+          >
+            <History className="w-5 h-5" />
+            {!isCollapsed && <span>History</span>}
+          </button>
+
+          <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between px-3'} py-2 text-slate-400`}>
               {!isCollapsed && (
-                  <span>
-                      {apiKey ? 'Key: Manual' : envKeyExists ? 'Key: Auto (Env)' : 'Set Key'}
-                  </span>
+                 <div className="flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    <span className="text-xs font-medium">{isKeyReady ? 'API Key Set' : 'No Key'}</span>
+                 </div>
               )}
-          </button>
-          
-          {/* TEST LINE ALERT BUTTON */}
-          <button 
-              onClick={() => { onOpenLine(); onClose(); }}
-              title={isCollapsed ? "Test LINE" : ''}
-              className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors`}
-          >
-              <Send className="w-4 h-4 text-[#06C755]" />
-              {!isCollapsed && <span>Test LINE Alert</span>}
-          </button>
-
-          <button 
-              onClick={() => { onShowHistory(); onClose(); }}
-              title={isCollapsed ? "History" : ''}
-              className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors`}
-          >
-              <History className="w-4 h-4 text-indigo-500" />
-              {!isCollapsed && <span>History</span>}
-          </button>
-
-          <button 
-              onClick={onExport}
-              title={isCollapsed ? "Backup" : ''}
-              className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors`}
-          >
-              <Download className="w-4 h-4" />
-              {!isCollapsed && <span>Backup</span>}
-          </button>
-
-          <button 
-              onClick={() => fileInputRef.current?.click()}
-              title={isCollapsed ? "Restore" : ''}
-              className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors`}
-          >
-              <Upload className="w-4 h-4" />
-              {!isCollapsed && <span>Restore</span>}
-          </button>
-          <input 
-              type="file" 
-              ref={fileInputRef}
-              className="hidden"
-              accept=".json"
-              onChange={handleFileChange}
-          />
+              <button onClick={handleSetKey} className="hover:text-slate-600">
+                  <Settings className="w-4 h-4" />
+              </button>
+          </div>
         </div>
+
       </div>
+      
+      {/* Hidden File Input for Import */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        className="hidden"
+        accept=".json"
+      />
     </>
   );
 };

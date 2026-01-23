@@ -1,6 +1,6 @@
 
 import { useState } from 'react';
-import { ChatMessage, ParaItem, ExistingItemContext, ParaType, FinanceAccount, AppModule, Transaction, ModuleItem } from '../types';
+import { ChatMessage, ParaItem, ExistingItemContext, ParaType, FinanceAccount, AppModule, Transaction, ModuleItem, HistoryLog } from '../types';
 import { analyzeParaInput } from '../services/geminiService';
 import { db } from '../services/db'; // Import DB
 import { generateId } from '../utils/helpers';
@@ -258,11 +258,64 @@ export const useAIChat = ({
     }
   };
 
+  // --- NEW: Analyze Life (30 Days) ---
+  const analyzeLife = async (historyLogs: HistoryLog[], transactions: Transaction[]) => {
+      if (!apiKey) throw new Error("API Key Missing");
+
+      // Filter last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const recentHistory = historyLogs.filter(l => new Date(l.timestamp) > thirtyDaysAgo);
+      const recentTx = transactions.filter(t => new Date(t.transactionDate) > thirtyDaysAgo);
+
+      // Aggregate Data strings
+      const taskLog = recentHistory
+        .filter(h => h.action === 'COMPLETE')
+        .map(h => `- Completed: ${h.itemTitle} (${h.itemType}) on ${new Date(h.timestamp).toLocaleDateString()}`)
+        .join('\n');
+
+      const financeLog = recentTx
+        .map(t => `- ${t.type}: ${t.amount} (${t.category})`)
+        .join('\n');
+
+      const prompt = `
+        Role: You are a Life Coach Analyst.
+        Task: Analyze the user's productivity and finance data from the last 30 days.
+        Identify patterns, strengths, weaknesses, and provide 3 key actionable improvements.
+        
+        Language: Thai (Strictly).
+        Format: Markdown (Bold headers, bullet points).
+        Structure:
+        # Life OS Analysis (Last 30 Days)
+        ## 🏆 Achievements
+        ## ⚠️ Areas for Improvement
+        ## 💰 Financial Health
+        ## 💡 Key Action Plan
+
+        DATA (Last 30 Days):
+        [Productivity Log]
+        ${taskLog || "No completed tasks."}
+
+        [Finance Log]
+        ${financeLog || "No transactions."}
+      `;
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt
+      });
+
+      return response.text || "Could not generate analysis.";
+  };
+
   return {
     messages,
     isProcessing,
     handleSendMessage,
     handleChatCompletion,
-    generateDailySummary
+    generateDailySummary,
+    analyzeLife
   };
 };

@@ -9,6 +9,7 @@ import { ModuleBuilderModal } from './components/ModuleBuilderModal';
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
 import { LineConnectModal } from './components/LineConnectModal';
+import { LifeAnalysisModal } from './components/LifeAnalysisModal'; // New Modal
 import { ParaType, AppModule, ModuleItem, ViewMode } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
@@ -43,6 +44,8 @@ export default function App() {
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
   const [isLineModalOpen, setIsLineModalOpen] = useState(false);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState('');
   
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('board');
@@ -73,7 +76,7 @@ export default function App() {
   };
 
   // --- AI INTEGRATION ---
-  const { messages, isProcessing, handleSendMessage, handleChatCompletion, generateDailySummary } = useAIChat({
+  const { messages, isProcessing, handleSendMessage, handleChatCompletion, generateDailySummary, analyzeLife } = useAIChat({
     items, 
     accounts,
     modules,
@@ -143,6 +146,17 @@ export default function App() {
       }
   };
 
+  const handleAnalyzeLife = async () => {
+      setIsAnalysisModalOpen(true);
+      setAnalysisResult(''); // Loading state
+      try {
+          const result = await analyzeLife(historyLogs, transactions);
+          setAnalysisResult(result);
+      } catch (e: any) {
+          setAnalysisResult(`Error: ${e.message}`);
+      }
+  };
+
   // Single Delete Wrapper
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
@@ -196,6 +210,7 @@ export default function App() {
         apiKey={apiKey} onSetApiKey={handleSetApiKey}
         modules={modules} onCreateModule={() => setIsModuleBuilderOpen(true)}
         onOpenLine={() => setIsLineModalOpen(true)}
+        onAnalyzeLife={handleAnalyzeLife}
       />
 
       <div className="flex-1 flex flex-col min-w-0 relative h-full transition-all duration-300">
@@ -336,6 +351,7 @@ export default function App() {
 
       {/* Modals */}
       <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} logs={historyLogs} />
+      <LifeAnalysisModal isOpen={isAnalysisModalOpen} onClose={() => setIsAnalysisModalOpen(false)} content={analysisResult} />
       <ManualEntryModal
         isOpen={isManualModalOpen}
         onClose={() => setIsManualModalOpen(false)}

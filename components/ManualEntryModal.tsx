@@ -66,7 +66,9 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
         setActiveTab('FINANCE');
       } else {
         setActiveTab('PARA');
-        setType((defaultType === 'All' || !Object.values(ParaType).includes(defaultType as any)) ? ParaType.TASK : defaultType as ParaType);
+        // Fix: Check if defaultType is a valid ParaType value
+        const isPara = Object.values(ParaType).includes(defaultType as any);
+        setType(isPara ? (defaultType as ParaType) : ParaType.TASK);
       }
       
       // Reset forms
@@ -228,7 +230,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                     <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Type</label>
                         <select value={type} onChange={(e) => setType(e.target.value as ParaType)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm">
-                            {Object.values(ParaType).filter(t => t !== 'Finance').map(t => <option key={t} value={t}>{t}</option>)}
+                            {Object.values(ParaType).map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
                     <div>

@@ -1,79 +1,19 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage, FinanceContext, ModuleContext, TransactionType, DailySummary } from "../types";
+import { ParaItem, ParaType, FinanceAccount, AppModule, AIAnalysisResult, HistoryLog, Transaction } from "../types";
 
-// JAY'S NOTE: REMOVED HARDCODED KEY for Security. 
-// User must provide key via Vercel Environment Variables (VITE_API_KEY) or Manual Input in UI.
-const FALLBACK_API_KEY = "";
-
-// JAY'S NOTE: Helper to safely retrieve API Key
-const getApiKey = (manualOverride?: string): string | undefined => {
-  if (manualOverride && manualOverride.trim().length > 0) return manualOverride;
-  
-  try {
-    // Check import.meta.env (Vite Standard)
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
-       // @ts-ignore
-       return import.meta.env.VITE_API_KEY;
+export const analyzeLifeOS = async (
+    input: string,
+    apiKey: string,
+    context: {
+        paraItems: ParaItem[];
+        financeContext: { accounts: FinanceAccount[] };
+        modules: AppModule[];
+        recentContext?: string;
+        summariesContext?: string;
     }
-  } catch (e) {}
-
-  try {
-    // Check process.env (Node/Compat)
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) return process.env.API_KEY;
-  } catch (e) {}
-
-  return FALLBACK_API_KEY;
-};
-
-/**
- * 🧠 THE BRAIN FUNCTION
- * 
- * This function creates the "Context Window" for Gemini. 
- * Instead of just sending the user's text, we construct a massive prompt that includes:
- * 1. Who Jay is (Persona)
- * 2. What Jay knows (Long-term Memory/Summaries)
- * 3. What Jay sees (Current Tasks, Bank Balance, Custom Modules)
- * 4. How Jay should act (Schema definition for JSON output)
- */
-export const analyzeParaInput = async (
-  input: string,
-  paraItems: ExistingItemContext[],
-  financeContext: FinanceContext,
-  moduleContext: ModuleContext[],
-  chatHistory: ChatMessage[] = [], 
-  manualApiKey?: string,
-  recentSummaries: DailySummary[] = []
 ): Promise<AIAnalysisResult> => {
-  
-  try {
-    const apiKey = getApiKey(manualApiKey);
-    if (!apiKey) {
-        throw new Error("MISSING_API_KEY");
-    }
-
-    const ai = new GoogleGenAI({ apiKey: apiKey });
-    const modelName = "gemini-3-flash-preview"; 
-
-    // 1. Construct Chat History Context
-    const recentContext = chatHistory
-        .slice(-10) 
-        .map(msg => `${msg.role === 'user' ? 'User' : 'Jay'}: ${msg.text}`)
-        .join('\n');
-
-    // 2. Construct Dynamic Module Manual
-    // This tells AI how to structure data for user-created apps (e.g. Reading Tracker)
-    const modulesManual = moduleContext.map((m, i) => {
-        const fields = m.fields.map(f => `- ${f.key} (${f.type}): ${f.label}`).join('\n');
-        return `MODULE ${i+1}: "${m.name}" (ID: ${m.id})\nFields:\n${fields}`;
-    }).join('\n\n');
-
-    // 3. Construct Memory Context (LTM)
-    const summariesContext = recentSummaries
-        .map(s => `[${s.date}] Summary: ${s.summary}`)
-        .join('\n');
+    const { paraItems, financeContext, modules, recentContext, summariesContext } = context;
 
     // 4. Define Strict Output Schema
     // This ensures we get executable JSON, not just markdown text.
@@ -99,7 +39,7 @@ export const analyzeParaInput = async (
         title: { type: Type.STRING, nullable: true },
         summary: { type: Type.STRING, nullable: true },
         suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
-        relatedItemIdsCandidates: { type: Type.ARRAY, items: { type: Type.STRING } },
+        relatedItemIdsCandidates: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
         
         // BATCH ITEMS (For BATCH_CREATE)
         batchItems: {
@@ -144,6 +84,11 @@ export const analyzeParaInput = async (
         required: ["operation", "chatResponse", "reasoning"]
     };
 
+    const modulesManual = modules.map(m => {
+        const fields = m.schemaConfig.fields.map(f => `${f.key} (${f.label})`).join(', ');
+        return `- Module "${m.name}" (ID: ${m.id}): Fields [${fields}]`;
+    }).join('\n');
+
     const prompt = `
         1. ROLE & PERSONA: You are "Jay" (เจ), a Personal Life OS Architect for Ouk.
         - **Personality**: Smart, proactive, concise, encouraging, and organized. You speak Thai (Main) mixed with technical English terms.
@@ -164,10 +109,10 @@ export const analyzeParaInput = async (
         --- DATA CONTEXT ---
         
         [EXISTING PARA ITEMS]
-        ${JSON.stringify(paraItems.slice(0, 50))}
+        ${JSON.stringify(paraItems.slice(0, 50).map(i => ({id: i.id, title: i.title, type: i.type, category: i.category})))}
 
         [FINANCE ACCOUNTS]
-        ${JSON.stringify(financeContext.accounts)}
+        ${JSON.stringify(financeContext.accounts.map(a => ({id: a.id, name: a.name, type: a.type})))}
 
         --- CHAT HISTORY ---
         ${recentContext || "Start of conversation"}
@@ -181,81 +126,54 @@ export const analyzeParaInput = async (
         - **CREATE**: Use for CREATING A SINGLE Task, Project, Area, or Resource.
         - **BATCH_CREATE**: Use when user asks to create MULTIPLE items (e.g., "List 3 tasks", "Add project and area"). Fill 'batchItems' array.
         - **CHAT**: Use for questions, advice, or clarification.
+        
+        CRITICAL REVIEW LOOP:
+        - If the user provides a list of tasks, you MUST capture ALL of them in 'batchItems'. Do not truncate.
+        - If the user asks for a Project AND Tasks, put the Project FIRST in the 'batchItems' array. The system will automatically link subsequent tasks to it.
 
         Output JSON only.
     `;
 
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: modelName,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      },
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema
+        }
     });
 
-    const text = response.text;
-    if (!text) throw new Error("No response from AI");
-    
-    const rawResult = JSON.parse(text);
-    
-    // Transform moduleDataRaw back to Object for the App to use
-    let moduleData: Record<string, any> = {};
-    if (rawResult.moduleDataRaw && Array.isArray(rawResult.moduleDataRaw)) {
-        rawResult.moduleDataRaw.forEach((item: any) => {
-            if (item.key) {
-                 // Attempt basic type inference
-                 const valStr = item.value;
-                 let val: any = valStr;
-                 // Try to convert to number if it looks like one
-                 if (!isNaN(Number(valStr)) && valStr.trim() !== '') {
-                     val = Number(valStr);
-                 } 
-                 // Try to convert boolean
-                 else if (valStr.toLowerCase() === 'true') {
-                     val = true;
-                 } else if (valStr.toLowerCase() === 'false') {
-                     val = false;
-                 }
-                 moduleData[item.key] = val;
-            }
-        });
-    }
-
-    const result: AIAnalysisResult = {
-        ...rawResult,
-        moduleData
-    };
-
-    return result;
-
-  } catch (error: any) {
-    console.error("Gemini Analysis Error:", error);
-    const errorMsg = error.message || "";
-    
-    // 1. Missing Key Case
-    if (errorMsg === "MISSING_API_KEY") {
-        return {
-            operation: 'CHAT',
-            chatResponse: "⛔ **ยังไม่ได้ใส่ API Key ครับพี่อุ๊ก**\n\nรบกวนพี่สร้าง Key ใหม่ (อันเก่าโดน Google เตือน) แล้วใส่ใน **Vercel Env Vars** หรือกดปุ่ม **System > Set Key** ด้านซ้ายล่างชั่วคราวได้ครับ",
-            reasoning: "Missing API Key"
-        };
-    }
-
-    // 2. Invalid Key / Domain Restriction Case (Common on Production)
-    if (errorMsg.includes("403") || errorMsg.includes("API key not valid") || errorMsg.includes("fetch failed")) {
-         return {
-            operation: 'CHAT',
-            chatResponse: "⛔ **API Key ใช้งานไม่ได้บนเว็บจริงครับ**\n\nสาเหตุอาจเกิดจาก:\n1. Google ระงับ Key เก่าเพราะ Exposed (ต้องสร้างใหม่)\n2. Domain Restriction (ต้องปลดล็อคใน Google Console)\n3. ยังไม่ได้ใส่ `VITE_API_KEY` ใน Vercel\n\nลองสร้าง Key ใหม่แล้วอัปเดตใน Vercel นะครับ",
-            reasoning: "Invalid API Key on Production"
-        };
-    }
-
-    // 3. General Fallback
-    return {
-      operation: 'CHAT',
-      chatResponse: `ระบบเจขัดข้องชั่วคราวครับ (Error: ${errorMsg})\nลองเช็คอินเทอร์เน็ตดูนะครับ`,
-      reasoning: "Error fallback"
-    };
-  }
+    return JSON.parse(response.text || "{}") as AIAnalysisResult;
 };
+
+export const performLifeAnalysis = async (
+    logs: HistoryLog[], 
+    transactions: Transaction[], 
+    apiKey: string
+): Promise<string> => {
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `
+        Analyze the following user activity logs and financial transactions from the last 30 days.
+        Provide a "Life OS Status Report" in Markdown format.
+        
+        Structure:
+        1. **Productivity Pulse**: Analysis of completed tasks and created projects.
+        2. **Financial Health**: Summary of spending vs income patterns.
+        3. **Focus Areas**: Which areas (Health, Work, etc.) got the most attention?
+        4. **Recommendations**: 3 actionable tips to improve organization next week.
+
+        [ACTIVITY LOGS]
+        ${JSON.stringify(logs.slice(0, 50))}
+
+        [TRANSACTIONS]
+        ${JSON.stringify(transactions.slice(0, 20))}
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt
+    });
+
+    return response.text || "Analysis failed.";
+}

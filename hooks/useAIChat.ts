@@ -28,7 +28,7 @@ export const useAIChat = ({
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     role: 'assistant',
-    text: 'สวัสดีครับพี่อุ๊ก! เจ (Jay) พร้อมลุยงานแล้วครับ จะเรื่องงาน เงิน หรือวางแผนชีวิต บอกมาได้เลยครับ',
+    text: 'สวัสดีครับพี่อุ๊ก! เจ (Jay) พร้อมเป็น Brain ผู้ช่วยส่วนตัวในระบบ PARA + Life OS แล้วครับ \n\nตอนนี้ระบบพร้อมใช้งานทั้งงาน (Tasks/Projects) และการเงิน (Finance) ครับ เหมือน Notion for Life ที่ปรับแต่งมาเพื่อพี่โดยเฉพาะ มีอะไรให้เจช่วยจัดระเบียบชีวิตบอกได้เลย!',
     timestamp: new Date()
   }]);
   const [isProcessing, setIsProcessing] = useState(false);

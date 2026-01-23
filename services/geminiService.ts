@@ -51,8 +51,12 @@ export const analyzeParaInput = async (
         .map(msg => `${msg.role === 'user' ? 'User' : 'Jay'}: ${msg.text}`)
         .join('\n');
 
-    // JAY'S NOTE: Updated Schema to support ALL operations
-    // FIX 2.0: Use 'moduleDataRaw' (Array) instead of 'moduleData' (Object) to strictly comply with Gemini Schema rules.
+    // Generate Dynamic Manual for Modules
+    const modulesManual = moduleContext.map((m, i) => {
+        const fields = m.fields.map(f => `- ${f.key} (${f.type}): ${f.label}`).join('\n');
+        return `MODULE ${i+1}: "${m.name}" (ID: ${m.id})\nFields:\n${fields}`;
+    }).join('\n\n');
+
     const responseSchema = {
         type: Type.OBJECT,
         properties: {
@@ -85,7 +89,6 @@ export const analyzeParaInput = async (
         // Module Fields
         targetModuleId: { type: Type.STRING, nullable: true, description: "ID of the dynamic module (e.g. Health Tracker ID)." },
         
-        // FIX: Replaced flexible object with explicit key-value array to prevent "non-empty object" error
         moduleDataRaw: { 
             type: Type.ARRAY, 
             nullable: true,
@@ -106,33 +109,26 @@ export const analyzeParaInput = async (
     };
 
     const prompt = `
-        1. ROLE & PERSONA: You are "Jay" (เจ), a Personal Life OS Architect for Ouk (พี่อุ๊ก).
+        1. ROLE & PERSONA: You are "Jay" (เจ), a Personal Life OS Architect for Ouk.
         - **Personality**: Smart, proactive, concise, encouraging, and organized. You speak Thai (Main) mixed with technical English terms.
         
-        2. **JAY'S CORE FUNCTION MEMORY (บันทึกฟังก์ชันหลัก)**:
-           You must remember your capabilities within this "Notion for Life" system:
-           - **PARA Brain**: You organize Tasks, Projects, Areas, Resources, and Archives. You help categorize and link them.
-           - **Wealth Engine**: You track Finances (Income, Expense, Transfers) and calculate Net Worth.
-           - **Dynamic Modules**: You can handle ANY custom data module Ouk builds (e.g., Health, Reading List, Habits) by mapping inputs to the module's schema.
-           - **Goal**: To build a robust, personalized system that runs on autopilot.
+        2. **JAY'S CORE FUNCTION MEMORY**:
+           - **PARA Brain**: Organize Tasks, Projects, Areas.
+           - **Wealth Engine**: Track Finances.
+           - **Dynamic Modules**: Handle custom data modules based on the Schema provided below.
 
-        3. OPERATIONAL PROTOCOLS:
-        - **Input Analysis**: Determine if the input is a Task/Project, a Financial Transaction, or Data for a specific Module.
-        - **Finance Logic**: If input mentions spending/income (e.g. "lunch 100"), map to 'TRANSACTION'. Find the best matching 'accountId' from context.
-        - **Module Logic**: If input matches a dynamic module's purpose (e.g. "weight 70kg" -> Health Module), map to 'MODULE_ITEM'.
-        - **Module Data Mapping**: When creating a MODULE_ITEM, map the input data to 'moduleDataRaw' as a list of key-value pairs. 
-          Example: If user says "Weight 70kg" and Health module has field "weight", output moduleDataRaw: [{ "key": "weight", "value": "70" }].
+        3. **DYNAMIC MODULES SCHEMA (Updated Live)**:
+           The user has defined the following custom modules. You MUST use these IDs and Field Keys when mapping 'MODULE_ITEM'.
+           
+           ${modulesManual || "No custom modules found."}
 
         --- DATA CONTEXT ---
         
         [EXISTING PARA ITEMS]
-        ${JSON.stringify(paraItems)}
+        ${JSON.stringify(paraItems.slice(0, 50))}
 
         [FINANCE ACCOUNTS]
         ${JSON.stringify(financeContext.accounts)}
-
-        [AVAILABLE MODULES & SCHEMAS]
-        ${JSON.stringify(moduleContext)}
 
         --- CHAT HISTORY ---
         ${recentContext || "Start of conversation"}
@@ -142,7 +138,7 @@ export const analyzeParaInput = async (
 
         --- OUTPUT INSTRUCTIONS ---
         - **TRANSACTION**: Use when user spends/receives money. Must infer 'amount', 'transactionType', and 'accountId'.
-        - **MODULE_ITEM**: Use when user provides data relevant to a specific module. Map data to 'moduleDataRaw'.
+        - **MODULE_ITEM**: Use when user provides data relevant to a specific module from the list above. Map data to 'moduleDataRaw'.
         - **CREATE**: Use for Tasks, Projects, Areas, Resources.
         - **CHAT**: Use for questions, advice, or clarification.
 

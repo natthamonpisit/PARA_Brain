@@ -23,7 +23,7 @@ export enum ParaType {
   FINANCE = 'Finance'    // JAY'S NOTE: New Module for Wealth Engine
 }
 
-export type ViewMode = 'GRID' | 'LIST' | 'TABLE';
+export type ViewMode = 'GRID' | 'LIST' | 'TABLE' | 'CALENDAR' | 'HABIT';
 
 export interface ParaItem {
   id: string;
@@ -46,6 +46,9 @@ export interface ParaItem {
   deadline?: string;   // For Projects
   status?: string;     // For Projects
   energyLevel?: string;// For Tasks
+  
+  // New Feature: File Attachments (URLs)
+  attachments?: string[];
 }
 
 // --- FINANCE MODULE TYPES ---

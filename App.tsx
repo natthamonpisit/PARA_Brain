@@ -9,9 +9,11 @@ import { ModuleBuilderModal } from './components/ModuleBuilderModal';
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
 import { LineConnectModal } from './components/LineConnectModal';
-import { LifeAnalysisModal } from './components/LifeAnalysisModal'; // New Modal
+import { LifeAnalysisModal } from './components/LifeAnalysisModal'; 
+import { CalendarBoard } from './components/CalendarBoard'; // New
+import { HabitBoard } from './components/HabitBoard'; // New
 import { ParaType, AppModule, ModuleItem, ViewMode } from './types';
-import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search, Calendar as CalendarIcon, Flame } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
 import { useModuleData } from './hooks/useModuleData'; 
@@ -38,8 +40,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('GRID');
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState(''); // NEW: Search State
-  
+  const [searchQuery, setSearchQuery] = useState(''); 
+  const [calendarDate, setCalendarDate] = useState(new Date()); // New State for Calendar
+
   // Modals
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -69,8 +72,6 @@ export default function App() {
       }
       // Clear selection when changing tabs
       setSelectedIds(new Set());
-      // Optional: Clear search when changing tabs?
-      // setSearchQuery(''); 
   }, [activeType]);
 
   const handleSetApiKey = (key: string) => {
@@ -151,11 +152,11 @@ export default function App() {
   const handleBatchDelete = async () => {
       if (!window.confirm(`Delete ${selectedIds.size} items?`)) return;
       
-      const ids = Array.from(selectedIds);
+      const ids = Array.from(selectedIds) as string[];
       for (const id of ids) {
           try {
              if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
-                 await deleteModuleItem(id, activeType);
+                 await deleteModuleItem(id, activeType as string);
              } else {
                  await deleteItem(id);
              }
@@ -166,7 +167,7 @@ export default function App() {
   };
 
   const handleBatchComplete = async () => {
-      const ids = Array.from(selectedIds);
+      const ids = Array.from(selectedIds) as string[];
       for (const id of ids) {
           try {
              await toggleComplete(id, false); // Force complete
@@ -192,7 +193,7 @@ export default function App() {
     if (!window.confirm('Delete this item?')) return;
     try {
         if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
-            await deleteModuleItem(id, activeType);
+            await deleteModuleItem(id, activeType as string);
         } else {
             await deleteItem(id);
         }
@@ -275,11 +276,16 @@ export default function App() {
           {/* Right: Actions */}
           <div className="flex items-center gap-3 shrink-0">
             {/* View Switcher */}
-            {activeType !== 'Finance' && (
+            {activeType !== 'Finance' && !activeModule && activeType !== 'All' && (
                 <div className="hidden md:flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                    <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid View"><LayoutGrid className="w-4 h-4" /></button>
-                    <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List View"><List className="w-4 h-4" /></button>
-                    <button onClick={() => setViewMode('TABLE')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'TABLE' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Table View"><TableIcon className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List"><List className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('TABLE')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'TABLE' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Table"><TableIcon className="w-4 h-4" /></button>
+                    
+                    {/* NEW VIEW MODES */}
+                    <div className="w-px h-4 bg-slate-300 mx-1 self-center"></div>
+                    <button onClick={() => setViewMode('CALENDAR')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'CALENDAR' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Calendar"><CalendarIcon className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('HABIT')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'HABIT' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Habit Tracker"><Flame className="w-4 h-4" /></button>
                 </div>
             )}
 
@@ -339,10 +345,23 @@ export default function App() {
                             module={activeModule}
                             items={filteredModuleItems}
                             onDelete={handleDeleteWrapper}
-                            // Pending: Implement ViewMode for DynamicBoard later
                         />
                     ) : activeType === 'Finance' ? (
                         <FinanceBoard accounts={accounts} transactions={filteredTransactions} projects={items.filter(i => i.type === ParaType.PROJECT)} />
+                    ) : viewMode === 'CALENDAR' ? (
+                        <CalendarBoard 
+                            items={items} 
+                            currentDate={calendarDate}
+                            onDateChange={setCalendarDate}
+                            onSelectItem={(id) => {
+                                const item = items.find(i => i.id === id);
+                                if(item) {
+                                    alert(`${item.title}\n${item.content}`); // Simple preview for now
+                                }
+                            }}
+                        />
+                    ) : viewMode === 'HABIT' ? (
+                        <HabitBoard items={items} />
                     ) : (
                         <ParaBoard 
                             items={filteredParaItems} 

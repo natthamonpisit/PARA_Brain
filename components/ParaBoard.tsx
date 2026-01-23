@@ -2,7 +2,7 @@
 import React from 'react';
 import { ParaItem, ParaType, ViewMode } from '../types';
 import ReactMarkdown from 'react-markdown';
-import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight } from 'lucide-react';
+import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight, Paperclip, FileIcon } from 'lucide-react';
 
 interface ParaBoardProps {
   items: ParaItem[];
@@ -30,7 +30,6 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
 }) => {
   
   // --- DASHBOARD VIEW (AREA HUB) ---
-  // Notion-style: Show Areas as main hubs with stats
   if (activeType === 'All') {
       const areas = items.filter(i => i.type === ParaType.AREA);
       const unassignedItems = items.filter(i => i.type !== ParaType.AREA && !areas.some(a => a.title === i.category));
@@ -362,10 +361,21 @@ const TaskCard: React.FC<{
                             })}
                         </div>
                     )}
+                    
+                    {/* Attachments Preview */}
+                    {item.attachments && item.attachments.length > 0 && (
+                        <div className="flex gap-1 mb-2 overflow-x-auto">
+                            {item.attachments.map((url, i) => (
+                                <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="relative w-8 h-8 rounded border border-slate-200 overflow-hidden shrink-0 hover:ring-2 ring-indigo-500">
+                                    <img src={url} alt="attachment" className="w-full h-full object-cover" />
+                                </a>
+                            ))}
+                        </div>
+                    )}
 
                     <div className="flex items-center justify-between mt-auto pt-2">
                          <span className="text-[10px] text-slate-400">
-                            {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            {item.dueDate ? `Due: ${new Date(item.dueDate).toLocaleDateString()}` : new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                          </span>
                          {/* Hover Actions */}
                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -419,6 +429,20 @@ const Card: React.FC<{
         <ReactMarkdown>{item.content}</ReactMarkdown>
       </div>
       
+      {/* Attachments Section */}
+      {item.attachments && item.attachments.length > 0 && (
+         <div className="mb-4">
+             <div className="flex flex-wrap gap-2">
+                 {item.attachments.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs hover:bg-slate-200">
+                        <Paperclip className="w-3 h-3" />
+                        Attachment {i+1}
+                    </a>
+                 ))}
+             </div>
+         </div>
+      )}
+
       {/* Relations Section */}
       {item.relatedItemIds && item.relatedItemIds.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2">

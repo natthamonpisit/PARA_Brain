@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { ParaType, ParaItem, FinanceAccount, Transaction, TransactionType, FinanceAccountType, AppModule, ModuleItem } from '../types';
-import { X, Save, Type, Tag, AlignLeft, Layout, Banknote, Calendar, Wallet } from 'lucide-react';
+import { X, Save, Type, Tag, AlignLeft, Layout, Banknote, Calendar, Wallet, Paperclip, Loader2, Image as ImageIcon } from 'lucide-react';
 import { generateId } from '../utils/helpers';
 import { getModuleIcon } from './DynamicModuleBoard';
+import { db } from '../services/db';
 
 interface ManualEntryModalProps {
   isOpen: boolean;
@@ -27,12 +29,16 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<ModalTab>('PARA');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- PARA STATE ---
   const [title, setTitle] = useState('');
   const [type, setType] = useState<ParaType>(ParaType.TASK);
   const [category, setCategory] = useState('');
   const [content, setContent] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   // --- FINANCE STATE ---
   const [financeMode, setFinanceMode] = useState<'TRANSACTION' | 'ACCOUNT'>('TRANSACTION');
@@ -64,12 +70,28 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
       }
       
       // Reset forms
-      setTitle(''); setContent(''); setCategory('General');
+      setTitle(''); setContent(''); setCategory('General'); setDueDate(''); setAttachments([]);
       setTxDesc(''); setTxAmount(''); setTxCategory('General');
       if (accounts.length > 0) setTxAccount(accounts[0].id);
       setAccName(''); setAccBalance('');
     }
   }, [isOpen, defaultType, accounts, activeModule]);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      setIsUploading(true);
+      try {
+          const url = await db.uploadFile(file);
+          setAttachments(prev => [...prev, url]);
+      } catch (error) {
+          console.error("Upload failed", error);
+          alert("Upload failed. Make sure you created 'attachments' bucket in Supabase.");
+      } finally {
+          setIsUploading(false);
+      }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +117,9 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                 title, content, type,
                 category: category || 'General',
                 tags: [], isAiGenerated: false, isCompleted: false, relatedItemIds: [],
-                createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+                createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+                dueDate: dueDate || undefined,
+                attachments: attachments
             };
             await onSave(newItem, 'PARA');
 
@@ -212,9 +236,47 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                         <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm" />
                     </div>
                 </div>
+                {type === ParaType.TASK && (
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Due Date</label>
+                        <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm" />
+                    </div>
+                )}
                 <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notes</label>
                     <textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm resize-none" />
+                </div>
+                
+                {/* ATTACHMENTS SECTION */}
+                <div>
+                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Attachments</label>
+                     <div className="flex flex-wrap gap-2 mb-2">
+                        {attachments.map((url, idx) => (
+                            <div key={idx} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-slate-200">
+                                <img src={url} alt="attachment" className="w-full h-full object-cover" />
+                                <button type="button" onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))} className="absolute top-0 right-0 p-1 bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
+                        ))}
+                     </div>
+                     <div className="flex items-center gap-2">
+                         <button 
+                            type="button" 
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isUploading}
+                            className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-medium text-slate-600 transition-colors"
+                         >
+                            {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                            {isUploading ? 'Uploading...' : 'Attach File'}
+                         </button>
+                         <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            className="hidden" 
+                            onChange={handleFileSelect}
+                         />
+                     </div>
                 </div>
              </>
           )}
@@ -292,7 +354,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
 
           <div className="pt-4 flex justify-end gap-3">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
-            <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50">
+            <button type="submit" disabled={isSubmitting || isUploading} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50">
               <Save className="w-4 h-4" />
               {isSubmitting ? 'Saving...' : 'Save'}
             </button>

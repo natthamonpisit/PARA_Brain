@@ -17,6 +17,7 @@ const toDb = (item: ParaItem) => {
     updated_at: item.updatedAt,
     is_ai_generated: item.isAiGenerated,
     is_completed: item.isCompleted,
+    attachments: item.attachments || [] // New Field
   };
 
   if (item.type === ParaType.AREA) {
@@ -60,7 +61,8 @@ const fromDb = (row: any): ParaItem => {
     dueDate: row.due_date,
     deadline: row.deadline,
     status: row.status,
-    energyLevel: row.energy_level
+    energyLevel: row.energy_level,
+    attachments: row.attachments || [] // New Field
   };
 };
 
@@ -76,6 +78,29 @@ const getTableForType = (type: ParaType): string => {
 };
 
 export const db = {
+  // --- FILE STORAGE ---
+  async uploadFile(file: File): Promise<string> {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    // Upload to 'attachments' bucket
+    const { error: uploadError } = await supabase.storage
+        .from('attachments')
+        .upload(filePath, file);
+
+    if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`);
+    }
+
+    // Get Public URL
+    const { data } = supabase.storage
+        .from('attachments')
+        .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  },
+
   // --- PARA MODULE ---
   async getAll(): Promise<ParaItem[]> {
     const tables = ['projects', 'areas', 'tasks', 'resources', 'archives'];

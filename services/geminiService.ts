@@ -2,6 +2,32 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ParaItem, ParaType, FinanceAccount, AppModule, AIAnalysisResult, HistoryLog, Transaction } from "../types";
 
+// Helper to safely get API Key from various environment locations
+const getApiKey = (): string => {
+    // 1. Try process.env (Node/Webpack/Vercel)
+    try {
+        if (typeof process !== 'undefined' && process.env?.API_KEY) {
+            return process.env.API_KEY;
+        }
+    } catch (e) {}
+
+    // 2. Try import.meta.env (Vite)
+    try {
+        // @ts-ignore
+        if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_KEY) {
+            // @ts-ignore
+            return import.meta.env.VITE_API_KEY;
+        }
+        // @ts-ignore
+        if (typeof import.meta !== 'undefined' && import.meta.env?.API_KEY) {
+            // @ts-ignore
+            return import.meta.env.API_KEY;
+        }
+    } catch (e) {}
+    
+    return '';
+};
+
 export const analyzeLifeOS = async (
     input: string,
     context: {
@@ -133,7 +159,12 @@ export const analyzeLifeOS = async (
         Output JSON only.
     `;
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        throw new Error("API Key not found. Please check VITE_API_KEY in .env");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -150,7 +181,12 @@ export const performLifeAnalysis = async (
     logs: HistoryLog[], 
     transactions: Transaction[]
 ): Promise<string> => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        return "Error: API Key missing. Cannot perform analysis.";
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
     const prompt = `
         Analyze the following user activity logs and financial transactions from the last 30 days.
         Provide a "Life OS Status Report" in Markdown format.

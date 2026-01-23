@@ -18,6 +18,9 @@ export default async function handler(req: any, res: any) {
     const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     const authorizedUserId = process.env.LINE_USER_ID;
 
+    // Use Supabase instance inside handler to ensure freshness
+    const supabase = createClient(supabaseUrl!, supabaseKey!);
+
     if (!channelAccessToken) {
         console.error("❌ MISSING: LINE_CHANNEL_ACCESS_TOKEN");
         return res.status(500).json({ error: "Server Config Error" });
@@ -33,14 +36,9 @@ export default async function handler(req: any, res: any) {
         const userId = event.source.userId;
         const replyToken = event.replyToken;
         const userMessage = event.message.text.trim();
+        const eventId = event.webhookEventId; // Unique ID from LINE for this specific message
 
-        console.log(`📩 Message from ${userId}: ${userMessage}`);
-
-        // --- COMMAND HANDLERS ---
-        if (userMessage.toLowerCase() === 'id') {
-            await replyToLine(replyToken, channelAccessToken, `Your User ID is:\n${userId}`);
-            continue;
-        }
+        console.log(`📩 Message from ${userId} (EventID: ${eventId}): ${userMessage}`);
 
         // --- SECURITY CHECK ---
         if (authorizedUserId && userId !== authorizedUserId) {
@@ -48,8 +46,44 @@ export default async function handler(req: any, res: any) {
             continue; 
         }
 
-        // --- AI BRAIN LOGIC (SMART AGENT - FULL CAPABILITY) ---
-        await handleSmartAgent(userMessage, replyToken, channelAccessToken);
+        // --- COMMAND HANDLERS (Special commands bypass AI) ---
+        if (userMessage.toLowerCase() === 'id') {
+            await replyToLine(replyToken, channelAccessToken, `Your User ID is:\n${userId}`);
+            continue;
+        }
+
+        // --- IDEMPOTENCY CHECK (กันข้อความซ้ำ) ---
+        // เช็คว่า Event ID นี้เคยเข้ามาหรือยัง
+        const { data: existingLog } = await supabase
+            .from('system_logs')
+            .select('id, status')
+            .eq('event_id', eventId)
+            .single();
+
+        if (existingLog) {
+            console.log(`🔄 Duplicate Event Detected (${eventId}). Status: ${existingLog.status}. Skipping...`);
+            continue; // ข้ามเลย เพราะทำไปแล้ว หรือกำลังทำอยู่
+        }
+
+        // --- LOCK THE EVENT ---
+        // บันทึกลง DB ทันทีว่า "กำลังประมวลผล" (PROCESSING)
+        // ถ้า LINE ยิงซ้ำมาอีก จะติด Check ข้างบน
+        const { data: newLog, error: logError } = await supabase.from('system_logs').insert({
+            event_source: 'LINE',
+            event_id: eventId,
+            user_message: userMessage,
+            status: 'PROCESSING',
+            action_type: 'THINKING'
+        }).select().single();
+
+        if (logError) {
+            console.error("Failed to lock event:", logError);
+            continue; 
+        }
+
+        // --- AI BRAIN LOGIC ---
+        // ส่ง logId ไปด้วย เพื่อให้ function ไป update record เดิม ไม่ใช่ create ใหม่
+        await processSmartAgentRequest(userMessage, replyToken, channelAccessToken, newLog.id, supabase);
       }
     }
 
@@ -61,128 +95,112 @@ export default async function handler(req: any, res: any) {
   }
 }
 
-// --- SMART AGENT LOGIC ---
+// --- SMART AGENT LOGIC (Refactored) ---
 
-async function handleSmartAgent(userMessage: string, replyToken: string, accessToken: string) {
-    const supabase = createClient(supabaseUrl!, supabaseKey!);
+async function processSmartAgentRequest(
+    userMessage: string, 
+    replyToken: string, 
+    accessToken: string, 
+    logId: string,
+    supabase: any
+) {
     const apiKey = process.env.API_KEY;
 
-    // 1. Logging Helper
-    const logSystemEvent = async (action: string, status: string, response: string) => {
+    // Helper to update the existing log entry
+    const updateLog = async (action: string, status: string, response: string) => {
         try {
-            await supabase.from('system_logs').insert({
-                event_source: 'LINE',
-                user_message: userMessage,
+            await supabase.from('system_logs').update({
                 ai_response: response,
                 action_type: action,
                 status: status
-            });
-        } catch (e) { console.error("Log failed", e); }
+            }).eq('id', logId);
+        } catch (e) { console.error("Log update failed", e); }
     };
 
     if (!apiKey) {
         const msg = "⚠️ Server Error: API Key missing.";
         await replyToLine(replyToken, accessToken, msg);
-        await logSystemEvent('ERROR', 'FAILED', msg);
+        await updateLog('ERROR', 'FAILED', msg);
         return;
     }
 
-    // 2. Fetch Full Context (Dynamic Learning)
-    // AI จะ "เรียนรู้ใหม่" ทุกครั้งที่มี request เข้ามา โดยการอ่าน DB ล่าสุด
-    const { data: accounts } = await supabase.from('accounts').select('id, name').limit(10);
-    const { data: modules } = await supabase.from('modules').select('id, name, schema_config');
-    const { data: recentTasks } = await supabase.from('tasks').select('id, title').eq('is_completed', false).limit(5);
-
-    // 3. Define AI Schema
-    const responseSchema = {
-        type: Type.OBJECT,
-        properties: {
-            operation: {
-                type: Type.STRING,
-                enum: ['CREATE', 'TRANSACTION', 'MODULE_ITEM', 'COMPLETE', 'CHAT'],
-                description: "Determine action based on input."
-            },
-            chatResponse: { type: Type.STRING, description: "Polite Thai response." },
-            
-            // PARA Fields
-            title: { type: Type.STRING, nullable: true },
-            category: { type: Type.STRING, nullable: true },
-            type: { type: Type.STRING, enum: ['Tasks', 'Projects', 'Resources', 'Areas'], nullable: true },
-            content: { type: Type.STRING, nullable: true },
-            relatedItemId: { type: Type.STRING, nullable: true },
-
-            // Finance Fields
-            amount: { type: Type.NUMBER, nullable: true },
-            transactionType: { type: Type.STRING, enum: ['INCOME', 'EXPENSE', 'TRANSFER'], nullable: true },
-            accountId: { type: Type.STRING, nullable: true },
-
-            // Module Fields
-            targetModuleId: { type: Type.STRING, nullable: true },
-            moduleDataRaw: { 
-                type: Type.ARRAY, 
-                nullable: true,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        key: { type: Type.STRING },
-                        value: { type: Type.STRING }
-                    },
-                    required: ["key", "value"]
-                }
-            },
-        },
-        required: ["operation", "chatResponse"]
-    };
-
-    const ai = new GoogleGenAI({ apiKey });
-    
-    // 4. Construct Dynamic "User Manual" for AI
-    // นี่คือส่วนที่ทำให้ AI ฉลาดขึ้นเรื่อยๆ ตาม Module ที่พี่สร้าง
-    const modulesManual = modules?.map((m: any, index: number) => {
-        const fields = m.schema_config?.fields.map((f: any) => 
-            `- Field "${f.key}" (${f.type}): ${f.label}`
-        ).join('\n');
-        return `MODULE ${index + 1}: "${m.name}" (ID: ${m.id})\nStructure:\n${fields}`;
-    }).join('\n\n');
-
-    const accountsList = accounts?.map((a: any) => `- ${a.name} (ID: ${a.id})`).join('\n');
-    const tasksList = recentTasks?.map((t: any) => `- Task: "${t.title}" (ID: ${t.id})`).join('\n');
-
-    const prompt = `
-    Role: You are "Jay" (เจ), a Personal Life OS Assistant.
-    You manage Ouk's life data.
-
-    --- DYNAMIC SYSTEM MANUAL (READ CAREFULLY) ---
-    The user has created the following custom data modules. You must strictly follow their structure.
-
-    ${modulesManual || "No custom modules created yet."}
-
-    --- FINANCE ACCOUNTS ---
-    ${accountsList || "No accounts."}
-
-    --- PENDING TASKS ---
-    ${tasksList || "No pending tasks."}
-
-    --- USER INPUT ---
-    "${userMessage}"
-
-    --- INSTRUCTIONS ---
-    1. **Analyze Intent**:
-       - If input matches a Module's purpose (e.g., "Weight 70" for Health Module), set operation='MODULE_ITEM'.
-       - If spending/money, set operation='TRANSACTION'.
-       - If completing a task, set operation='COMPLETE'.
-       - If creating a generic task/note, set operation='CREATE'.
-    
-    2. **For MODULE_ITEM**:
-       - Identify the 'targetModuleId' from the System Manual above.
-       - Map the user's input to 'moduleDataRaw' using the keys defined in the Manual.
-       - Example: If user says "Read 20 pages", and Book Module has field "pages_read", output { key: "pages_read", value: "20" }.
-
-    3. **Response**:
-       - Answer in Thai (Natural, Polite, Encouraging).
-    `;
-
     try {
+        // 1. Fetch Context
+        const { data: accounts } = await supabase.from('accounts').select('id, name').limit(10);
+        const { data: modules } = await supabase.from('modules').select('id, name, schema_config');
+        const { data: recentTasks } = await supabase.from('tasks').select('id, title').eq('is_completed', false).limit(5);
+
+        // 2. Define Schema & Prompt
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                operation: {
+                    type: Type.STRING,
+                    enum: ['CREATE', 'TRANSACTION', 'MODULE_ITEM', 'COMPLETE', 'CHAT'],
+                    description: "Determine action based on input."
+                },
+                chatResponse: { type: Type.STRING, description: "Polite Thai response." },
+                
+                // PARA Fields
+                title: { type: Type.STRING, nullable: true },
+                category: { type: Type.STRING, nullable: true },
+                type: { type: Type.STRING, enum: ['Tasks', 'Projects', 'Resources', 'Areas'], nullable: true },
+                content: { type: Type.STRING, nullable: true },
+                relatedItemId: { type: Type.STRING, nullable: true },
+
+                // Finance Fields
+                amount: { type: Type.NUMBER, nullable: true },
+                transactionType: { type: Type.STRING, enum: ['INCOME', 'EXPENSE', 'TRANSFER'], nullable: true },
+                accountId: { type: Type.STRING, nullable: true },
+
+                // Module Fields
+                targetModuleId: { type: Type.STRING, nullable: true },
+                moduleDataRaw: { 
+                    type: Type.ARRAY, 
+                    nullable: true,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            key: { type: Type.STRING },
+                            value: { type: Type.STRING }
+                        },
+                        required: ["key", "value"]
+                    }
+                },
+            },
+            required: ["operation", "chatResponse"]
+        };
+
+        const ai = new GoogleGenAI({ apiKey });
+        
+        const modulesManual = modules?.map((m: any, index: number) => {
+            const fields = m.schema_config?.fields.map((f: any) => 
+                `- Field "${f.key}" (${f.type}): ${f.label}`
+            ).join('\n');
+            return `MODULE ${index + 1}: "${m.name}" (ID: ${m.id})\nStructure:\n${fields}`;
+        }).join('\n\n');
+
+        const accountsList = accounts?.map((a: any) => `- ${a.name} (ID: ${a.id})`).join('\n');
+        const tasksList = recentTasks?.map((t: any) => `- Task: "${t.title}" (ID: ${t.id})`).join('\n');
+
+        const prompt = `
+        Role: You are "Jay" (เจ), a Personal Life OS Assistant.
+        User Input: "${userMessage}"
+
+        --- DYNAMIC SYSTEM MANUAL ---
+        ${modulesManual || "No custom modules."}
+
+        --- ACCOUNTS ---
+        ${accountsList || "No accounts."}
+
+        --- PENDING TASKS ---
+        ${tasksList || "No tasks."}
+
+        --- INSTRUCTIONS ---
+        Analyze user intent (CREATE, TRANSACTION, MODULE_ITEM, COMPLETE, CHAT).
+        Answer in Thai.
+        `;
+
         const result = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
@@ -195,7 +213,7 @@ async function handleSmartAgent(userMessage: string, replyToken: string, accessT
         const rawJSON = JSON.parse(result.text || "{}");
         const { operation, chatResponse, title, category, type, content, amount, transactionType, accountId, targetModuleId, moduleDataRaw, relatedItemId } = rawJSON;
 
-        // 5. EXECUTE ACTIONS
+        // 3. EXECUTE ACTIONS
         if (operation === 'CREATE') {
             const { error } = await supabase.from(type === 'Projects' ? 'projects' : 'tasks').insert({
                 id: uuidv4(),
@@ -207,7 +225,7 @@ async function handleSmartAgent(userMessage: string, replyToken: string, accessT
                 created_at: new Date().toISOString()
             });
             if (error) throw error;
-            await logSystemEvent('CREATE_PARA', 'SUCCESS', chatResponse);
+            await updateLog('CREATE_PARA', 'SUCCESS', chatResponse);
 
         } else if (operation === 'TRANSACTION') {
             const targetAcc = accountId || (accounts && accounts.length > 0 ? accounts[0].id : null);
@@ -222,14 +240,13 @@ async function handleSmartAgent(userMessage: string, replyToken: string, accessT
                     transaction_date: new Date().toISOString()
                 });
                 if (error) throw error;
-                await logSystemEvent('CREATE_TX', 'SUCCESS', chatResponse);
+                await updateLog('CREATE_TX', 'SUCCESS', chatResponse);
             } else {
-                await logSystemEvent('CREATE_TX', 'FAILED', 'No Account Found');
+                await updateLog('CREATE_TX', 'FAILED', 'No Account Found');
             }
 
         } else if (operation === 'MODULE_ITEM') {
             if (targetModuleId) {
-                // Convert raw KV to Object
                 let moduleData: Record<string, any> = {};
                 if (moduleDataRaw && Array.isArray(moduleDataRaw)) {
                     moduleDataRaw.forEach((item: any) => {
@@ -240,7 +257,6 @@ async function handleSmartAgent(userMessage: string, replyToken: string, accessT
                          moduleData[item.key] = val;
                     });
                 }
-
                 const { error } = await supabase.from('module_items').insert({
                     id: uuidv4(),
                     module_id: targetModuleId,
@@ -249,31 +265,31 @@ async function handleSmartAgent(userMessage: string, replyToken: string, accessT
                     created_at: new Date().toISOString()
                 });
                 if (error) throw error;
-                await logSystemEvent('CREATE_MODULE', 'SUCCESS', chatResponse);
+                await updateLog('CREATE_MODULE', 'SUCCESS', chatResponse);
             } else {
-                await logSystemEvent('CREATE_MODULE', 'FAILED', 'Module ID not found');
+                await updateLog('CREATE_MODULE', 'FAILED', 'Module ID not found');
             }
 
         } else if (operation === 'COMPLETE') {
             if (relatedItemId) {
                 const { error } = await supabase.from('tasks').update({ is_completed: true }).eq('id', relatedItemId);
                 if (error) throw error;
-                await logSystemEvent('COMPLETE_TASK', 'SUCCESS', chatResponse);
+                await updateLog('COMPLETE_TASK', 'SUCCESS', chatResponse);
             } else {
-                 await logSystemEvent('COMPLETE_TASK', 'FAILED', 'Task ID not identified');
+                 await updateLog('COMPLETE_TASK', 'FAILED', 'Task ID not identified');
             }
 
         } else {
-            await logSystemEvent('CHAT', 'SUCCESS', chatResponse);
+            await updateLog('CHAT', 'SUCCESS', chatResponse);
         }
 
-        // 6. Reply to User
+        // 4. Reply to User
         await replyToLine(replyToken, accessToken, chatResponse);
 
     } catch (error: any) {
         console.error("AI/DB Error:", error);
         await replyToLine(replyToken, accessToken, "เจขอโทษครับ ระบบหลังบ้านขัดข้องนิดหน่อย");
-        await logSystemEvent('ERROR', 'FAILED', error.message);
+        await updateLog('ERROR', 'FAILED', error.message);
     }
 }
 

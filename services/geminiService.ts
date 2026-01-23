@@ -2,8 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage, FinanceContext, ModuleContext, TransactionType } from "../types";
 
-// JAY'S NOTE: Hardcoded fallback key provided by user (WARNING: Restricted keys may fail on production domains)
-const FALLBACK_API_KEY = "AIzaSyA9r8ElHzC3OWERIe1dD1EiB-upunJzrfE";
+// JAY'S NOTE: REMOVED HARDCODED KEY for Security. 
+// User must provide key via Vercel Environment Variables (VITE_API_KEY) or Manual Input in UI.
+const FALLBACK_API_KEY = "";
 
 // JAY'S NOTE: Helper to safely retrieve API Key
 const getApiKey = (manualOverride?: string): string | undefined => {
@@ -200,7 +201,7 @@ export const analyzeParaInput = async (
     if (errorMsg === "MISSING_API_KEY") {
         return {
             operation: 'CHAT',
-            chatResponse: "⛔ **ยังไม่ได้ใส่ API Key ครับพี่อุ๊ก**\n\nรบกวนพี่กดปุ่ม **System > Set Key** (รูปกุญแจ) แล้วใส่ Gemini API Key หรือตั้งค่า VITE_API_KEY ใน Vercel นะครับ",
+            chatResponse: "⛔ **ยังไม่ได้ใส่ API Key ครับพี่อุ๊ก**\n\nรบกวนพี่สร้าง Key ใหม่ (อันเก่าโดน Google เตือน) แล้วใส่ใน **Vercel Env Vars** หรือกดปุ่ม **System > Set Key** ด้านซ้ายล่างชั่วคราวได้ครับ",
             reasoning: "Missing API Key"
         };
     }
@@ -209,7 +210,7 @@ export const analyzeParaInput = async (
     if (errorMsg.includes("403") || errorMsg.includes("API key not valid") || errorMsg.includes("fetch failed")) {
          return {
             operation: 'CHAT',
-            chatResponse: "⛔ **API Key ใช้งานไม่ได้บนเว็บจริงครับ**\n\nสาเหตุอาจเกิดจาก:\n1. Key นี้ถูกล็อคให้ใช้แค่ Localhost (Domain Restriction)\n2. ยังไม่ได้ใส่ `VITE_API_KEY` ใน Vercel\n3. Quota เต็ม\n\nลองสร้าง Key ใหม่แล้วใส่ใน Vercel หรือกดปุ่ม Set Key ด้านล่างซ้ายนะครับ",
+            chatResponse: "⛔ **API Key ใช้งานไม่ได้บนเว็บจริงครับ**\n\nสาเหตุอาจเกิดจาก:\n1. Google ระงับ Key เก่าเพราะ Exposed (ต้องสร้างใหม่)\n2. Domain Restriction (ต้องปลดล็อคใน Google Console)\n3. ยังไม่ได้ใส่ `VITE_API_KEY` ใน Vercel\n\nลองสร้าง Key ใหม่แล้วอัปเดตใน Vercel นะครับ",
             reasoning: "Invalid API Key on Production"
         };
     }

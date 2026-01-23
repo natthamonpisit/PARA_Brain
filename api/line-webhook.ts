@@ -5,8 +5,6 @@ import { createClient } from "@supabase/supabase-js";
 // Initialize Services
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
-// Note: In Vercel Serverless, use process.env.API_KEY
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
 
 export default async function handler(req: any, res: any) {
   // 1. Method Validation
@@ -48,16 +46,17 @@ export default async function handler(req: any, res: any) {
 
         // Command: "test" -> System Check (Diagnostic Mode)
         if (userMessage.toLowerCase() === 'test') {
-            const hasApiKey = !!process.env.API_KEY;
+            const apiKey = process.env.API_KEY || "";
+            const hasApiKey = apiKey.length > 10;
             const hasSupabase = !!(supabaseUrl && supabaseKey);
             
             let statusMsg = "🟢 Ouk OS System Check:\n";
             statusMsg += `• Webhook: Active ✅\n`;
-            statusMsg += `• API Key (Server): ${hasApiKey ? "✅ Ready" : "❌ Missing (Add 'API_KEY' in Vercel)"}\n`;
+            statusMsg += `• API Key: ${hasApiKey ? "✅ Ready" : "❌ Missing (Add 'API_KEY' in Vercel)"}\n`;
             statusMsg += `• Database: ${hasSupabase ? "✅ Connected" : "❌ Config Error"}\n`;
             
             if (!hasApiKey) {
-                statusMsg += "\n⚠️ Please add 'API_KEY' to Vercel Environment Variables.";
+                statusMsg += "\n⚠️ อย่าลืมใส่ 'API_KEY' ใน Vercel แล้วกด Redeploy นะครับ";
             }
 
             await replyToLine(replyToken, channelAccessToken, statusMsg);
@@ -107,6 +106,14 @@ async function replyToLine(replyToken: string, accessToken: string, text: string
 }
 
 async function handleAIResponse(userMessage: string, replyToken: string, accessToken: string) {
+    // 0. Init AI with FRESH environment variable
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        await replyToLine(replyToken, accessToken, "⚠️ Server Error: 'API_KEY' is missing in Vercel Environment Variables.");
+        return;
+    }
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+
     // 1. Initialize DB
     if (!supabaseUrl || !supabaseKey) {
         await replyToLine(replyToken, accessToken, "⚠️ Server Error: Supabase config missing.");
@@ -165,7 +172,7 @@ ${financeContext}
     } catch (error: any) {
         console.error("Gemini Error:", error);
         if (error.message && (error.message.includes("API key") || error.message.includes("403"))) {
-            replyText = "⚠️ API Key มีปัญหาบน Server (ตรวจสอบใน Vercel Env Vars นะครับ)";
+            replyText = "⚠️ API Key มีปัญหาบน Server (เช็ค Domain Restriction หรือกด Redeploy ใน Vercel)";
         } else {
             replyText = "ขอโทษครับ เจมีปัญหาในการติดต่อ AI";
         }

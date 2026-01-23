@@ -1,7 +1,7 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, MessageCircle, Send } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, MessageCircle, Send, ShieldCheck } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
@@ -40,6 +40,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
+  // Check for Environment Variable Key (Vite Build Time)
+  // @ts-ignore
+  const envKeyExists = typeof import.meta !== 'undefined' && import.meta.env && !!import.meta.env.VITE_API_KEY;
+  const isKeyReady = apiKey || envKeyExists;
+
   const menuItems = [
     { type: 'All', label: 'Dashboard', icon: Box, color: 'text-slate-500' },
     { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },
@@ -66,7 +71,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const handleSetKey = () => {
-    const newKey = window.prompt("Enter your Gemini API Key manually (it will be saved locally):", apiKey);
+    const promptMsg = envKeyExists 
+        ? "✅ Vercel Key Detected!\n\nYou can leave this blank to use the system key, or enter a new one to override it:" 
+        : "Enter your Gemini API Key manually (it will be saved locally):";
+        
+    const newKey = window.prompt(promptMsg, apiKey);
     if (newKey !== null) {
       onSetApiKey(newKey);
     }
@@ -221,10 +230,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button 
               onClick={handleSetKey}
               title={isCollapsed ? "API Key" : ''}
-              className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors`}
+              className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium transition-colors ${isKeyReady ? 'text-slate-600 hover:bg-slate-50' : 'text-red-600 bg-red-50 hover:bg-red-100'}`}
           >
-              <Key className={`w-4 h-4 ${apiKey ? 'text-green-500' : 'text-slate-400'}`} />
-              {!isCollapsed && <span>{apiKey ? 'API Key Set' : 'Set Key'}</span>}
+              {apiKey ? (
+                  <Key className="w-4 h-4 text-orange-500" />
+              ) : envKeyExists ? (
+                  <ShieldCheck className="w-4 h-4 text-green-500" />
+              ) : (
+                  <Key className="w-4 h-4 text-red-500" />
+              )}
+              
+              {!isCollapsed && (
+                  <span>
+                      {apiKey ? 'Key: Manual' : envKeyExists ? 'Key: Auto (Env)' : 'Set Key'}
+                  </span>
+              )}
           </button>
           
           {/* TEST LINE ALERT BUTTON */}

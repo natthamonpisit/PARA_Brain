@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage } from "../types";
+import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage, FinanceContext, ModuleContext, TransactionType } from "../types";
 
 // JAY'S NOTE: Helper to safely retrieve API Key
 const getApiKey = (manualOverride?: string): string | undefined => {
@@ -18,7 +18,9 @@ const getApiKey = (manualOverride?: string): string | undefined => {
 
 export const analyzeParaInput = async (
   input: string,
-  existingItems: ExistingItemContext[],
+  paraItems: ExistingItemContext[],
+  financeContext: FinanceContext,
+  moduleContext: ModuleContext[],
   chatHistory: ChatMessage[] = [], 
   manualApiKey?: string
 ): Promise<AIAnalysisResult> => {
@@ -34,18 +36,20 @@ export const analyzeParaInput = async (
     .map(msg => `${msg.role === 'user' ? 'User' : 'Jay'}: ${msg.text}`)
     .join('\n');
 
+  // JAY'S NOTE: Updated Schema to support ALL operations
   const responseSchema = {
     type: Type.OBJECT,
     properties: {
       operation: {
         type: Type.STRING,
-        enum: ['CREATE', 'COMPLETE', 'CHAT'],
-        description: "Choose 'CHAT' if suggesting a missing parent (Area/Project) or asking for details. Choose 'CREATE' only when the parent exists or the user insists."
+        enum: ['CREATE', 'COMPLETE', 'CHAT', 'TRANSACTION', 'MODULE_ITEM'],
+        description: "Determine the action: CREATE (PARA item), TRANSACTION (Finance), MODULE_ITEM (Dynamic App), COMPLETE (Task), or CHAT."
       },
       chatResponse: {
         type: Type.STRING,
-        description: "Your conversational response in Thai. If a parent Area is missing, explain why we should create it first."
+        description: "Your conversational response in Thai."
       },
+      // PARA Fields
       type: {
         type: Type.STRING,
         enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE, ParaType.TASK],
@@ -53,21 +57,25 @@ export const analyzeParaInput = async (
       },
       category: { type: Type.STRING, nullable: true },
       title: { type: Type.STRING, nullable: true },
-      summary: { type: Type.STRING, nullable: true, description: "Markdown summary if creating an item." },
-      suggestedTags: {
-        type: Type.ARRAY,
-        items: { type: Type.STRING },
-        nullable: true
+      summary: { type: Type.STRING, nullable: true },
+      suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
+      relatedItemIdsCandidates: { type: Type.ARRAY, items: { type: Type.STRING } },
+      
+      // Finance Fields
+      amount: { type: Type.NUMBER, nullable: true },
+      transactionType: { type: Type.STRING, enum: ['INCOME', 'EXPENSE', 'TRANSFER'], nullable: true },
+      accountId: { type: Type.STRING, nullable: true, description: "ID of the finance account to use." },
+
+      // Module Fields
+      targetModuleId: { type: Type.STRING, nullable: true, description: "ID of the dynamic module (e.g. Health Tracker ID)." },
+      moduleData: { 
+          type: Type.OBJECT, 
+          nullable: true,
+          description: "Key-value pairs matching the module's schema fields (e.g. { weight: 70 }).",
+          properties: {}, // Allow flexible object
       },
-      relatedItemIdsCandidates: {
-        type: Type.ARRAY,
-        items: { type: Type.STRING },
-        description: "IDs of related items (e.g. Area parent of a Project, or Project parent of a Task)."
-      },
-      reasoning: {
-        type: Type.STRING,
-        description: "Internal explanation."
-      }
+
+      reasoning: { type: Type.STRING }
     },
     required: ["operation", "chatResponse", "reasoning"]
   };
@@ -78,63 +86,41 @@ export const analyzeParaInput = async (
     - Productivity Coach: Expert in PARA Method & GTD.
     - Strategist: Logic-driven, data-backed decision making.
 
-    2. MANDATORY KNOWLEDGE BASE: Before answering ANY finance/management question, you must reference these frameworks:
-    - Financial Academy Standards:
-      - The 6 Jars System (T. Harv Eker): Analyze spending into Necessity (55%), FFA (10%), Play (10%), etc.
-      - Maslow's Hierarchy of Financial Needs: Survival -> Safety -> Freedom.
-      - The Rule of 72 & Compound Interest: For investment advice.
-      - Cash Flow Quadrant: Focus on moving active income to passive income.
-    - Management Standards:
-      - PARA Method: Organize everything into Projects, Areas, Resources, Archives.
-      - Eisenhower Matrix: Distinguish between "Urgent" vs "Important".
+    2. MANDATORY KNOWLEDGE BASE:
+    - **Finance**: 6 Jars, Maslow's Financial Needs, Rule of 72.
+    - **Productivity**: PARA Method, Eisenhower Matrix.
+    - **Context**: Ouk is getting married on March 21, 2026. Prioritize this goal.
 
     3. OPERATIONAL PROTOCOLS:
-    - Fact-Check First: Never assume. If the user's data (balance, spending) looks weird (e.g., negative balance), flag it immediately.
-    - Context Awareness: Ouk is getting married on March 21, 2026. Every financial decision must be weighed against this deadline.
-    - Holistic Analysis: Do not isolate problems. If Ouk buys a camera lens, analyze the impact on the "Wedding Budget" and "Long-term Assets".
+    - **Input Analysis**: Determine if the input is a Task/Project, a Financial Transaction, or Data for a specific Module.
+    - **Finance Logic**: If input mentions spending/income (e.g. "lunch 100"), map to 'TRANSACTION'. Find the best matching 'accountId' from context.
+    - **Module Logic**: If input matches a dynamic module's purpose (e.g. "weight 70kg" -> Health Module), map to 'MODULE_ITEM'.
+    - **Tone**: Thai (Main) with Technical English. Use "พี่อุ๊ก" and "เจ". Be concise and critical if necessary.
 
-    4. TONE & STYLE:
-    - Language: Thai (Main) with Technical English terms.
-    - Addressing: Use "พี่อุ๊ก" (P'Ouk) for the user and refer to yourself as "เจ" (Jay).
-    - No Fluff: Be concise. Bullet points. Actionable advice only.
-    - Critical Thinking: Dare to disagree if Ouk is making a financially bad decision. Warn him strictly.
-
-    --- SYSTEM FUNCTIONALITY (Do not break these rules) ---
-    You are the brain of the Ouk OS application. You must output JSON to control the app.
+    --- DATA CONTEXT ---
     
-    --- กฎเหล็กของ PARA (Hierarchy Logic) ---
-    คุณต้องตรวจสอบความสัมพันธ์ของข้อมูล (Existing Items) ก่อนตัดสินใจสร้างเสมอ:
+    [EXISTING PARA ITEMS]
+    ${JSON.stringify(paraItems)}
 
-    1. **Project ต้องมี Area (Parent Check)**: 
-       - หากผู้ใช้ต้องการสร้าง Project ใหม่ (เช่น "ทำเว็บใหม่") ให้ตรวจสอบรายการ 'Areas' ใน Database ก่อน
-       - **Case A: ยังไม่มี Area ที่เหมาะสม** (เช่น มีแค่ Health แต่จะทำ Coding):
-         - **ห้าม** สร้าง Project ทันที
-         - ให้ตอบกลับด้วย **CHAT** เพื่อเสนอให้สร้าง Area ก่อน เช่น "พี่อุ๊กครับ โปรเจกต์นี้ดูเหมือนจะเป็นเรื่องงาน/Coding แต่เรายังไม่มี Area ด้านนี้เลย ให้เจช่วยสร้าง Area 'Coding' ให้ก่อนไหมครับ?"
-       - **Case B: มี Area อยู่แล้ว**:
-         - ให้สร้าง Project ได้เลย และ **ต้อง** ใส่ ID ของ Area นั้นลงใน \`relatedItemIdsCandidates\`
+    [FINANCE ACCOUNTS]
+    ${JSON.stringify(financeContext.accounts)}
 
-    2. **Task ต้องมี Project**:
-       - งานชิ้นเล็กๆ ควรสังกัด Project เสมอ ถ้าหาไม่เจอ ให้ถามหรือเสนอสร้าง Project
+    [AVAILABLE MODULES & SCHEMAS]
+    ${JSON.stringify(moduleContext)}
 
-    --- กฎการสนทนา ---
-    1. **เน้นคุย (CHAT First)**: อย่าเพิ่งรีบจด ถ้าข้อมูลไม่ครบหรือขาดความเชื่อมโยง
-    2. **Smart Linking**: หน้าที่ของคุณคือการผูกโยงข้อมูล ถ้าผู้ใช้ลืม คุณต้องเตือน
-
-    --- ข้อมูลปัจจุบัน (Database) ---
-    ${JSON.stringify(existingItems)}
-
-    --- ประวัติการคุย ---
-    ${recentContext || "เริ่มบทสนทนาใหม่"}
+    --- CHAT HISTORY ---
+    ${recentContext || "Start of conversation"}
     
-    --- คำสั่งล่าสุดของผู้ใช้ --- 
+    --- USER INPUT --- 
     "${input}"
 
-    --- วิธีตัดสินใจเลือก Operation ---
-    - **CHAT**: ใช้เมื่อต้องถามเพิ่ม, เสนอสร้าง Area ที่ขาดหายไป, หรือให้คำปรึกษา
-    - **CREATE**: ใช้เมื่อโครงสร้างครบถ้วน (มี Parent รองรับ) และผู้ใช้ยืนยัน
-    - **COMPLETE**: ใช้เมื่อผู้ใช้บอกว่าทำเสร็จแล้ว
+    --- OUTPUT INSTRUCTIONS ---
+    - **TRANSACTION**: Use when user spends/receives money. Must infer 'amount', 'transactionType', and 'accountId' (default to Cash/Bank if unspecified).
+    - **MODULE_ITEM**: Use when user provides data relevant to a specific module (e.g. Health, Reading List). Map data to 'moduleData' based on schema fields.
+    - **CREATE**: Use for Tasks, Projects, Areas, Resources.
+    - **CHAT**: Use for questions, advice, or clarification.
 
-    ส่งคำตอบเป็น JSON ตามโครงสร้างที่กำหนดเท่านั้น
+    Output JSON only.
   `;
 
   try {
@@ -150,13 +136,15 @@ export const analyzeParaInput = async (
     const text = response.text;
     if (!text) throw new Error("No response from AI");
     
-    return JSON.parse(text) as AIAnalysisResult;
+    // Hack for moduleData dynamic typing since Gemini schema handling for dynamic objects can be tricky
+    const result = JSON.parse(text);
+    return result as AIAnalysisResult;
 
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
     return {
       operation: 'CHAT',
-      chatResponse: "ขอโทษครับพี่อุ๊ก พอดีเจมึนๆ นิดหน่อย รบกวนพี่พิมพ์ใหม่อีกทีได้ไหมครับ?",
+      chatResponse: "ระบบเจขัดข้องชั่วคราวครับพี่อุ๊ก ขออภัยครับ (AI Error)",
       reasoning: "Error fallback"
     };
   }

@@ -1,21 +1,34 @@
 
 import { useState } from 'react';
-import { ChatMessage, ParaItem, ExistingItemContext, ParaType } from '../types';
+import { ChatMessage, ParaItem, ExistingItemContext, ParaType, FinanceAccount, AppModule, Transaction, ModuleItem } from '../types';
 import { analyzeParaInput } from '../services/geminiService';
 import { generateId } from '../utils/helpers';
 
 interface UseAIChatProps {
   items: ParaItem[];
+  accounts: FinanceAccount[];
+  modules: AppModule[];
   onAddItem: (item: ParaItem) => Promise<ParaItem>;
   onToggleComplete: (id: string, currentStatus: boolean) => Promise<ParaItem>;
+  onAddTransaction: (tx: Transaction) => Promise<void>;
+  onAddModuleItem: (item: ModuleItem) => Promise<void>;
   apiKey?: string;
 }
 
-export const useAIChat = ({ items, onAddItem, onToggleComplete, apiKey }: UseAIChatProps) => {
+export const useAIChat = ({ 
+  items, 
+  accounts, 
+  modules,
+  onAddItem, 
+  onToggleComplete, 
+  onAddTransaction,
+  onAddModuleItem,
+  apiKey 
+}: UseAIChatProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     role: 'assistant',
-    text: 'Hello! I am Jay, your Personal Architect. What is on your mind today? We can organize your projects, or just talk through your ideas.',
+    text: 'สวัสดีครับพี่อุ๊ก! เจ (Jay) พร้อมลุยงานแล้วครับ จะเรื่องงาน เงิน หรือวางแผนชีวิต บอกมาได้เลยครับ',
     timestamp: new Date()
   }]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -34,11 +47,11 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete, apiKey }: UseAIC
     
     const currentMessages = [...messages, userMsg];
     setMessages(currentMessages);
-
     setIsProcessing(true);
 
     try {
-      const context: ExistingItemContext[] = items.map(i => ({
+      // Prepare Contexts
+      const paraContext: ExistingItemContext[] = items.map(i => ({
         id: i.id,
         title: i.title,
         category: i.category,
@@ -46,15 +59,63 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete, apiKey }: UseAIC
         isCompleted: i.isCompleted
       }));
 
-      const result = await analyzeParaInput(input, context, currentMessages, apiKey);
+      const financeContext = {
+        accounts: accounts.map(a => ({ id: a.id, name: a.name, balance: a.balance }))
+      };
 
-      if (result.operation === 'CHAT') {
-        addMessage({
-          id: generateId(),
-          role: 'assistant',
-          text: result.chatResponse,
-          timestamp: new Date()
-        });
+      const moduleContext = modules.map(m => ({
+        id: m.id,
+        name: m.name,
+        fields: m.schemaConfig.fields
+      }));
+
+      const result = await analyzeParaInput(input, paraContext, financeContext, moduleContext, currentMessages, apiKey);
+
+      // OPERATION DISPATCHER
+      if (result.operation === 'TRANSACTION') {
+         const newTx: Transaction = {
+             id: generateId(),
+             description: result.title || "Transaction from Chat",
+             amount: result.amount || 0,
+             type: result.transactionType || 'EXPENSE',
+             category: result.category || 'General',
+             accountId: result.accountId || (accounts.length > 0 ? accounts[0].id : 'unknown'),
+             transactionDate: new Date().toISOString()
+         };
+         await onAddTransaction(newTx);
+         addMessage({
+             id: generateId(),
+             role: 'assistant',
+             text: result.chatResponse,
+             createdItem: newTx,
+             itemType: 'TRANSACTION',
+             timestamp: new Date()
+         });
+
+      } else if (result.operation === 'MODULE_ITEM') {
+         const newItem: ModuleItem = {
+             id: generateId(),
+             moduleId: result.targetModuleId || '',
+             title: result.title || "Entry",
+             data: result.moduleData || {},
+             tags: result.suggestedTags || [],
+             createdAt: new Date().toISOString(),
+             updatedAt: new Date().toISOString()
+         };
+         if (newItem.moduleId) {
+            await onAddModuleItem(newItem);
+            addMessage({
+                id: generateId(),
+                role: 'assistant',
+                text: result.chatResponse,
+                createdItem: newItem,
+                itemType: 'MODULE',
+                timestamp: new Date()
+            });
+         } else {
+             addMessage({ id: generateId(), role: 'assistant', text: "เจหา Module ไม่เจอครับ รบกวนพี่อุ๊กเช็คอีกทีนะ", timestamp: new Date() });
+         }
+
       } else if (result.operation === 'COMPLETE') {
         const candidateIds = result.relatedItemIdsCandidates || [];
         const candidateItems = items.filter(i => candidateIds.includes(i.id));
@@ -62,12 +123,12 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete, apiKey }: UseAIC
         addMessage({
           id: generateId(),
           role: 'assistant',
-          text: result.chatResponse, // Use conversational response
+          text: result.chatResponse,
           suggestedCompletionItems: candidateItems,
           timestamp: new Date()
         });
-      } else {
-        // CREATE
+
+      } else if (result.operation === 'CREATE') {
         const newItem: ParaItem = {
           id: generateId(),
           title: result.title || "Untitled",
@@ -87,8 +148,18 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete, apiKey }: UseAIC
         addMessage({
           id: generateId(),
           role: 'assistant',
-          text: result.chatResponse, // Use the human-like response
+          text: result.chatResponse,
           createdItem: newItem,
+          itemType: 'PARA',
+          timestamp: new Date()
+        });
+
+      } else {
+        // CHAT
+        addMessage({
+          id: generateId(),
+          role: 'assistant',
+          text: result.chatResponse,
           timestamp: new Date()
         });
       }
@@ -98,7 +169,7 @@ export const useAIChat = ({ items, onAddItem, onToggleComplete, apiKey }: UseAIC
       addMessage({
         id: generateId(),
         role: 'assistant',
-        text: "I hit a snag while processing that. Is your API Key set correctly?",
+        text: "เจขอโทษครับ มีปัญหานิดหน่อย พี่อุ๊กลองใหม่นะ หรือเช็ค API Key หน่อยครับ",
         timestamp: new Date()
       });
     } finally {

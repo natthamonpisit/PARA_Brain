@@ -1,75 +1,55 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatPanel } from './components/ChatPanel';
 import { ParaBoard } from './components/ParaBoard';
 import { FinanceBoard } from './components/FinanceBoard'; 
-import { DynamicModuleBoard } from './components/DynamicModuleBoard'; // NEW
-import { ModuleBuilderModal } from './components/ModuleBuilderModal'; // NEW
+import { DynamicModuleBoard } from './components/DynamicModuleBoard'; 
+import { ModuleBuilderModal } from './components/ModuleBuilderModal'; 
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
-import { ParaType, FinanceAccount, Transaction, AppModule, ModuleItem } from './types';
+import { ParaType, AppModule, ModuleItem } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
+import { useFinanceData } from './hooks/useFinanceData'; // NEW
+import { useModuleData } from './hooks/useModuleData'; // NEW
 import { useAIChat } from './hooks/useAIChat';
-import { db } from './services/db'; 
 
 type MobileTab = 'board' | 'chat';
 
 export default function App() {
+  // --- CORE HOOKS ---
   const { 
-    items, historyLogs, isLoadingDB, deleteItem, toggleComplete, exportData, importData, addItem, loadData
+    items, historyLogs, isLoadingDB, deleteItem, toggleComplete, exportData, importData, addItem
   } = useParaData();
 
-  // --- FINANCE DATA ---
-  const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const {
+      accounts, transactions, loadFinanceData, addTransaction, addAccount
+  } = useFinanceData();
 
-  // --- DYNAMIC MODULES DATA ---
-  const [modules, setModules] = useState<AppModule[]>([]);
-  const [moduleItems, setModuleItems] = useState<Record<string, ModuleItem[]>>({});
-  const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
+  const {
+      modules, moduleItems, loadModules, loadModuleItems, createModule, addModuleItem, deleteModuleItem
+  } = useModuleData();
 
   // --- UI STATE ---
   const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | string>('All');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('board');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [apiKey, setApiKey] = useState('');
 
-  // --- LOAD DATA ---
-  const loadFinanceData = async () => {
-      try {
-          const accs = await db.getAccounts();
-          const txs = await db.getTransactions();
-          setAccounts(accs);
-          setTransactions(txs);
-      } catch (e) { console.error("Error finance", e); }
-  };
-
-  const loadModules = async () => {
-      try {
-          const mods = await db.getModules();
-          setModules(mods);
-      } catch (e) { console.error("Error modules", e); }
-  };
-
-  // Load items for a specific module when selected
-  const loadModuleItems = async (moduleId: string) => {
-      try {
-          const items = await db.getModuleItems(moduleId);
-          setModuleItems(prev => ({...prev, [moduleId]: items}));
-      } catch (e) { console.error("Error module items", e); }
-  };
-
+  // --- INITIAL LOAD ---
   useEffect(() => {
     const savedKey = localStorage.getItem('para_ai_key');
     if (savedKey) setApiKey(savedKey);
     loadFinanceData();
     loadModules();
-  }, []);
+  }, []); // Run once
 
+  // --- VIEW LOGIC ---
   useEffect(() => {
       // If active type is a module ID, load its items
       if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
@@ -82,8 +62,16 @@ export default function App() {
     localStorage.setItem('para_ai_key', key);
   };
 
+  // --- AI INTEGRATION ---
   const { messages, isProcessing, handleSendMessage, handleChatCompletion } = useAIChat({
-    items, onAddItem: addItem, onToggleComplete: toggleComplete, apiKey
+    items, 
+    accounts,
+    modules,
+    onAddItem: addItem, 
+    onToggleComplete: toggleComplete, 
+    onAddTransaction: addTransaction,
+    onAddModuleItem: addModuleItem,
+    apiKey
   });
   
   const showNotification = (message: string, type: 'success' | 'error') => {
@@ -95,8 +83,7 @@ export default function App() {
     if (!window.confirm('Delete this item?')) return;
     try {
         if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
-            await db.deleteModuleItem(id); // Implement this in db.ts if missing, added logic below
-            await loadModuleItems(activeType);
+            await deleteModuleItem(id, activeType);
         } else {
             await deleteItem(id);
         }
@@ -105,18 +92,11 @@ export default function App() {
 
   const handleManualSave = async (data: any, mode: 'PARA' | 'TRANSACTION' | 'ACCOUNT' | 'MODULE') => {
       try {
-          if (mode === 'PARA') {
-              await addItem(data);
-          } else if (mode === 'TRANSACTION') {
-              await db.addTransaction(data);
-              await loadFinanceData();
-          } else if (mode === 'ACCOUNT') {
-              await db.addAccount(data);
-              await loadFinanceData();
-          } else if (mode === 'MODULE') {
-              await db.addModuleItem(data);
-              await loadModuleItems(data.moduleId);
-          }
+          if (mode === 'PARA') await addItem(data);
+          else if (mode === 'TRANSACTION') await addTransaction(data);
+          else if (mode === 'ACCOUNT') await addAccount(data);
+          else if (mode === 'MODULE') await addModuleItem(data);
+          
           showNotification('Saved successfully', 'success');
       } catch (e) {
           console.error(e);
@@ -126,8 +106,7 @@ export default function App() {
 
   const handleCreateModule = async (newModule: AppModule) => {
       try {
-          await db.createModule(newModule);
-          await loadModules();
+          await createModule(newModule);
           showNotification(`Module '${newModule.name}' created!`, 'success');
           setActiveType(newModule.id);
       } catch (e) {

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Send, Bot, User, Loader2, ArrowRight, Database, FileJson, CheckCircle2 } from 'lucide-react';
-import { ChatMessage, ParaType, ParaItem } from '../types';
+import { ChatMessage, ParaType, ParaItem, Transaction, ModuleItem } from '../types';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -36,6 +36,42 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   };
 
   const isJsonInput = input.trim().startsWith('{');
+
+  const renderCreatedItemCard = (msg: ChatMessage) => {
+    if (!msg.createdItem) return null;
+
+    let typeLabel = 'ITEM';
+    let categoryLabel = 'General';
+    let titleLabel = 'Untitled';
+
+    if (msg.itemType === 'TRANSACTION') {
+        const tx = msg.createdItem as Transaction;
+        typeLabel = tx.type;
+        categoryLabel = tx.category;
+        titleLabel = tx.description;
+    } else if (msg.itemType === 'MODULE') {
+        const modItem = msg.createdItem as ModuleItem;
+        typeLabel = 'MODULE';
+        categoryLabel = modItem.tags?.[0] || 'Data';
+        titleLabel = modItem.title;
+    } else {
+        // PARA
+        const para = msg.createdItem as ParaItem;
+        typeLabel = para.type;
+        categoryLabel = para.category;
+        titleLabel = para.title;
+    }
+
+    return (
+        <div className="bg-white rounded-lg border border-indigo-100 p-2 shadow-sm">
+            <div className="flex justify-between items-start mb-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase">{typeLabel}</span>
+                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded">{categoryLabel}</span>
+            </div>
+            <div className="font-medium text-slate-800 text-sm truncate">{titleLabel}</div>
+        </div>
+    );
+  };
 
   return (
     <div className={`flex flex-col h-full bg-white border-l border-slate-200 shadow-xl z-20 ${className}`}>
@@ -88,13 +124,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   <Database className="w-3 h-3" />
                   <span>Saved to Database</span>
                 </div>
-                <div className="bg-white rounded-lg border border-indigo-100 p-2 shadow-sm">
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">{msg.createdItem.type}</span>
-                    <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded">{msg.createdItem.category}</span>
-                  </div>
-                  <div className="font-medium text-slate-800 text-sm truncate">{msg.createdItem.title}</div>
-                </div>
+                {renderCreatedItemCard(msg)}
               </div>
             )}
 

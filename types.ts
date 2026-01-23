@@ -95,20 +95,32 @@ export interface ModuleItem {
 
 // โครงสร้างที่ส่งให้ AI ช่วยวิเคราะห์
 export interface AIAnalysisResult {
-  // JAY'S NOTE: Added CHAT for conversation only
-  operation: 'CREATE' | 'COMPLETE' | 'CHAT'; 
+  // JAY'S NOTE: Expanded operations to cover Finance and Modules
+  operation: 'CREATE' | 'COMPLETE' | 'CHAT' | 'TRANSACTION' | 'MODULE_ITEM'; 
+  
+  // PARA Fields
   type?: ParaType;
   category?: string;
   title?: string;
   summary?: string;
   suggestedTags?: string[];
-  // JAY'S NOTE: This is the actual conversational part
-  chatResponse: string; 
   relatedItemIdsCandidates?: string[]; 
-  reasoning: string; // ให้ AI อธิบายว่าทำไมถึงจัดเข้าหมวดนี้
+  
+  // Finance Fields
+  amount?: number;
+  transactionType?: TransactionType;
+  accountId?: string;
+  
+  // Dynamic Module Fields
+  targetModuleId?: string;
+  moduleData?: Record<string, any>;
+
+  // Common
+  chatResponse: string; 
+  reasoning: string; 
 }
 
-// Minimal structure sent to AI for context (save tokens)
+// Context structures for AI
 export interface ExistingItemContext {
   id: string;
   title: string;
@@ -117,13 +129,25 @@ export interface ExistingItemContext {
   isCompleted?: boolean;
 }
 
+export interface FinanceContext {
+  accounts: { id: string; name: string; balance: number }[];
+}
+
+export interface ModuleContext {
+  id: string;
+  name: string;
+  fields: ModuleField[];
+}
+
 // JAY'S NOTE: Chat Message Structure สำหรับหน้าจอขวา
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   // ถ้า AI ทำการบันทึกข้อมูล จะแนบ Item ที่สร้างมาโชว์ด้วย
-  createdItem?: ParaItem; 
+  createdItem?: ParaItem | Transaction | ModuleItem; 
+  itemType?: 'PARA' | 'TRANSACTION' | 'MODULE'; // To help UI render correctly
+  
   // JAY'S NOTE: ถ้า AI เสนอให้ปิดงาน จะส่งรายการ Task ที่น่าสงสัยมาให้ User กดเลือก
   suggestedCompletionItems?: ParaItem[];
   timestamp: Date;

@@ -17,7 +17,7 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-        // Construct the webhook URL dynamically based on current origin
+        // Dynamic URL based on current browser location
         setWebhookUrl(`${window.location.origin}/api/line-webhook`);
     }
   }, []);

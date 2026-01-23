@@ -1,42 +1,21 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage } from "../types";
 
-// JAY'S NOTE: Helper to safely retrieve API Key from various environment configurations
+// JAY'S NOTE: Helper to safely retrieve API Key
 const getApiKey = (manualOverride?: string): string | undefined => {
-  // 1. Priority: Manual Override (from UI Settings)
-  if (manualOverride && manualOverride.trim().length > 0) {
-    return manualOverride;
-  }
-
-  // 2. Try Vite's import.meta.env (Standard for Vite apps)
+  if (manualOverride && manualOverride.trim().length > 0) return manualOverride;
   try {
     // @ts-ignore
     if (import.meta && import.meta.env) {
        // @ts-ignore
        if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
-       // @ts-ignore
-       if (import.meta.env.API_KEY) return import.meta.env.API_KEY;
     }
-  } catch (e) {
-    // Ignore error if import.meta is not available
-  }
-
-  // 3. Try standard process.env (Fallback for CRA/Next.js)
-  if (typeof process !== 'undefined' && process.env) {
-    if (process.env.API_KEY) return process.env.API_KEY;
-    if (process.env.REACT_APP_API_KEY) return process.env.REACT_APP_API_KEY;
-  }
-
+  } catch (e) {}
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) return process.env.API_KEY;
   return undefined;
 };
 
-/**
- * ฟังก์ชันหลักในการให้ AI ตัดสินใจว่าจะเอาข้อมูลไปวางตรงไหนใน PARA
- * input: ข้อความจาก user
- * existingItems: รายการของที่มีอยู่แล้ว (ส่งไปแค่ id, title, category เพื่อประหยัด token)
- * chatHistory: ประวัติการคุยล่าสุด เพื่อให้ AI เข้าใจ Context ต่อเนื่อง
- * manualApiKey: (Optional) API Key ที่ user กรอกเองผ่าน UI
- */
 export const analyzeParaInput = async (
   input: string,
   existingItems: ExistingItemContext[],
@@ -44,21 +23,15 @@ export const analyzeParaInput = async (
   manualApiKey?: string
 ): Promise<AIAnalysisResult> => {
   
-  // 1. Safety Check for API Key with robust getter
   const apiKey = getApiKey(manualApiKey);
-  
-  if (!apiKey) {
-    console.error("API Key missing. If using Vercel/Vite, ensure env var is named 'VITE_API_KEY'.");
-    throw new Error("MISSING_API_KEY");
-  }
+  if (!apiKey) throw new Error("MISSING_API_KEY");
 
   const ai = new GoogleGenAI({ apiKey: apiKey });
   const modelName = "gemini-3-flash-preview"; 
 
-  // เตรียม Chat Context ย้อนหลัง 5 ข้อความล่าสุด (ไม่รวมข้อความปัจจุบัน)
   const recentContext = chatHistory
-    .slice(-5)
-    .map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.text}`)
+    .slice(-8) // ส่ง context เยอะขึ้นเพื่อให้คุยรู้เรื่องขึ้น
+    .map(msg => `${msg.role === 'user' ? 'User' : 'AI Assistant'}: ${msg.text}`)
     .join('\n');
 
   const responseSchema = {
@@ -66,77 +39,70 @@ export const analyzeParaInput = async (
     properties: {
       operation: {
         type: Type.STRING,
-        enum: ['CREATE', 'COMPLETE'],
-        description: "Set to 'COMPLETE' ONLY if user explicitly says they finished/completed a specific task. Otherwise 'CREATE'."
+        enum: ['CREATE', 'COMPLETE', 'CHAT'],
+        description: "'CHAT' for conversation/advice only. 'CREATE' to save info. 'COMPLETE' to finish tasks."
+      },
+      chatResponse: {
+        type: Type.STRING,
+        description: "Your human-like response. Be supportive, ask follow-up questions, provide mentorship or advice. This is the main text the user sees."
       },
       type: {
         type: Type.STRING,
         enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE, ParaType.TASK],
-        description: "The PARA method classification."
+        nullable: true
       },
-      category: {
-        type: Type.STRING,
-        description: "The specific category name. IMPORTANT: Use an EXISTING category if the topic fits. Create a NEW high-level Category (Area) only if the topic is completely new."
-      },
-      title: {
-        type: Type.STRING,
-        description: "A clear, concise title."
-      },
-      summary: {
-        type: Type.STRING,
-        description: "A cleaned up version of the user's input, formatted in Markdown."
-      },
+      category: { type: Type.STRING, nullable: true },
+      title: { type: Type.STRING, nullable: true },
+      summary: { type: Type.STRING, nullable: true, description: "Markdown summary if creating an item." },
       suggestedTags: {
         type: Type.ARRAY,
         items: { type: Type.STRING },
-        description: "Up to 3 relevant tags."
+        nullable: true
       },
       relatedItemIdsCandidates: {
         type: Type.ARRAY,
         items: { type: Type.STRING },
-        description: "List of IDs from 'Existing Items' that are strongly related. If creating a Task/Project, link to the parent Area."
+        description: "IDs of related items from the provided list."
       },
       reasoning: {
         type: Type.STRING,
-        description: "Brief explanation. If creating a new Area/Category, explain why it was necessary based on the conversation context."
+        description: "Internal explanation for why you chose this action."
       }
     },
-    required: ["operation", "type", "category", "title", "summary", "suggestedTags", "reasoning"]
+    required: ["operation", "chatResponse", "reasoning"]
   };
 
   const prompt = `
-    You are an expert Personal Knowledge Architect using the PARA method.
-    Your goal is to organize the user's life PROACTIVELY.
+    You are NOT a database entry tool. You are a **Brilliant Personal Architect and Mentor** named "Jay".
+    Your mission is to help the user organize their life using the PARA method, but also to provide insight, coaching, and meaningful conversation.
+
+    --- YOUR PERSONALITY ---
+    - **Insightful**: Don't just record what the user says. Suggest "Why" and "How" to make it better.
+    - **Proactive**: If they mention a goal, suggest breaking it into specific tasks.
+    - **Curious**: Ask follow-up questions to understand the context. (e.g., "That sounds like a big project! Do you have a deadline in mind?")
+    - **Empathetic**: If they sound overwhelmed, offer support before organizing.
 
     --- CONTEXT ---
-    Existing Database Structure:
+    Existing Database:
     ${JSON.stringify(existingItems)}
 
-    Recent Conversation History:
-    ${recentContext || "No previous context."}
+    Conversation History:
+    ${recentContext || "New conversation started."}
     
-    Current User Input: 
+    User Input: 
     "${input}"
 
-    --- INTELLIGENT RULES ---
-    1. **Context Awareness**: Analyze the "Recent Conversation History". If the user is discussing a broad topic (e.g., "World War III", "Renovating House", "Learning Python"), and the "Existing Database" lacks a corresponding AREA or PROJECT, you must CREATE it.
-    
-    2. **Proactive Structuring**:
-       - If the user talks about a Goal (deadline driven) -> Create a PROJECT.
-       - If the user talks about a Standard/Responsibility (ongoing) -> Create an AREA.
-       - If the user talks about specific actions -> Create a TASK and LINK it to the relevant Project/Area (find ID in Existing Database).
-       - If the user talks about knowledge/notes -> Create a RESOURCE.
+    --- DECISION LOGIC ---
+    1. **CHAT**: Choose this if the user is just talking, asking for advice, or if you need more info before creating something.
+    2. **CREATE**: Choose this if the user provides clear information that SHOULD be saved (e.g., a new idea, a specific task, a project goal). 
+    3. **COMPLETE**: Choose this if the user implies they are finished with something already in the DB.
 
-    3. **Deduplication**: 
-       - Before creating a new Category/Area, check "Existing Database Structure". 
-       - If a similar category exists (e.g., User says "Stocks", DB has "Finance"), USE THE EXISTING ONE. Do not create duplicates.
+    --- RULES ---
+    - If choosing CREATE, use the PARA method rules: Project (Deadline), Area (Responsibility), Resource (Interest).
+    - In 'chatResponse', address the user directly. Be conversational. Don't be too formal. Use a friendly tone.
+    - If the user says something vague, use 'CHAT' to ask for clarification instead of creating an "Untitled Task".
 
-    4. **Intent Recognition**:
-       - If the user implies they finished something ("I did it", "Check off the bug fix"), set operation: 'COMPLETE'.
-       - Otherwise, set operation: 'CREATE'.
-
-    --- OUTPUT ---
-    Return a JSON object matching the schema.
+    Return valid JSON.
   `;
 
   try {
@@ -156,19 +122,10 @@ export const analyzeParaInput = async (
 
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
-    if (error instanceof Error && error.message === "MISSING_API_KEY") {
-        throw error;
-    }
-    
     return {
-      operation: 'CREATE',
-      type: ParaType.TASK,
-      category: "Inbox",
-      title: "Untitled Task",
-      summary: input,
-      suggestedTags: ["error-fallback"],
-      reasoning: "AI Service unavailable. Please check your API Key settings.",
-      relatedItemIdsCandidates: []
+      operation: 'CHAT',
+      chatResponse: "I'm sorry, I'm having a bit of a brain fog. Can you repeat that?",
+      reasoning: "Error fallback"
     };
   }
 };

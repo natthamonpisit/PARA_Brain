@@ -1,3 +1,4 @@
+
 // ---------------------------------------------------------------------------
 // JAY'S NOTE: Core Data Structure
 // ออกแบบให้ flexible ครับ ทุกอย่างคือ "Item" ที่ถูก Tag ด้วย PARA Type
@@ -29,13 +30,15 @@ export interface ParaItem {
 
 // โครงสร้างที่ส่งให้ AI ช่วยวิเคราะห์
 export interface AIAnalysisResult {
-  operation: 'CREATE' | 'COMPLETE'; // AI ตัดสินใจว่าจะสร้างใหม่ หรือ แค่จะมาปิดงาน
-  type: ParaType;
-  category: string;
-  title: string;
-  summary: string;
-  suggestedTags: string[];
-  // JAY'S NOTE: ให้ AI ช่วยหาว่า item นี้ควร connect กับ item ไหนที่มีอยู่แล้ว
+  // JAY'S NOTE: Added CHAT for conversation only
+  operation: 'CREATE' | 'COMPLETE' | 'CHAT'; 
+  type?: ParaType;
+  category?: string;
+  title?: string;
+  summary?: string;
+  suggestedTags?: string[];
+  // JAY'S NOTE: This is the actual conversational part
+  chatResponse: string; 
   relatedItemIdsCandidates?: string[]; 
   reasoning: string; // ให้ AI อธิบายว่าทำไมถึงจัดเข้าหมวดนี้
 }

@@ -1,37 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
 
-let supabaseUrl = '';
-let supabaseKey = '';
+// Strictly access environment variables. 
+// We use optional chaining to prevent crash if import.meta.env is undefined.
+// @ts-ignore
+const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
+// @ts-ignore
+const supabaseKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || '';
 
-try {
-  // @ts-ignore
-  if (import.meta && import.meta.env) {
-    // @ts-ignore
-    supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-    // @ts-ignore
-    supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-  }
-} catch (e) {
-  console.warn('Environment variables (import.meta.env) not accessible.');
-}
+// --- DEBUG LOGGING ---
+// Check your browser console to see if these match what you expect
+console.log('[Supabase] Initializing client...');
+console.log('[Supabase] URL:', supabaseUrl);
+// Log only the first 10 chars of the key for security/verification
+console.log('[Supabase] Key (partial):', supabaseKey ? `${supabaseKey.substring(0, 10)}...` : 'MISSING');
 
 if (!supabaseUrl || !supabaseKey) {
-  try {
-    if (typeof process !== 'undefined' && process.env) {
-      supabaseUrl = process.env.VITE_SUPABASE_URL || '';
-      supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || '';
-    }
-  } catch (e) {}
+  console.error('CRITICAL ERROR: Supabase credentials are missing in .env file.');
+  console.error('Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set.');
 }
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseKey);
-
-if (!isSupabaseConfigured) {
-  console.warn('Supabase credentials missing. Falling back to LocalStorage.');
-}
-
-// Initialize with fallback values to prevent instant crash on load.
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co', 
-  supabaseKey || 'placeholder-key'
-);
+// Initialize Supabase client.
+export const supabase = createClient(supabaseUrl, supabaseKey);

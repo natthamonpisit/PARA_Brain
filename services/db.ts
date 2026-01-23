@@ -1,5 +1,5 @@
 import { ParaItem, HistoryLog, ParaType } from '../types';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase } from './supabase';
 
 // --- HELPERS: MAPPING ---
 
@@ -53,32 +53,9 @@ const getTableForType = (type: ParaType): string => {
   }
 };
 
-// --- LOCAL STORAGE HELPERS ---
-const LOCAL_KEY = 'para_db_v1';
-
-interface LocalDB {
-    items: ParaItem[];
-    history: HistoryLog[];
-}
-
-const getLocal = (): LocalDB => {
-    try {
-        const str = localStorage.getItem(LOCAL_KEY);
-        return str ? JSON.parse(str) : { items: [], history: [] };
-    } catch { return { items: [], history: [] } }
-};
-
-const setLocal = (data: LocalDB) => {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(data));
-};
-
 export const db = {
   // Fetch all items from all PARA tables
   async getAll(): Promise<ParaItem[]> {
-    if (!isSupabaseConfigured) {
-        return getLocal().items;
-    }
-
     const tables = ['projects', 'areas', 'tasks', 'resources', 'archives'];
     
     try {
@@ -90,7 +67,7 @@ export const db = {
       
       results.forEach((result, index) => {
         if (result.error) {
-          console.warn(`Failed to fetch from ${tables[index]}:`, result.error.message);
+          console.error(`Supabase Error (${tables[index]}):`, result.error);
         }
         if (result.data) {
           result.data.forEach((row: any) => {
@@ -101,25 +78,13 @@ export const db = {
 
       return allItems;
     } catch (e) {
-      console.error("Supabase fetch error:", e);
-      return [];
+      console.error("Supabase Critical Connection Error:", e);
+      throw e; // Re-throw to ensure we see it in the UI/Logs
     }
   },
 
   // Add or Update (Upsert)
   async add(item: ParaItem): Promise<void> {
-    if (!isSupabaseConfigured) {
-        const data = getLocal();
-        const index = data.items.findIndex((i: ParaItem) => i.id === item.id);
-        if (index >= 0) {
-            data.items[index] = item;
-        } else {
-            data.items.push(item);
-        }
-        setLocal(data);
-        return;
-    }
-
     const table = getTableForType(item.type);
     const dbItem = toDb(item);
 
@@ -135,13 +100,6 @@ export const db = {
 
   // Delete Item (Requires Type to identify table)
   async delete(id: string, type: ParaType): Promise<void> {
-    if (!isSupabaseConfigured) {
-        const data = getLocal();
-        data.items = data.items.filter((i: ParaItem) => i.id !== id);
-        setLocal(data);
-        return;
-    }
-
     const table = getTableForType(type);
     const { error } = await supabase
       .from(table)
@@ -149,53 +107,42 @@ export const db = {
       .eq('id', id);
 
     if (error) {
+      console.error(`Supabase Delete Error (${table}):`, error);
       throw new Error(error.message);
     }
   },
 
   // Clear all data (Dangerous - for Restore functionality)
   async clear(): Promise<void> {
-    if (!isSupabaseConfigured) {
-        localStorage.removeItem(LOCAL_KEY);
-        return;
-    }
-
     const tables = ['projects', 'areas', 'tasks', 'resources', 'archives', 'history'];
     
     // Supabase requires a WHERE clause for delete. 
     // Using id.neq.000... is a common pattern to delete all if you don't have a better condition
-    await Promise.all(
+    const results = await Promise.all(
       tables.map(table => 
         supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000')
       )
     );
+
+    results.forEach((res, idx) => {
+        if (res.error) console.error(`Failed to clear table ${tables[idx]}:`, res.error);
+    });
   },
 
   // Import helper
   async bulkAdd(items: ParaItem[]): Promise<void> {
-    if (!isSupabaseConfigured) {
-        const data = getLocal();
-        // naive merge
-        items.forEach(newItem => {
-             const index = data.items.findIndex((i: ParaItem) => i.id === newItem.id);
-             if (index >= 0) data.items[index] = newItem;
-             else data.items.push(newItem);
-        });
-        setLocal(data);
-        return;
-    }
-
-    // Process in parallel or serial? Serial is safer for constraints.
-    for (const item of items) {
-      await this.add(item);
-    }
+    // Process in parallel to speed up import, but logging individual errors
+    const promises = items.map(item => this.add(item).catch(e => console.error(`Failed to add item ${item.title}:`, e)));
+    await Promise.all(promises);
   },
   
   // Seed initial data if DB is empty
   async seedIfEmpty(initialItems: ParaItem[]): Promise<ParaItem[]> {
+    console.log("Checking database connection...");
     const current = await this.getAll();
+    
     if (current.length === 0) {
-      console.log("Seeding database...");
+      console.log("Database empty. Seeding initial data...");
       await this.bulkAdd(initialItems); 
       return initialItems;
     }
@@ -205,13 +152,6 @@ export const db = {
   // --- HISTORY OPERATIONS ---
 
   async addLog(log: HistoryLog): Promise<void> {
-    if (!isSupabaseConfigured) {
-        const data = getLocal();
-        data.history.push(log);
-        setLocal(data);
-        return;
-    }
-
     const dbLog = {
       id: log.id,
       action: log.action,
@@ -221,22 +161,21 @@ export const db = {
     };
     
     const { error } = await supabase.from('history').insert(dbLog);
-    if (error) console.error('Failed to log history', error);
+    if (error) console.error('Failed to log history to Supabase:', error);
   },
 
   async getLogs(): Promise<HistoryLog[]> {
-    if (!isSupabaseConfigured) {
-        return getLocal().history.sort((a: HistoryLog, b: HistoryLog) => 
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-    }
-
     const { data, error } = await supabase
       .from('history')
       .select('*')
       .order('timestamp', { ascending: false });
 
-    if (error || !data) return [];
+    if (error) {
+        console.error("Supabase History Fetch Error:", error);
+        return [];
+    }
+    
+    if (!data) return [];
 
     return data.map((row: any) => ({
       id: row.id,

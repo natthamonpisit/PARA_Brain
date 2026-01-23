@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage, FinanceContext, ModuleContext, TransactionType } from "../types";
+import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage, FinanceContext, ModuleContext, TransactionType, DailySummary } from "../types";
 
 // JAY'S NOTE: REMOVED HARDCODED KEY for Security. 
 // User must provide key via Vercel Environment Variables (VITE_API_KEY) or Manual Input in UI.
@@ -34,7 +34,8 @@ export const analyzeParaInput = async (
   financeContext: FinanceContext,
   moduleContext: ModuleContext[],
   chatHistory: ChatMessage[] = [], 
-  manualApiKey?: string
+  manualApiKey?: string,
+  recentSummaries: DailySummary[] = []
 ): Promise<AIAnalysisResult> => {
   
   try {
@@ -56,6 +57,10 @@ export const analyzeParaInput = async (
         const fields = m.fields.map(f => `- ${f.key} (${f.type}): ${f.label}`).join('\n');
         return `MODULE ${i+1}: "${m.name}" (ID: ${m.id})\nFields:\n${fields}`;
     }).join('\n\n');
+
+    const summariesContext = recentSummaries
+        .map(s => `[${s.date}] Summary: ${s.summary}`)
+        .join('\n');
 
     const responseSchema = {
         type: Type.OBJECT,
@@ -117,7 +122,10 @@ export const analyzeParaInput = async (
            - **Wealth Engine**: Track Finances.
            - **Dynamic Modules**: Handle custom data modules based on the Schema provided below.
 
-        3. **DYNAMIC MODULES SCHEMA (Updated Live)**:
+        3. **LONG TERM MEMORY (Context from previous days)**:
+           ${summariesContext || "No previous summaries found."}
+
+        4. **DYNAMIC MODULES SCHEMA (Updated Live)**:
            The user has defined the following custom modules. You MUST use these IDs and Field Keys when mapping 'MODULE_ITEM'.
            
            ${modulesManual || "No custom modules found."}

@@ -1,10 +1,10 @@
 
-import { useState } from 'react';
-import { ChatMessage, ParaItem, ExistingItemContext, ParaType, FinanceAccount, AppModule, Transaction, ModuleItem, HistoryLog } from '../types';
+import { useState, useEffect, useRef } from 'react';
+import { ChatMessage, ParaItem, ExistingItemContext, ParaType, FinanceAccount, AppModule, Transaction, ModuleItem, HistoryLog, DailySummary } from '../types';
 import { analyzeParaInput } from '../services/geminiService';
-import { db } from '../services/db'; // Import DB
+import { db } from '../services/db'; 
 import { generateId } from '../utils/helpers';
-import { GoogleGenAI } from "@google/genai"; // Direct import for manual summarization
+import { GoogleGenAI } from "@google/genai";
 
 interface UseAIChatProps {
   items: ParaItem[];
@@ -34,6 +34,96 @@ export const useAIChat = ({
     timestamp: new Date()
   }]);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Cache for Long-term memory
+  const [recentSummaries, setRecentSummaries] = useState<DailySummary[]>([]);
+  const hasCheckedSummary = useRef(false);
+
+  // --- AUTOMATIC DAILY SUMMARY CHECKER ---
+  useEffect(() => {
+    const checkAndGenerateSummary = async () => {
+        if (!apiKey || hasCheckedSummary.current) return;
+        
+        hasCheckedSummary.current = true; // Prevent double check on remount
+
+        // 1. Load Recent Summaries for Context
+        try {
+            const summaries = await db.getRecentSummaries();
+            setRecentSummaries(summaries);
+
+            // 2. Check if "Yesterday" has a summary
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+            const existingSummary = await db.getSummaryByDate(yesterdayStr);
+            
+            if (!existingSummary) {
+                console.log("No summary for yesterday (" + yesterdayStr + "). Generating...");
+                await generateSilentSummary(yesterdayStr);
+                // Refresh context
+                const updatedSummaries = await db.getRecentSummaries();
+                setRecentSummaries(updatedSummaries);
+            } else {
+                console.log("Summary for yesterday already exists.");
+            }
+
+        } catch (e) {
+            console.error("Auto-summary check failed:", e);
+        }
+    };
+
+    if (apiKey) {
+        checkAndGenerateSummary();
+    }
+  }, [apiKey]);
+
+  // Internal function to generate summary without user interaction
+  const generateSilentSummary = async (dateStr: string) => {
+      // Fetch activity logs for that specific date
+      const logs = await db.getLogs(dateStr); 
+      // Note: getLogs(startDate) fetches logs *after* that date. 
+      // To be precise we should filter logs strictly for that day, but for now getting "recent" is okay-ish.
+      // Better: filter in JS
+      const targetDateLogs = logs.filter(l => l.timestamp.startsWith(dateStr));
+      
+      if (targetDateLogs.length === 0) {
+          console.log("No activity yesterday to summarize.");
+          return;
+      }
+
+      const activities = targetDateLogs.map(l => `- ${l.action}: ${l.itemTitle} (${l.itemType})`).join('\n');
+      
+      const ai = new GoogleGenAI({ apiKey: apiKey! });
+      const prompt = `
+        Summarize the user's activity for ${dateStr} based on these logs.
+        Focus on what was achieved (COMPLETED) and created.
+        Keep it very short (2-3 sentences).
+        Language: Thai.
+        
+        LOGS:
+        ${activities}
+      `;
+
+      try {
+          const response = await ai.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: prompt
+          });
+          const text = response.text || "No summary.";
+          
+          await db.addDailySummary({
+              id: generateId(),
+              date: dateStr,
+              summary: text,
+              key_achievements: [], // Simplified for now
+              created_at: new Date().toISOString()
+          });
+          console.log("Generated & Saved Summary for " + dateStr);
+      } catch (e) {
+          console.error("Silent summary generation failed", e);
+      }
+  };
 
   const addMessage = (msg: ChatMessage) => {
     setMessages(prev => [...prev, msg]);
@@ -71,7 +161,16 @@ export const useAIChat = ({
         fields: m.schemaConfig.fields
       }));
 
-      const result = await analyzeParaInput(input, paraContext, financeContext, moduleContext, currentMessages, apiKey);
+      // Pass recentSummaries to the AI Service
+      const result = await analyzeParaInput(
+          input, 
+          paraContext, 
+          financeContext, 
+          moduleContext, 
+          currentMessages, 
+          apiKey, 
+          recentSummaries
+      );
 
       // OPERATION DISPATCHER
       if (result.operation === 'TRANSACTION') {
@@ -198,11 +297,11 @@ export const useAIChat = ({
       }
   };
 
-  // --- NEW: Generate Daily Summary ---
+  // --- NEW: Generate Daily Summary (Manual Trigger) ---
+  // Keeping this for "Force Summary" if needed, but UI button is removed.
   const generateDailySummary = async () => {
     if (!apiKey) throw new Error("API Key Missing");
 
-    // 1. Collect Data (Chat History + Completed Tasks Today)
     const today = new Date().toLocaleDateString();
     const chatLog = messages
         .filter(m => m.timestamp.toLocaleDateString() === today)
@@ -216,8 +315,7 @@ export const useAIChat = ({
 
     const prompt = `
         Summarize the user's day based on this chat log and completed tasks.
-        Keep it concise, focusing on what was achieved, what was discussed, and any pending thoughts.
-        Language: Thai.
+        Keep it concise. Language: Thai.
         
         [Completed Tasks]
         ${completedTasks}
@@ -235,7 +333,6 @@ export const useAIChat = ({
         
         const summaryText = response.text || "No summary generated.";
 
-        // Save to DB via system_logs (using a special type)
         await db.addLog({
             id: generateId(),
             action: 'DAILY_SUMMARY',
@@ -243,12 +340,21 @@ export const useAIChat = ({
             itemType: 'System',
             timestamp: new Date().toISOString()
         });
+
+        // Also save to the new Table
+        const todayStr = new Date().toISOString().split('T')[0];
+        await db.addDailySummary({
+            id: generateId(),
+            date: todayStr,
+            summary: summaryText,
+            key_achievements: [],
+            created_at: new Date().toISOString()
+        });
         
-        // Also add a special message to chat
         addMessage({
             id: generateId(),
             role: 'assistant',
-            text: `📝 **สรุปประจำวันนี้ครับ:**\n\n${summaryText}`,
+            text: `📝 **สรุปประจำวันนี้ (Manual):**\n\n${summaryText}`,
             timestamp: new Date()
         });
 
@@ -258,18 +364,15 @@ export const useAIChat = ({
     }
   };
 
-  // --- NEW: Analyze Life (30 Days) ---
   const analyzeLife = async (historyLogs: HistoryLog[], transactions: Transaction[]) => {
       if (!apiKey) throw new Error("API Key Missing");
 
-      // Filter last 30 days
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       
       const recentHistory = historyLogs.filter(l => new Date(l.timestamp) > thirtyDaysAgo);
       const recentTx = transactions.filter(t => new Date(t.transactionDate) > thirtyDaysAgo);
 
-      // Aggregate Data strings
       const taskLog = recentHistory
         .filter(h => h.action === 'COMPLETE')
         .map(h => `- Completed: ${h.itemTitle} (${h.itemType}) on ${new Date(h.timestamp).toLocaleDateString()}`)
@@ -281,23 +384,17 @@ export const useAIChat = ({
 
       const prompt = `
         Role: You are a Life Coach Analyst.
-        Task: Analyze the user's productivity and finance data from the last 30 days.
+        Task: Analyze last 30 days.
         Identify patterns, strengths, weaknesses, and provide 3 key actionable improvements.
         
-        Language: Thai (Strictly).
-        Format: Markdown (Bold headers, bullet points).
-        Structure:
-        # Life OS Analysis (Last 30 Days)
-        ## 🏆 Achievements
-        ## ⚠️ Areas for Improvement
-        ## 💰 Financial Health
-        ## 💡 Key Action Plan
+        Language: Thai.
+        Format: Markdown.
 
-        DATA (Last 30 Days):
-        [Productivity Log]
+        DATA:
+        [Productivity]
         ${taskLog || "No completed tasks."}
 
-        [Finance Log]
+        [Finance]
         ${financeLog || "No transactions."}
       `;
 

@@ -1,5 +1,5 @@
 
-import { ParaItem, HistoryLog, ParaType, FinanceAccount, Transaction, TransactionType, FinanceAccountType, AppModule, ModuleItem } from '../types';
+import { ParaItem, HistoryLog, ParaType, FinanceAccount, Transaction, TransactionType, FinanceAccountType, AppModule, ModuleItem, DailySummary } from '../types';
 import { supabase } from './supabase';
 
 // --- HELPERS: MAPPING ---
@@ -318,11 +318,17 @@ export const db = {
     if (error) console.error('Failed to log history:', error);
   },
 
-  async getLogs(): Promise<HistoryLog[]> {
-    const { data, error } = await supabase
+  async getLogs(startDate?: string): Promise<HistoryLog[]> {
+    let query = supabase
       .from('history')
       .select('*')
       .order('timestamp', { ascending: false });
+    
+    if (startDate) {
+        query = query.gte('timestamp', startDate);
+    }
+
+    const { data, error } = await query;
 
     if (error) return [];
     if (!data) return [];
@@ -334,5 +340,34 @@ export const db = {
       itemType: row.item_type,
       timestamp: row.timestamp
     }));
+  },
+
+  // --- DAILY SUMMARY MEMORY ---
+
+  async getRecentSummaries(limit = 7): Promise<DailySummary[]> {
+    const { data, error } = await supabase
+        .from('daily_summaries')
+        .select('*')
+        .order('date', { ascending: false })
+        .limit(limit);
+
+    if (error) return [];
+    return data as DailySummary[];
+  },
+
+  async getSummaryByDate(dateStr: string): Promise<DailySummary | null> {
+    const { data, error } = await supabase
+        .from('daily_summaries')
+        .select('*')
+        .eq('date', dateStr)
+        .maybeSingle(); // maybeSingle returns null if not found, instead of error
+
+    if (error) return null;
+    return data as DailySummary;
+  },
+
+  async addDailySummary(summary: DailySummary): Promise<void> {
+      const { error } = await supabase.from('daily_summaries').upsert(summary);
+      if (error) throw new Error(error.message);
   }
 };

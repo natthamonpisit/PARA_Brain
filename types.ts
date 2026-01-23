@@ -166,6 +166,16 @@ export interface HistoryLog {
   timestamp: string;
 }
 
+// JAY'S NOTE: New Interface for Daily Summary (Memory)
+export interface DailySummary {
+  id: string;
+  date: string; // YYYY-MM-DD
+  summary: string;
+  key_achievements: string[];
+  mood?: string;
+  created_at: string;
+}
+
 // JAY'S NOTE: New Interface for Line Debugger
 export interface SystemLog {
   id: string;

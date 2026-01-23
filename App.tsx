@@ -76,7 +76,7 @@ export default function App() {
   };
 
   // --- AI INTEGRATION ---
-  const { messages, isProcessing, handleSendMessage, handleChatCompletion, generateDailySummary, analyzeLife } = useAIChat({
+  const { messages, isProcessing, handleSendMessage, handleChatCompletion, analyzeLife } = useAIChat({
     items, 
     accounts,
     modules,
@@ -134,16 +134,6 @@ export default function App() {
       }
       setSelectedIds(new Set());
       showNotification('Batch complete success', 'success');
-  };
-
-  const handleDailySummary = async () => {
-      showNotification('Generating daily summary...', 'success');
-      try {
-          await generateDailySummary();
-          showNotification('Daily summary saved to Memory!', 'success');
-      } catch (e) {
-          showNotification('Failed to summarize', 'error');
-      }
   };
 
   const handleAnalyzeLife = async () => {
@@ -233,15 +223,6 @@ export default function App() {
             )}
 
             <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
-
-            {/* Daily Summary Button */}
-            <button 
-                onClick={handleDailySummary}
-                className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-indigo-500 text-white text-xs font-bold rounded-lg shadow-sm hover:opacity-90 transition-opacity"
-            >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Summarize Day</span>
-            </button>
 
             <button onClick={() => setIsManualModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 shadow-sm">
               <Plus className="w-3.5 h-3.5" />

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, MessageCircle, Send, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
+import { X, MessageCircle, Send, AlertTriangle, CheckCircle2, Server } from 'lucide-react';
 import { lineService } from '../services/lineService';
 
 interface LineConnectModalProps {
@@ -36,7 +36,12 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
     } catch (error: any) {
         console.error(error);
         setStatus('ERROR');
-        setErrorMessage(error.message || 'Failed to invoke Supabase Function. Have you deployed "line-push"?');
+        // Handle common Vercel/Vite local dev issue
+        if (error.message && error.message.includes('<')) {
+            setErrorMessage('HTML response received. Are you running locally? This feature requires Vercel Serverless Functions.');
+        } else {
+            setErrorMessage(error.message || 'Failed to send message.');
+        }
     }
   };
 
@@ -61,13 +66,11 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
         <div className="p-6 space-y-6">
             
             {/* Context Info */}
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm text-slate-600">
+            <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 text-sm text-orange-800">
                 <div className="flex items-start gap-2">
-                    <Lock className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                    <Server className="w-4 h-4 mt-0.5 shrink-0" />
                     <p>
-                        <span className="font-bold text-slate-800">Server-Side Only:</span> 
-                        <br/>
-                        Channel Secret & Access Token must be stored in Supabase Edge Function Secrets, not here.
+                        <span className="font-bold">Requirement:</span> This feature uses Vercel Serverless Functions. Please test on the <b>deployed site</b> (or use 'vercel dev').
                     </p>
                 </div>
             </div>
@@ -102,14 +105,14 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
 
             {/* Status Feedback */}
             {status === 'SUCCESS' && (
-                <div className="flex items-center gap-2 text-green-600 text-sm bg-green-50 p-3 rounded-lg">
+                <div className="flex items-center gap-2 text-green-600 text-sm bg-green-50 p-3 rounded-lg animate-in fade-in">
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Message sent successfully!</span>
                 </div>
             )}
             
             {status === 'ERROR' && (
-                <div className="flex items-start gap-2 text-red-600 text-sm bg-red-50 p-3 rounded-lg">
+                <div className="flex items-start gap-2 text-red-600 text-sm bg-red-50 p-3 rounded-lg animate-in fade-in">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>{errorMessage}</span>
                 </div>

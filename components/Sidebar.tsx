@@ -1,7 +1,7 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, MessageCircle } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
@@ -18,6 +18,8 @@ interface SidebarProps {
   // Dynamic Modules
   modules: AppModule[];
   onCreateModule: () => void;
+  // LINE Integration
+  onOpenLine: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -32,7 +34,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   apiKey,
   onSetApiKey,
   modules,
-  onCreateModule
+  onCreateModule,
+  onOpenLine
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -222,6 +225,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
               <Key className={`w-4 h-4 ${apiKey ? 'text-green-500' : 'text-slate-400'}`} />
               {!isCollapsed && <span>{apiKey ? 'API Key Set' : 'Set Key'}</span>}
+          </button>
+          
+          {/* LINE CONNECT BUTTON */}
+          <button 
+              onClick={() => { onOpenLine(); onClose(); }}
+              title={isCollapsed ? "Connect LINE" : ''}
+              className={`w-full flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors`}
+          >
+              <MessageCircle className="w-4 h-4 text-[#06C755]" />
+              {!isCollapsed && <span>Connect LINE</span>}
           </button>
 
           <button 

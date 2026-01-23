@@ -8,11 +8,12 @@ import { DynamicModuleBoard } from './components/DynamicModuleBoard';
 import { ModuleBuilderModal } from './components/ModuleBuilderModal'; 
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
+import { LineConnectModal } from './components/LineConnectModal'; // NEW
 import { ParaType, AppModule, ModuleItem } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
-import { useFinanceData } from './hooks/useFinanceData'; // NEW
-import { useModuleData } from './hooks/useModuleData'; // NEW
+import { useFinanceData } from './hooks/useFinanceData'; 
+import { useModuleData } from './hooks/useModuleData'; 
 import { useAIChat } from './hooks/useAIChat';
 
 type MobileTab = 'board' | 'chat';
@@ -36,6 +37,7 @@ export default function App() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
+  const [isLineModalOpen, setIsLineModalOpen] = useState(false); // NEW STATE
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('board');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -131,6 +133,7 @@ export default function App() {
         isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)}
         apiKey={apiKey} onSetApiKey={handleSetApiKey}
         modules={modules} onCreateModule={() => setIsModuleBuilderOpen(true)}
+        onOpenLine={() => setIsLineModalOpen(true)}
       />
 
       <div className="flex-1 flex flex-col min-w-0 relative h-full">
@@ -207,6 +210,11 @@ export default function App() {
         isOpen={isModuleBuilderOpen}
         onClose={() => setIsModuleBuilderOpen(false)}
         onSave={handleCreateModule}
+      />
+
+      <LineConnectModal 
+        isOpen={isLineModalOpen}
+        onClose={() => setIsLineModalOpen(false)}
       />
     </div>
   );

@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { ParaItem, HistoryLog, ParaType, HistoryAction } from '../types';
 import { db } from '../services/db';
@@ -59,10 +58,13 @@ export const useParaData = () => {
   const loadData = useCallback(async () => {
     try {
       setIsLoadingDB(true);
+      // seedIfEmpty checks if Supabase is empty, if so inserts INITIAL_ITEMS, otherwise returns fetched data
       const data = await db.seedIfEmpty(INITIAL_ITEMS);
+      
       // Sort by newest first
       const sorted = data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setItems(sorted);
+      
       const logs = await db.getLogs();
       setHistoryLogs(logs);
     } catch (e) {
@@ -104,13 +106,13 @@ export const useParaData = () => {
     if (!itemToDelete) return;
     
     await logHistory('DELETE', itemToDelete);
-    await db.delete(id);
+    // CRITICAL UPDATE: Supabase needs the type to know which table to delete from
+    await db.delete(id, itemToDelete.type);
     setItems(prev => prev.filter(i => i.id !== id));
   };
 
   const updateItem = async (updatedItem: ParaItem) => {
-    await db.add(updatedItem); // IndexedDB put (overwrites if key exists)
-    // Note: We might want a separate UPDATE action log, usually handled by specific functions below
+    await db.add(updatedItem); // Uses upsert logic
     setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
   };
 
@@ -157,7 +159,7 @@ export const useParaData = () => {
           const newItems = Array.isArray(parsed) ? parsed : parsed.items;
           
           setIsLoadingDB(true);
-          await db.clear();
+          await db.clear(); // Clears all tables
           await db.bulkAdd(newItems);
           await loadData();
           resolve();

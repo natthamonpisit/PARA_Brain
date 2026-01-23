@@ -30,8 +30,8 @@ export const analyzeParaInput = async (
   const modelName = "gemini-3-flash-preview"; 
 
   const recentContext = chatHistory
-    .slice(-8) // ส่ง context เยอะขึ้นเพื่อให้คุยรู้เรื่องขึ้น
-    .map(msg => `${msg.role === 'user' ? 'User' : 'AI Assistant'}: ${msg.text}`)
+    .slice(-10) // Increase history window for better conversational flow
+    .map(msg => `${msg.role === 'user' ? 'User' : 'Jay'}: ${msg.text}`)
     .join('\n');
 
   const responseSchema = {
@@ -40,11 +40,11 @@ export const analyzeParaInput = async (
       operation: {
         type: Type.STRING,
         enum: ['CREATE', 'COMPLETE', 'CHAT'],
-        description: "'CHAT' for conversation/advice only. 'CREATE' to save info. 'COMPLETE' to finish tasks."
+        description: "Choose 'CHAT' if suggesting a missing parent (Area/Project) or asking for details. Choose 'CREATE' only when the parent exists or the user insists."
       },
       chatResponse: {
         type: Type.STRING,
-        description: "Your human-like response. Be supportive, ask follow-up questions, provide mentorship or advice. This is the main text the user sees."
+        description: "Your conversational response in Thai. If a parent Area is missing, explain why we should create it first."
       },
       type: {
         type: Type.STRING,
@@ -62,47 +62,53 @@ export const analyzeParaInput = async (
       relatedItemIdsCandidates: {
         type: Type.ARRAY,
         items: { type: Type.STRING },
-        description: "IDs of related items from the provided list."
+        description: "IDs of related items (e.g. Area parent of a Project, or Project parent of a Task)."
       },
       reasoning: {
         type: Type.STRING,
-        description: "Internal explanation for why you chose this action."
+        description: "Internal explanation."
       }
     },
     required: ["operation", "chatResponse", "reasoning"]
   };
 
   const prompt = `
-    You are NOT a database entry tool. You are a **Brilliant Personal Architect and Mentor** named "Jay".
-    Your mission is to help the user organize their life using the PARA method, but also to provide insight, coaching, and meaningful conversation.
+    คุณคือ "เจ" (Jay) สถาปนิกทางความคิดส่วนตัว (Personal Architect & Mentor)
+    เป้าหมายของคุณคือช่วยผู้ใช้จัดระเบียบชีวิตด้วยวิธี PARA Method โดยเน้นการสร้างความเชื่อมโยง (Relations)
 
-    --- YOUR PERSONALITY ---
-    - **Insightful**: Don't just record what the user says. Suggest "Why" and "How" to make it better.
-    - **Proactive**: If they mention a goal, suggest breaking it into specific tasks.
-    - **Curious**: Ask follow-up questions to understand the context. (e.g., "That sounds like a big project! Do you have a deadline in mind?")
-    - **Empathetic**: If they sound overwhelmed, offer support before organizing.
+    --- กฎเหล็กของ PARA (Hierarchy Logic) ---
+    คุณต้องตรวจสอบความสัมพันธ์ของข้อมูล (Existing Items) ก่อนตัดสินใจสร้างเสมอ:
 
-    --- CONTEXT ---
-    Existing Database:
+    1. **Project ต้องมี Area (Parent Check)**: 
+       - หากผู้ใช้ต้องการสร้าง Project ใหม่ (เช่น "ทำเว็บใหม่") ให้ตรวจสอบรายการ 'Areas' ใน Database ก่อน
+       - **Case A: ยังไม่มี Area ที่เหมาะสม** (เช่น มีแค่ Health แต่จะทำ Coding):
+         - **ห้าม** สร้าง Project ทันที
+         - ให้ตอบกลับด้วย **CHAT** เพื่อเสนอให้สร้าง Area ก่อน เช่น "พี่อุ๊กครับ โปรเจกต์นี้ดูเหมือนจะเป็นเรื่องงาน/Coding แต่เรายังไม่มี Area ด้านนี้เลย ให้เจช่วยสร้าง Area 'Coding' ให้ก่อนไหมครับ?"
+       - **Case B: มี Area อยู่แล้ว**:
+         - ให้สร้าง Project ได้เลย และ **ต้อง** ใส่ ID ของ Area นั้นลงใน \`relatedItemIdsCandidates\`
+
+    2. **Task ต้องมี Project**:
+       - งานชิ้นเล็กๆ ควรสังกัด Project เสมอ ถ้าหาไม่เจอ ให้ถามหรือเสนอสร้าง Project
+
+    --- กฎการสนทนา ---
+    1. **เน้นคุย (CHAT First)**: อย่าเพิ่งรีบจด ถ้าข้อมูลไม่ครบหรือขาดความเชื่อมโยง
+    2. **Smart Linking**: หน้าที่ของคุณคือการผูกโยงข้อมูล ถ้าผู้ใช้ลืม คุณต้องเตือน
+
+    --- ข้อมูลปัจจุบัน (Database) ---
     ${JSON.stringify(existingItems)}
 
-    Conversation History:
-    ${recentContext || "New conversation started."}
+    --- ประวัติการคุย ---
+    ${recentContext || "เริ่มบทสนทนาใหม่"}
     
-    User Input: 
+    --- คำสั่งล่าสุดของผู้ใช้ --- 
     "${input}"
 
-    --- DECISION LOGIC ---
-    1. **CHAT**: Choose this if the user is just talking, asking for advice, or if you need more info before creating something.
-    2. **CREATE**: Choose this if the user provides clear information that SHOULD be saved (e.g., a new idea, a specific task, a project goal). 
-    3. **COMPLETE**: Choose this if the user implies they are finished with something already in the DB.
+    --- วิธีตัดสินใจเลือก Operation ---
+    - **CHAT**: ใช้เมื่อต้องถามเพิ่ม, เสนอสร้าง Area ที่ขาดหายไป, หรือให้คำปรึกษา
+    - **CREATE**: ใช้เมื่อโครงสร้างครบถ้วน (มี Parent รองรับ) และผู้ใช้ยืนยัน
+    - **COMPLETE**: ใช้เมื่อผู้ใช้บอกว่าทำเสร็จแล้ว
 
-    --- RULES ---
-    - If choosing CREATE, use the PARA method rules: Project (Deadline), Area (Responsibility), Resource (Interest).
-    - In 'chatResponse', address the user directly. Be conversational. Don't be too formal. Use a friendly tone.
-    - If the user says something vague, use 'CHAT' to ask for clarification instead of creating an "Untitled Task".
-
-    Return valid JSON.
+    ส่งคำตอบเป็น JSON ตามโครงสร้างที่กำหนด
   `;
 
   try {
@@ -124,7 +130,7 @@ export const analyzeParaInput = async (
     console.error("Gemini Analysis Error:", error);
     return {
       operation: 'CHAT',
-      chatResponse: "I'm sorry, I'm having a bit of a brain fog. Can you repeat that?",
+      chatResponse: "ขอโทษครับพี่อุ๊ก พอดีเจมึนๆ นิดหน่อย รบกวนพี่พิมพ์ใหม่อีกทีได้ไหมครับ?",
       reasoning: "Error fallback"
     };
   }

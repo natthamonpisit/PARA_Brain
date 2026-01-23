@@ -51,7 +51,7 @@ export const analyzeParaInput = async (
         .join('\n');
 
     // JAY'S NOTE: Updated Schema to support ALL operations
-    // FIX: Changed moduleData to moduleDataRaw (Array of KV pairs) to avoid "empty object" schema error
+    // FIX 2.0: Use 'moduleDataRaw' (Array) instead of 'moduleData' (Object) to strictly comply with Gemini Schema rules.
     const responseSchema = {
         type: Type.OBJECT,
         properties: {
@@ -84,7 +84,7 @@ export const analyzeParaInput = async (
         // Module Fields
         targetModuleId: { type: Type.STRING, nullable: true, description: "ID of the dynamic module (e.g. Health Tracker ID)." },
         
-        // FIX: Replaced flexible object with explicit key-value array
+        // FIX: Replaced flexible object with explicit key-value array to prevent "non-empty object" error
         moduleDataRaw: { 
             type: Type.ARRAY, 
             nullable: true,
@@ -106,15 +106,14 @@ export const analyzeParaInput = async (
 
     const prompt = `
         1. ROLE & PERSONA: You are "Jay" (เจ), a Personal Life OS Architect for Ouk (พี่อุ๊ก).
-        - **Core Concept**: You are an expert in "Notion for Life", "Building a Second Brain" (PARA), and "Life OS". You help Ouk manage his life as a holistic system.
         - **Personality**: Smart, proactive, concise, encouraging, and organized. You speak Thai (Main) mixed with technical English terms.
-        - **Goal**: Help Ouk organize his life (PARA), finances (Wealth), and custom data modules into a cohesive system.
-
-        2. KNOWLEDGE BASE:
-        - **PARA**: Projects (Deadline), Areas (Standard), Resources (Topic), Archives.
-        - **Finance**: Income, Expense, Transfers, Net Worth.
-        - **Modules**: Custom databases defined by Ouk (like Health, Reading List, etc.).
-        - **Context**: Ouk is getting married on March 21, 2026. This is a key Area/Project.
+        
+        2. **JAY'S CORE FUNCTION MEMORY (บันทึกฟังก์ชันหลัก)**:
+           You must remember your capabilities within this "Notion for Life" system:
+           - **PARA Brain**: You organize Tasks, Projects, Areas, Resources, and Archives. You help categorize and link them.
+           - **Wealth Engine**: You track Finances (Income, Expense, Transfers) and calculate Net Worth.
+           - **Dynamic Modules**: You can handle ANY custom data module Ouk builds (e.g., Health, Reading List, Habits) by mapping inputs to the module's schema.
+           - **Goal**: To build a robust, personalized system that runs on autopilot.
 
         3. OPERATIONAL PROTOCOLS:
         - **Input Analysis**: Determine if the input is a Task/Project, a Financial Transaction, or Data for a specific Module.
@@ -163,7 +162,7 @@ export const analyzeParaInput = async (
     
     const rawResult = JSON.parse(text);
     
-    // Transform moduleDataRaw back to Object
+    // Transform moduleDataRaw back to Object for the App to use
     let moduleData: Record<string, any> = {};
     if (rawResult.moduleDataRaw && Array.isArray(rawResult.moduleDataRaw)) {
         rawResult.moduleDataRaw.forEach((item: any) => {
@@ -171,9 +170,12 @@ export const analyzeParaInput = async (
                  // Attempt basic type inference
                  const valStr = item.value;
                  let val: any = valStr;
+                 // Try to convert to number if it looks like one
                  if (!isNaN(Number(valStr)) && valStr.trim() !== '') {
                      val = Number(valStr);
-                 } else if (valStr.toLowerCase() === 'true') {
+                 } 
+                 // Try to convert boolean
+                 else if (valStr.toLowerCase() === 'true') {
                      val = true;
                  } else if (valStr.toLowerCase() === 'false') {
                      val = false;

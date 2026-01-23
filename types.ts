@@ -9,7 +9,8 @@ export enum ParaType {
   AREA = 'Areas',       // Responsibility to maintain
   RESOURCE = 'Resources', // Topic of ongoing interest
   ARCHIVE = 'Archives',   // Inactive items
-  TASK = 'Tasks'        // JAY'S NOTE: New actionable unit linked to projects
+  TASK = 'Tasks',        // JAY'S NOTE: New actionable unit linked to projects
+  FINANCE = 'Finance'    // JAY'S NOTE: New Module for Wealth Engine
 }
 
 export interface ParaItem {
@@ -34,6 +35,63 @@ export interface ParaItem {
   status?: string;     // For Projects
   energyLevel?: string;// For Tasks
 }
+
+// --- FINANCE MODULE TYPES ---
+
+export type FinanceAccountType = 'CASH' | 'BANK' | 'CREDIT' | 'INVESTMENT';
+export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER';
+
+export interface FinanceAccount {
+  id: string;
+  name: string;
+  type: FinanceAccountType;
+  balance: number;
+  currency: string;
+  isIncludeNetWorth: boolean;
+}
+
+export interface Transaction {
+  id: string;
+  description: string;
+  amount: number;
+  type: TransactionType;
+  category: string;
+  accountId: string;
+  projectId?: string; // Link to PARA Project
+  transactionDate: string;
+}
+
+// --- DYNAMIC MODULE TYPES (PLATFORM ENGINE) ---
+
+export interface ModuleField {
+  key: string;
+  type: 'text' | 'number' | 'select' | 'date' | 'checkbox';
+  label: string;
+  options?: string[]; // For select type, comma separated in UI
+}
+
+export interface AppModule {
+  id: string;
+  key: string;
+  name: string;
+  description?: string;
+  icon: string; // Lucide icon name string
+  schemaConfig: {
+    fields: ModuleField[];
+  };
+}
+
+export interface ModuleItem {
+  id: string;
+  moduleId: string;
+  title: string;
+  data: Record<string, any>; // JSONB Data
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------
 
 // โครงสร้างที่ส่งให้ AI ช่วยวิเคราะห์
 export interface AIAnalysisResult {
@@ -78,6 +136,6 @@ export interface HistoryLog {
   id: string;
   action: HistoryAction;
   itemTitle: string;
-  itemType: ParaType;
+  itemType: ParaType | 'Finance' | 'Module';
   timestamp: string;
 }

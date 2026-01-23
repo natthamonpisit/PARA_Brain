@@ -1,19 +1,22 @@
 import React, { useRef } from 'react';
-import { ParaType } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key } from 'lucide-react';
+import { ParaType, AppModule } from '../types';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, Grid } from 'lucide-react';
+import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
-  activeType: ParaType | 'All';
-  onSelectType: (type: ParaType | 'All') => void;
+  activeType: ParaType | 'All' | 'Finance' | string;
+  onSelectType: (type: ParaType | 'All' | 'Finance' | string) => void;
   stats: Record<string, number>;
   onExport?: () => void;
   onImport?: (file: File) => void;
   onShowHistory: () => void;
   isOpen: boolean;
   onClose: () => void;
-  // JAY'S NOTE: New props for manual API Key management
   apiKey: string;
   onSetApiKey: (key: string) => void;
+  // Dynamic Modules
+  modules: AppModule[];
+  onCreateModule: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -26,7 +29,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onClose,
   apiKey,
-  onSetApiKey
+  onSetApiKey,
+  modules,
+  onCreateModule
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (event.target) event.target.value = '';
   };
 
-  const handleMenuClick = (type: ParaType | 'All') => {
+  const handleMenuClick = (type: any) => {
       onSelectType(type);
       onClose();
   };
@@ -84,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        <nav className="space-y-1">
+        <nav className="space-y-1 overflow-y-auto flex-1 pr-1 custom-scrollbar">
           {menuItems.map((item) => {
             const isActive = activeType === item.type;
             const Icon = item.icon;
@@ -95,7 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <button
                 key={item.label}
-                onClick={() => handleMenuClick(item.type as any)}
+                onClick={() => handleMenuClick(item.type)}
                 className={`
                   w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200
                   ${isActive 
@@ -115,10 +120,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             );
           })}
+          
+          {/* MODULES SECTION */}
+          <div className="pt-4 mt-2 border-t border-slate-100">
+             <div className="flex justify-between items-center px-3 mb-2">
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Modules</p>
+                 <button onClick={onCreateModule} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors">
+                     <Plus className="w-3 h-3" />
+                 </button>
+             </div>
+             
+             {/* Built-in Finance */}
+             <button
+                onClick={() => handleMenuClick('Finance')}
+                className={`
+                  w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 mb-1
+                  ${activeType === 'Finance'
+                    ? 'bg-slate-100 text-slate-900 shadow-sm' 
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}
+                `}
+              >
+                <div className="flex items-center gap-3">
+                  <Wallet className="w-5 h-5 text-indigo-600" />
+                  <span>Finance</span>
+                </div>
+              </button>
+
+              {/* Dynamic Modules */}
+              {modules.map(mod => (
+                  <button
+                    key={mod.id}
+                    onClick={() => handleMenuClick(mod.id)}
+                    className={`
+                      w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 mb-1
+                      ${activeType === mod.id
+                        ? 'bg-slate-100 text-slate-900 shadow-sm' 
+                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}
+                    `}
+                  >
+                    <div className="flex items-center gap-3">
+                      {getModuleIcon(mod.icon, "w-5 h-5 text-indigo-500")}
+                      <span>{mod.name}</span>
+                    </div>
+                  </button>
+              ))}
+          </div>
         </nav>
 
-        {/* Data Management Section */}
-        <div className="mt-auto pt-4 border-t border-slate-100 space-y-2">
+        {/* System Footer */}
+        <div className="mt-4 pt-4 border-t border-slate-100 space-y-2 shrink-0">
           <p className="px-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">System</p>
           
           <button 
@@ -134,7 +184,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
           >
               <History className="w-4 h-4 text-indigo-500" />
-              Activity History
+              History
           </button>
 
           <button 
@@ -142,7 +192,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
           >
               <Download className="w-4 h-4" />
-              Backup Data
+              Backup
           </button>
 
           <button 
@@ -150,7 +200,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
           >
               <Upload className="w-4 h-4" />
-              Restore Backup
+              Restore
           </button>
           <input 
               type="file" 
@@ -159,13 +209,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               accept=".json"
               onChange={handleFileChange}
           />
-          
-          <div className="mt-4 px-3 py-2 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-100 md:block hidden">
-            <p className="text-xs font-semibold text-indigo-900 mb-1">AI Assistant Ready</p>
-            <p className="text-xs text-indigo-600 leading-relaxed">
-              Type anything below. I'll organize it for you.
-            </p>
-          </div>
         </div>
       </div>
     </>

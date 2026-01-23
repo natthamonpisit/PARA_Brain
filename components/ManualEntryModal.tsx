@@ -1,65 +1,125 @@
 import React, { useState, useEffect } from 'react';
-import { ParaType, ParaItem } from '../types';
-import { X, Save, Type, Tag, AlignLeft, Layout } from 'lucide-react';
+import { ParaType, ParaItem, FinanceAccount, Transaction, TransactionType, FinanceAccountType, AppModule, ModuleItem } from '../types';
+import { X, Save, Type, Tag, AlignLeft, Layout, Banknote, Calendar, Wallet } from 'lucide-react';
 import { generateId } from '../utils/helpers';
+import { getModuleIcon } from './DynamicModuleBoard';
 
 interface ManualEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (item: ParaItem) => Promise<void>;
-  defaultType: ParaType | 'All';
+  onSave: (data: any, mode: 'PARA' | 'TRANSACTION' | 'ACCOUNT' | 'MODULE') => Promise<void>;
+  defaultType: ParaType | 'Finance' | 'All' | string; // string can be module ID
+  projects?: ParaItem[]; 
+  accounts?: FinanceAccount[];
+  activeModule?: AppModule | null; // Pass active module if applicable
 }
+
+type ModalTab = 'PARA' | 'FINANCE' | 'MODULE';
 
 export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ 
   isOpen, 
   onClose, 
   onSave, 
-  defaultType 
+  defaultType,
+  projects = [],
+  accounts = [],
+  activeModule = null
 }) => {
+  const [activeTab, setActiveTab] = useState<ModalTab>('PARA');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // --- PARA STATE ---
   const [title, setTitle] = useState('');
   const [type, setType] = useState<ParaType>(ParaType.TASK);
   const [category, setCategory] = useState('');
   const [content, setContent] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Reset form when opening
+  // --- FINANCE STATE ---
+  const [financeMode, setFinanceMode] = useState<'TRANSACTION' | 'ACCOUNT'>('TRANSACTION');
+  const [txDesc, setTxDesc] = useState('');
+  const [txAmount, setTxAmount] = useState('');
+  const [txType, setTxType] = useState<TransactionType>('EXPENSE');
+  const [txAccount, setTxAccount] = useState('');
+  const [txProject, setTxProject] = useState('');
+  const [txCategory, setTxCategory] = useState('General');
+  const [accName, setAccName] = useState('');
+  const [accType, setAccType] = useState<FinanceAccountType>('BANK');
+  const [accBalance, setAccBalance] = useState('');
+
+  // --- DYNAMIC MODULE STATE ---
+  const [moduleTitle, setModuleTitle] = useState('');
+  const [moduleData, setModuleData] = useState<Record<string, any>>({});
+
   useEffect(() => {
     if (isOpen) {
-      setTitle('');
-      setContent('');
-      setCategory('General');
-      // Set default type based on current view (default to Task if 'All')
-      setType(defaultType === 'All' ? ParaType.TASK : defaultType);
+      if (activeModule) {
+          setActiveTab('MODULE');
+          setModuleTitle('');
+          setModuleData({});
+      } else if (defaultType === 'Finance') {
+        setActiveTab('FINANCE');
+      } else {
+        setActiveTab('PARA');
+        setType((defaultType === 'All' || !Object.values(ParaType).includes(defaultType as any)) ? ParaType.TASK : defaultType as ParaType);
+      }
+      
+      // Reset forms
+      setTitle(''); setContent(''); setCategory('General');
+      setTxDesc(''); setTxAmount(''); setTxCategory('General');
+      if (accounts.length > 0) setTxAccount(accounts[0].id);
+      setAccName(''); setAccBalance('');
     }
-  }, [isOpen, defaultType]);
+  }, [isOpen, defaultType, accounts, activeModule]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || isSubmitting) return;
+    if (isSubmitting) return;
 
     setIsSubmitting(true);
-
-    const newItem: ParaItem = {
-      id: generateId(),
-      title: title,
-      content: content,
-      type: type,
-      category: category || 'General',
-      tags: [], // Manual entry defaults to no tags for simplicity
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isAiGenerated: false,
-      isCompleted: false,
-      relatedItemIds: []
-    };
-
     try {
-      await onSave(newItem);
-      onClose();
+        if (activeTab === 'MODULE' && activeModule) {
+            const newItem: ModuleItem = {
+                id: generateId(),
+                moduleId: activeModule.id,
+                title: moduleTitle,
+                data: moduleData,
+                tags: [],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+            await onSave(newItem, 'MODULE');
+
+        } else if (activeTab === 'PARA') {
+            const newItem: ParaItem = {
+                id: generateId(),
+                title, content, type,
+                category: category || 'General',
+                tags: [], isAiGenerated: false, isCompleted: false, relatedItemIds: [],
+                createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+            };
+            await onSave(newItem, 'PARA');
+
+        } else if (activeTab === 'FINANCE') {
+            if (financeMode === 'TRANSACTION') {
+                if (!txAccount) { alert('Create account first'); setIsSubmitting(false); return; }
+                const amountVal = parseFloat(txAmount);
+                const finalAmount = txType === 'EXPENSE' ? -Math.abs(amountVal) : Math.abs(amountVal);
+                const newTx: Transaction = {
+                    id: generateId(), description: txDesc, amount: finalAmount, type: txType, category: txCategory, accountId: txAccount, projectId: txProject || undefined, transactionDate: new Date().toISOString()
+                };
+                await onSave(newTx, 'TRANSACTION');
+            } else {
+                const newAcc: FinanceAccount = {
+                    id: generateId(), name: accName, type: accType, balance: parseFloat(accBalance || '0'), currency: 'THB', isIncludeNetWorth: true
+                };
+                await onSave(newAcc, 'ACCOUNT');
+            }
+        }
+        onClose();
     } catch (error) {
-      console.error("Failed to save manual item:", error);
+        console.error("Save failed:", error);
     } finally {
-      setIsSubmitting(false);
+        setIsSubmitting(false);
     }
   };
 
@@ -67,110 +127,176 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      ></div>
-
-      {/* Modal */}
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 animate-in zoom-in-95 duration-200 overflow-hidden border border-slate-100">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
         
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <Layout className="w-5 h-5 text-indigo-600" />
-            Add New Item
-          </h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200 transition-colors">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+          <div className="flex gap-2">
+              {activeModule ? (
+                  <div className="flex items-center gap-2 text-indigo-700 font-bold">
+                      {getModuleIcon(activeModule.icon, "w-5 h-5")}
+                      <span>New {activeModule.name} Entry</span>
+                  </div>
+              ) : (
+                  <>
+                    <button onClick={() => setActiveTab('PARA')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'PARA' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}>Productivity</button>
+                    <button onClick={() => setActiveTab('FINANCE')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'FINANCE' ? 'bg-white shadow text-emerald-600' : 'text-slate-400'}`}>Finance</button>
+                  </>
+              )}
+          </div>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
           
-          {/* Title Input */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Title</label>
-            <input 
-              autoFocus
-              type="text" 
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What needs to be done?"
-              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 font-medium"
-              required
-            />
-          </div>
+          {/* --- MODULE FORM --- */}
+          {activeTab === 'MODULE' && activeModule && (
+              <>
+                 <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Entry Title</label>
+                    <input type="text" required value={moduleTitle} onChange={(e) => setModuleTitle(e.target.value)} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500/20" placeholder={`e.g. Morning Check-in`} />
+                 </div>
+                 <div className="grid gap-4">
+                     {activeModule.schemaConfig.fields.map(field => (
+                         <div key={field.key}>
+                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{field.label}</label>
+                             {field.type === 'select' ? (
+                                 <select 
+                                    value={moduleData[field.key] || ''} 
+                                    onChange={(e) => setModuleData({...moduleData, [field.key]: e.target.value})}
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm"
+                                 >
+                                     <option value="">Select...</option>
+                                     {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                 </select>
+                             ) : field.type === 'checkbox' ? (
+                                <input 
+                                    type="checkbox"
+                                    checked={!!moduleData[field.key]}
+                                    onChange={(e) => setModuleData({...moduleData, [field.key]: e.target.checked})}
+                                    className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
+                                />
+                             ) : (
+                                 <input 
+                                    type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                                    step={field.type === 'number' ? 'any' : undefined}
+                                    value={moduleData[field.key] || ''} 
+                                    onChange={(e) => setModuleData({...moduleData, [field.key]: e.target.value})}
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm"
+                                 />
+                             )}
+                         </div>
+                     ))}
+                 </div>
+              </>
+          )}
 
-          <div className="grid grid-cols-2 gap-4">
-            {/* Type Selection */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <Type className="w-3 h-3" /> Type
-              </label>
-              <select 
-                value={type}
-                onChange={(e) => setType(e.target.value as ParaType)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm text-slate-700"
-              >
-                {Object.values(ParaType).map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
+          {/* --- PARA FORM --- */}
+          {activeTab === 'PARA' && (
+             <>
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Title</label>
+                    <input autoFocus type="text" value={title} onChange={(e) => setTitle(e.target.value)} required className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Type</label>
+                        <select value={type} onChange={(e) => setType(e.target.value as ParaType)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm">
+                            {Object.values(ParaType).filter(t => t !== 'Finance').map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Category</label>
+                        <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm" />
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notes</label>
+                    <textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm resize-none" />
+                </div>
+             </>
+          )}
 
-            {/* Category Input */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <Tag className="w-3 h-3" /> Category
-              </label>
-              <input 
-                type="text" 
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Work, Health"
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm text-slate-700"
-              />
-            </div>
-          </div>
+          {/* --- FINANCE FORM --- */}
+          {activeTab === 'FINANCE' && (
+              <>
+                 <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl">
+                     <button type="button" onClick={() => setFinanceMode('TRANSACTION')} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${financeMode === 'TRANSACTION' ? 'bg-white shadow text-emerald-600' : 'text-slate-400'}`}>Transaction</button>
+                     <button type="button" onClick={() => setFinanceMode('ACCOUNT')} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${financeMode === 'ACCOUNT' ? 'bg-white shadow text-blue-600' : 'text-slate-400'}`}>New Account</button>
+                 </div>
 
-          {/* Content/Notes */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-              <AlignLeft className="w-3 h-3" /> Notes (Optional)
-            </label>
-            <textarea 
-              rows={4}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Add more details..."
-              className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm text-slate-700 resize-none"
-            />
-          </div>
+                 {financeMode === 'TRANSACTION' ? (
+                     <>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Type</label>
+                                <select value={txType} onChange={(e) => setTxType(e.target.value as TransactionType)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm">
+                                    <option value="EXPENSE">Expense (-)</option>
+                                    <option value="INCOME">Income (+)</option>
+                                    <option value="TRANSFER">Transfer</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Amount</label>
+                                <input type="number" step="0.01" required value={txAmount} onChange={(e) => setTxAmount(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-mono" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Description</label>
+                            <input type="text" required value={txDesc} onChange={(e) => setTxDesc(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Account</label>
+                                <select required value={txAccount} onChange={(e) => setTxAccount(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm">
+                                    <option value="" disabled>Select...</option>
+                                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.balance})</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Project</label>
+                                <select value={txProject} onChange={(e) => setTxProject(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm">
+                                    <option value="">None</option>
+                                    {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                     </>
+                 ) : (
+                     <>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Account Name</label>
+                            <input type="text" required value={accName} onChange={(e) => setAccName(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Type</label>
+                                <select value={accType} onChange={(e) => setAccType(e.target.value as FinanceAccountType)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm">
+                                    <option value="BANK">Bank</option>
+                                    <option value="CASH">Cash</option>
+                                    <option value="CREDIT">Credit</option>
+                                    <option value="INVESTMENT">Invest</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Balance</label>
+                                <input type="number" step="0.01" value={accBalance} onChange={(e) => setAccBalance(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-mono" />
+                            </div>
+                        </div>
+                     </>
+                 )}
+              </>
+          )}
 
           <div className="pt-4 flex justify-end gap-3">
-            <button 
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button 
-              type="submit"
-              disabled={!title.trim() || isSubmitting}
-              className={`
-                flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-bold text-white shadow-lg transition-all
-                ${!title.trim() || isSubmitting 
-                  ? 'bg-slate-300 cursor-not-allowed' 
-                  : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-indigo-500/30 active:scale-95'}
-              `}
-            >
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50">
               <Save className="w-4 h-4" />
-              {isSubmitting ? 'Saving...' : 'Save Item'}
+              {isSubmitting ? 'Saving...' : 'Save'}
             </button>
           </div>
-
         </form>
       </div>
     </div>

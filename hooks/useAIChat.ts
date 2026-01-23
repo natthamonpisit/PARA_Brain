@@ -2,7 +2,9 @@
 import { useState } from 'react';
 import { ChatMessage, ParaItem, ExistingItemContext, ParaType, FinanceAccount, AppModule, Transaction, ModuleItem } from '../types';
 import { analyzeParaInput } from '../services/geminiService';
+import { db } from '../services/db'; // Import DB
 import { generateId } from '../utils/helpers';
+import { GoogleGenAI } from "@google/genai"; // Direct import for manual summarization
 
 interface UseAIChatProps {
   items: ParaItem[];
@@ -196,10 +198,71 @@ export const useAIChat = ({
       }
   };
 
+  // --- NEW: Generate Daily Summary ---
+  const generateDailySummary = async () => {
+    if (!apiKey) throw new Error("API Key Missing");
+
+    // 1. Collect Data (Chat History + Completed Tasks Today)
+    const today = new Date().toLocaleDateString();
+    const chatLog = messages
+        .filter(m => m.timestamp.toLocaleDateString() === today)
+        .map(m => `${m.role}: ${m.text}`)
+        .join('\n');
+    
+    const completedTasks = items
+        .filter(i => i.isCompleted && new Date(i.updatedAt).toLocaleDateString() === today)
+        .map(i => `- ${i.title}`)
+        .join('\n');
+
+    const prompt = `
+        Summarize the user's day based on this chat log and completed tasks.
+        Keep it concise, focusing on what was achieved, what was discussed, and any pending thoughts.
+        Language: Thai.
+        
+        [Completed Tasks]
+        ${completedTasks}
+
+        [Chat Log]
+        ${chatLog}
+    `;
+
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt
+        });
+        
+        const summaryText = response.text || "No summary generated.";
+
+        // Save to DB via system_logs (using a special type)
+        await db.addLog({
+            id: generateId(),
+            action: 'DAILY_SUMMARY',
+            itemTitle: 'Daily Summary',
+            itemType: 'System',
+            timestamp: new Date().toISOString()
+        });
+        
+        // Also add a special message to chat
+        addMessage({
+            id: generateId(),
+            role: 'assistant',
+            text: `📝 **สรุปประจำวันนี้ครับ:**\n\n${summaryText}`,
+            timestamp: new Date()
+        });
+
+    } catch (e) {
+        console.error("Summary failed", e);
+        throw e;
+    }
+  };
+
   return {
     messages,
     isProcessing,
     handleSendMessage,
-    handleChatCompletion
+    handleChatCompletion,
+    generateDailySummary
   };
 };

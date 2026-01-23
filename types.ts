@@ -13,6 +13,8 @@ export enum ParaType {
   FINANCE = 'Finance'    // JAY'S NOTE: New Module for Wealth Engine
 }
 
+export type ViewMode = 'GRID' | 'LIST' | 'TABLE';
+
 export interface ParaItem {
   id: string;
   title: string;
@@ -96,7 +98,7 @@ export interface ModuleItem {
 // โครงสร้างที่ส่งให้ AI ช่วยวิเคราะห์
 export interface AIAnalysisResult {
   // JAY'S NOTE: Expanded operations to cover Finance and Modules
-  operation: 'CREATE' | 'COMPLETE' | 'CHAT' | 'TRANSACTION' | 'MODULE_ITEM'; 
+  operation: 'CREATE' | 'COMPLETE' | 'CHAT' | 'TRANSACTION' | 'MODULE_ITEM' | 'SUMMARY'; 
   
   // PARA Fields
   type?: ParaType;
@@ -154,13 +156,13 @@ export interface ChatMessage {
 }
 
 // JAY'S NOTE: Structure สำหรับเก็บ History Log
-export type HistoryAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'COMPLETE';
+export type HistoryAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'COMPLETE' | 'DAILY_SUMMARY';
 
 export interface HistoryLog {
   id: string;
   action: HistoryAction;
   itemTitle: string;
-  itemType: ParaType | 'Finance' | 'Module';
+  itemType: ParaType | 'Finance' | 'Module' | 'System';
   timestamp: string;
 }
 

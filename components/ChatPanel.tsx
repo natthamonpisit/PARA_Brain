@@ -1,5 +1,6 @@
+
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, Bot, User, Loader2, ArrowRight, Database, FileJson, CheckCircle2 } from 'lucide-react';
+import { Send, Bot, User, Loader2, ArrowRight, Database, FileJson, CheckCircle2, X } from 'lucide-react';
 import { ChatMessage, ParaType, ParaItem, Transaction, ModuleItem } from '../types';
 
 interface ChatPanelProps {
@@ -8,6 +9,7 @@ interface ChatPanelProps {
   // JAY'S NOTE: New prop to handle completion click from chat
   onCompleteTask?: (item: ParaItem) => void; 
   isProcessing: boolean;
+  onClose?: () => void; // New prop
   className?: string; 
 }
 
@@ -16,6 +18,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     onSendMessage, 
     onCompleteTask,
     isProcessing, 
+    onClose,
     className = '' 
 }) => {
   const [input, setInput] = useState('');
@@ -77,12 +80,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     <div className={`flex flex-col h-full bg-white border-l border-slate-200 shadow-xl z-20 ${className}`}>
       
       {/* Header */}
-      <div className="p-4 border-b border-slate-100 bg-slate-50/50 backdrop-blur flex-shrink-0">
-        <div className="flex items-center gap-2 text-slate-800">
-          <Bot className="w-5 h-5 text-indigo-600" />
-          <h3 className="font-semibold text-sm">AI Copilot</h3>
+      <div className="p-4 border-b border-slate-100 bg-slate-50/50 backdrop-blur flex-shrink-0 flex justify-between items-center">
+        <div>
+            <div className="flex items-center gap-2 text-slate-800">
+            <Bot className="w-5 h-5 text-indigo-600" />
+            <h3 className="font-semibold text-sm">AI Copilot</h3>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">Consult & Organize your thoughts</p>
         </div>
-        <p className="text-xs text-slate-500 mt-1">Consult & Organize your thoughts</p>
+        {onClose && (
+            <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 md:hidden">
+                <X className="w-5 h-5" />
+            </button>
+        )}
       </div>
 
       {/* Messages Area */}

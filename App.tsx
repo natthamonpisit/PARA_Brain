@@ -8,9 +8,9 @@ import { DynamicModuleBoard } from './components/DynamicModuleBoard';
 import { ModuleBuilderModal } from './components/ModuleBuilderModal'; 
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
-import { LineConnectModal } from './components/LineConnectModal'; // NEW
-import { ParaType, AppModule, ModuleItem } from './types';
-import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus } from 'lucide-react';
+import { LineConnectModal } from './components/LineConnectModal';
+import { ParaType, AppModule, ModuleItem, ViewMode } from './types';
+import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
 import { useModuleData } from './hooks/useModuleData'; 
@@ -34,10 +34,16 @@ export default function App() {
 
   // --- UI STATE ---
   const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | string>('All');
+  const [viewMode, setViewMode] = useState<ViewMode>('GRID');
+  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Modals
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
-  const [isLineModalOpen, setIsLineModalOpen] = useState(false); // NEW STATE
+  const [isLineModalOpen, setIsLineModalOpen] = useState(false);
+  
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('board');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -49,14 +55,16 @@ export default function App() {
     if (savedKey) setApiKey(savedKey);
     loadFinanceData();
     loadModules();
-  }, []); // Run once
+  }, []);
 
   // --- VIEW LOGIC ---
   useEffect(() => {
-      // If active type is a module ID, load its items
+      // Load modules when selected
       if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
           loadModuleItems(activeType);
       }
+      // Clear selection when changing tabs
+      setSelectedIds(new Set());
   }, [activeType]);
 
   const handleSetApiKey = (key: string) => {
@@ -65,7 +73,7 @@ export default function App() {
   };
 
   // --- AI INTEGRATION ---
-  const { messages, isProcessing, handleSendMessage, handleChatCompletion } = useAIChat({
+  const { messages, isProcessing, handleSendMessage, handleChatCompletion, generateDailySummary } = useAIChat({
     items, 
     accounts,
     modules,
@@ -81,6 +89,61 @@ export default function App() {
     setTimeout(() => setNotification(null), 3000);
   };
 
+  // --- BATCH ACTIONS ---
+  const handleSelect = (id: string) => {
+      const newSet = new Set(selectedIds);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      setSelectedIds(newSet);
+  };
+
+  const handleSelectAll = (ids: string[]) => {
+      if (selectedIds.size === ids.length && ids.length > 0) {
+          setSelectedIds(new Set());
+      } else {
+          setSelectedIds(new Set(ids));
+      }
+  };
+
+  const handleBatchDelete = async () => {
+      if (!window.confirm(`Delete ${selectedIds.size} items?`)) return;
+      
+      const ids = Array.from(selectedIds);
+      for (const id of ids) {
+          try {
+             if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
+                 await deleteModuleItem(id, activeType);
+             } else {
+                 await deleteItem(id);
+             }
+          } catch(e) { console.error(e); }
+      }
+      setSelectedIds(new Set());
+      showNotification('Batch delete complete', 'success');
+  };
+
+  const handleBatchComplete = async () => {
+      const ids = Array.from(selectedIds);
+      for (const id of ids) {
+          try {
+             await toggleComplete(id, false); // Force complete
+          } catch(e) { console.error(e); }
+      }
+      setSelectedIds(new Set());
+      showNotification('Batch complete success', 'success');
+  };
+
+  const handleDailySummary = async () => {
+      showNotification('Generating daily summary...', 'success');
+      try {
+          await generateDailySummary();
+          showNotification('Daily summary saved to Memory!', 'success');
+      } catch (e) {
+          showNotification('Failed to summarize', 'error');
+      }
+  };
+
+  // Single Delete Wrapper
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
     try {
@@ -116,7 +179,6 @@ export default function App() {
       }
   };
 
-  // Determine current view details
   const activeModule = modules.find(m => m.id === activeType);
   const pageTitle = activeModule ? activeModule.name : (activeType === 'All' ? 'Dashboard' : activeType);
 
@@ -136,66 +198,144 @@ export default function App() {
         onOpenLine={() => setIsLineModalOpen(true)}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 relative h-full">
-        {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b shrink-0">
+      <div className="flex-1 flex flex-col min-w-0 relative h-full transition-all duration-300">
+        
+        {/* Header */}
+        <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 md:px-6 py-3 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
-             <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-600"><Menu className="w-6 h-6" /></button>
-             <span className="font-bold">{pageTitle}</span>
+             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-slate-600"><Menu className="w-6 h-6" /></button>
+             <h2 className="text-xl font-bold tracking-tight text-slate-900">{pageTitle}</h2>
           </div>
-          <button onClick={() => setIsManualModalOpen(true)} className="p-2 bg-indigo-600 text-white rounded-full"><Plus className="w-5 h-5" /></button>
-        </div>
 
-        {/* Desktop Header */}
-        <header className="hidden md:flex sticky top-0 z-10 bg-slate-50/80 backdrop-blur-md border-b px-8 py-4 justify-between items-center shrink-0">
-          <h2 className="text-xl font-bold tracking-tight text-slate-900">{pageTitle}</h2>
-          <div className="flex items-center gap-4">
-            {notification && (
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium animate-in slide-in-from-top-2 ${notification.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                    {notification.type === 'success' ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-                    {notification.message}
+          <div className="flex items-center gap-3">
+            {/* View Switcher */}
+            {activeType !== 'Finance' && (
+                <div className="hidden md:flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                    <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid View"><LayoutGrid className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List View"><List className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('TABLE')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'TABLE' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Table View"><TableIcon className="w-4 h-4" /></button>
                 </div>
             )}
+
+            <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+
+            {/* Daily Summary Button */}
+            <button 
+                onClick={handleDailySummary}
+                className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-indigo-500 text-white text-xs font-bold rounded-lg shadow-sm hover:opacity-90 transition-opacity"
+            >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Summarize Day</span>
+            </button>
+
             <button onClick={() => setIsManualModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 shadow-sm">
               <Plus className="w-3.5 h-3.5" />
-              New Item
+              <span className="hidden md:inline">New Item</span>
+            </button>
+
+            {/* Chat Toggle */}
+            <button 
+                onClick={() => setIsChatOpen(!isChatOpen)}
+                className={`hidden md:flex items-center gap-1 px-2 py-1.5 rounded-lg border transition-colors ${isChatOpen ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-500'}`}
+                title="Toggle Chat"
+            >
+                {isChatOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
             </button>
           </div>
         </header>
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden relative">
-            <div className={`h-full w-full overflow-y-auto p-4 md:p-8 ${mobileTab === 'board' ? 'block' : 'hidden md:block'}`}>
-                <div className="w-full pb-24 md:pb-0">
+        {/* Notification Toast */}
+        {notification && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg animate-in slide-in-from-top-4 fade-in duration-300 border backdrop-blur-md bg-white/90 border-slate-200">
+                {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-red-500" />}
+                <span className={`text-sm font-semibold ${notification.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>{notification.message}</span>
+            </div>
+        )}
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-hidden relative flex">
+            
+            {/* Main Board */}
+            <div className={`flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 transition-all duration-300 ${mobileTab === 'board' ? 'block' : 'hidden md:block'}`}>
+                <div className="w-full pb-24 md:pb-0 max-w-[1600px] mx-auto">
                     {activeModule ? (
                         <DynamicModuleBoard 
                             module={activeModule}
                             items={moduleItems[activeModule.id] || []}
                             onDelete={handleDeleteWrapper}
+                            // Pending: Implement ViewMode for DynamicBoard later
                         />
                     ) : activeType === 'Finance' ? (
                         <FinanceBoard accounts={accounts} transactions={transactions} projects={items.filter(i => i.type === ParaType.PROJECT)} />
                     ) : (
-                        <ParaBoard items={items} activeType={activeType as any} onDelete={handleDeleteWrapper} onToggleComplete={(id, s) => toggleComplete(id, s)} />
+                        <ParaBoard 
+                            items={items} 
+                            activeType={activeType as any} 
+                            viewMode={viewMode}
+                            selectedIds={selectedIds}
+                            onSelect={handleSelect}
+                            onSelectAll={handleSelectAll}
+                            onDelete={handleDeleteWrapper} 
+                            onToggleComplete={(id, s) => toggleComplete(id, s)} 
+                        />
                     )}
                 </div>
             </div>
-            {/* Mobile Chat View */}
-            <div className={`h-full w-full absolute inset-0 bg-white z-30 pb-14 ${mobileTab === 'chat' ? 'block' : 'hidden'} md:hidden`}>
+
+            {/* Collapsible Chat Panel (Desktop) */}
+            <div className={`
+                hidden md:block border-l border-slate-200 bg-white transition-all duration-300 ease-in-out relative z-10
+                ${isChatOpen ? 'w-96 translate-x-0' : 'w-0 translate-x-full overflow-hidden border-none'}
+            `}>
+                <div className="w-96 h-full absolute right-0 top-0">
+                    <ChatPanel 
+                        messages={messages} 
+                        onSendMessage={handleSendMessage} 
+                        onCompleteTask={handleChatCompletion} 
+                        isProcessing={isProcessing} 
+                        onClose={() => setIsChatOpen(false)}
+                        className="h-full w-full" 
+                    />
+                </div>
+            </div>
+
+            {/* Mobile Chat View (Overlay) */}
+            <div className={`md:hidden absolute inset-0 bg-white z-20 pb-14 ${mobileTab === 'chat' ? 'block' : 'hidden'}`}>
                <ChatPanel messages={messages} onSendMessage={handleSendMessage} onCompleteTask={handleChatCompletion} isProcessing={isProcessing} className="w-full h-full" />
             </div>
+
+            {/* Batch Action Bar (Floating) */}
+            {selectedIds.size > 0 && (
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-6 duration-300">
+                    <div className="flex items-center gap-2 border-r border-slate-700 pr-4">
+                        <div className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">
+                            {selectedIds.size}
+                        </div>
+                        <span className="text-sm font-medium">Selected</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {activeType === 'Tasks' || activeType === 'All' ? (
+                             <button onClick={handleBatchComplete} className="p-2 hover:bg-slate-800 rounded-lg text-emerald-400 transition-colors" title="Complete Selected">
+                                <CheckSquare className="w-5 h-5" />
+                             </button>
+                        ) : null}
+                        <button onClick={handleBatchDelete} className="p-2 hover:bg-slate-800 rounded-lg text-red-400 transition-colors" title="Delete Selected">
+                            <Trash2 className="w-5 h-5" />
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
       </div>
 
-      <div className="hidden md:block"><ChatPanel messages={messages} onSendMessage={handleSendMessage} onCompleteTask={handleChatCompletion} isProcessing={isProcessing} className="w-96" /></div>
-
+      {/* Mobile Bottom Nav */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-white border-t flex justify-around items-center z-50 safe-area-bottom">
         <button onClick={() => setMobileTab('board')} className={`flex flex-col items-center gap-0.5 p-1 ${mobileTab === 'board' ? 'text-indigo-600' : 'text-slate-400'}`}><LayoutDashboard className="w-5 h-5" /><span className="text-[9px] font-semibold">Board</span></button>
         <button onClick={() => setMobileTab('chat')} className={`flex flex-col items-center gap-0.5 p-1 ${mobileTab === 'chat' ? 'text-indigo-600' : 'text-slate-400'}`}><MessageSquare className="w-5 h-5" /><span className="text-[9px] font-semibold">Chat</span></button>
       </div>
 
+      {/* Modals */}
       <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} logs={historyLogs} />
-      
       <ManualEntryModal
         isOpen={isManualModalOpen}
         onClose={() => setIsManualModalOpen(false)}
@@ -205,17 +345,8 @@ export default function App() {
         accounts={accounts}
         activeModule={activeModule || null}
       />
-
-      <ModuleBuilderModal 
-        isOpen={isModuleBuilderOpen}
-        onClose={() => setIsModuleBuilderOpen(false)}
-        onSave={handleCreateModule}
-      />
-
-      <LineConnectModal 
-        isOpen={isLineModalOpen}
-        onClose={() => setIsLineModalOpen(false)}
-      />
+      <ModuleBuilderModal isOpen={isModuleBuilderOpen} onClose={() => setIsModuleBuilderOpen(false)} onSave={handleCreateModule} />
+      <LineConnectModal isOpen={isLineModalOpen} onClose={() => setIsLineModalOpen(false)} />
     </div>
   );
 }

@@ -13,8 +13,6 @@ interface SidebarProps {
   onShowHistory: () => void;
   isOpen: boolean;
   onClose: () => void;
-  apiKey: string;
-  onSetApiKey: (key: string) => void;
   // Dynamic Modules
   modules: AppModule[];
   onCreateModule: () => void;
@@ -33,8 +31,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onShowHistory,
   isOpen,
   onClose,
-  apiKey,
-  onSetApiKey,
   modules,
   onCreateModule,
   onOpenLine,
@@ -42,11 +38,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
-
-  // Check for Environment Variable Key (Vite Build Time)
-  // @ts-ignore
-  const envKeyExists = typeof import.meta !== 'undefined' && import.meta.env && !!import.meta.env.VITE_API_KEY;
-  const isKeyReady = apiKey || envKeyExists;
 
   const menuItems = [
     { type: 'All', label: 'Dashboard', icon: Box, color: 'text-slate-500' },
@@ -71,17 +62,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (window.innerWidth < 768) {
         onClose();
       }
-  };
-
-  const handleSetKey = () => {
-    const promptMsg = envKeyExists 
-        ? "✅ Vercel Key Detected!\n\nYou can leave this blank to use the system key, or enter a new one to override it:" 
-        : "Enter your Gemini API Key manually (it will be saved locally):";
-        
-    const newKey = window.prompt(promptMsg, apiKey);
-    if (newKey !== null) {
-      onSetApiKey(newKey);
-    }
   };
 
   // Width logic: Mobile uses full width/overlay. Desktop uses dynamic width.
@@ -257,17 +237,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {!isCollapsed && <span>History</span>}
           </button>
 
-          <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between px-3'} py-2 text-slate-400`}>
-              {!isCollapsed && (
-                 <div className="flex items-center gap-2">
-                    <Key className="w-4 h-4" />
-                    <span className="text-xs font-medium">{isKeyReady ? 'API Key Set' : 'No Key'}</span>
-                 </div>
-              )}
-              <button onClick={handleSetKey} className="hover:text-slate-600">
-                  <Settings className="w-4 h-4" />
-              </button>
-          </div>
         </div>
 
       </div>

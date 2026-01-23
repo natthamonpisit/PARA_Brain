@@ -4,7 +4,6 @@ import { ParaItem, ParaType, FinanceAccount, AppModule, AIAnalysisResult, Histor
 
 export const analyzeLifeOS = async (
     input: string,
-    apiKey: string,
     context: {
         paraItems: ParaItem[];
         financeContext: { accounts: FinanceAccount[] };
@@ -134,7 +133,7 @@ export const analyzeLifeOS = async (
         Output JSON only.
     `;
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -149,10 +148,9 @@ export const analyzeLifeOS = async (
 
 export const performLifeAnalysis = async (
     logs: HistoryLog[], 
-    transactions: Transaction[], 
-    apiKey: string
+    transactions: Transaction[]
 ): Promise<string> => {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `
         Analyze the following user activity logs and financial transactions from the last 30 days.
         Provide a "Life OS Status Report" in Markdown format.

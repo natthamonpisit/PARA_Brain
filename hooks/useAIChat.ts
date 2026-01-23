@@ -13,10 +13,9 @@ interface UseAIChatProps {
     onToggleComplete: (id: string, status: boolean) => Promise<any>;
     onAddTransaction: (tx: Transaction) => Promise<any>;
     onAddModuleItem: (item: ModuleItem) => Promise<any>;
-    apiKey: string;
 }
 
-export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplete, onAddTransaction, onAddModuleItem, apiKey }: UseAIChatProps) => {
+export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplete, onAddTransaction, onAddModuleItem }: UseAIChatProps) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
 
@@ -37,12 +36,10 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
         setIsProcessing(true);
 
         try {
-            if (!apiKey) throw new Error("API Key missing");
-
             // Build Context Strings
             const recentHistory = messages.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
             
-            const result = await analyzeLifeOS(text, apiKey, {
+            const result = await analyzeLifeOS(text, {
                 paraItems: items,
                 financeContext: { accounts },
                 modules: modules,
@@ -60,13 +57,6 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
 
             } else if (result.operation === 'COMPLETE') {
                 // Find candidates to complete
-                // For simplicity, if AI didn't provide IDs (since we passed limited context), we might need to search
-                // But let's assume if 'relatedItemId' or 'title' match. 
-                // In this simplified version, we just return the suggestion to the UI or use candidates provided by AI if we improved the service to return found IDs.
-                // The prompt logic in geminiService doesn't explicitly search IDs yet, so we treat it as chat response for now unless specific logic added.
-                // However, let's try to match by title if possible.
-                
-                // Mockup for completion suggestions logic based on titles mentioned in response (not implemented fully in schema yet)
                 addMessage({
                     id: generateId(),
                     role: 'assistant',
@@ -231,8 +221,7 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
     };
 
     const analyzeLife = async (logs: HistoryLog[], transactions: Transaction[]) => {
-        if (!apiKey) throw new Error("API Key missing");
-        return await performLifeAnalysis(logs, transactions, apiKey);
+        return await performLifeAnalysis(logs, transactions);
     };
 
     return {

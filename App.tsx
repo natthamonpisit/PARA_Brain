@@ -54,12 +54,9 @@ export default function App() {
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('board');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [apiKey, setApiKey] = useState('');
 
   // --- INITIAL LOAD ---
   useEffect(() => {
-    const savedKey = localStorage.getItem('para_ai_key');
-    if (savedKey) setApiKey(savedKey);
     loadFinanceData();
     loadModules();
   }, []);
@@ -73,11 +70,6 @@ export default function App() {
       // Clear selection when changing tabs
       setSelectedIds(new Set());
   }, [activeType]);
-
-  const handleSetApiKey = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem('para_ai_key', key);
-  };
 
   // --- SEARCH & FILTER LOGIC ---
   const filteredParaItems = useMemo(() => {
@@ -124,8 +116,7 @@ export default function App() {
     onAddItem: addItem, 
     onToggleComplete: toggleComplete, 
     onAddTransaction: addTransaction,
-    onAddModuleItem: addModuleItem,
-    apiKey
+    onAddModuleItem: addModuleItem
   });
   
   const showNotification = (message: string, type: 'success' | 'error') => {
@@ -237,7 +228,6 @@ export default function App() {
         onExport={exportData} onImport={(f) => importData(f).then(() => showNotification('Restored!', 'success'))}
         onShowHistory={() => setIsHistoryOpen(true)}
         isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)}
-        apiKey={apiKey} onSetApiKey={handleSetApiKey}
         modules={modules} onCreateModule={() => setIsModuleBuilderOpen(true)}
         onOpenLine={() => setIsLineModalOpen(true)}
         onAnalyzeLife={handleAnalyzeLife}

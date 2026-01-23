@@ -5,14 +5,22 @@ import { ParaType, AIAnalysisResult, ExistingItemContext, ChatMessage, FinanceCo
 // JAY'S NOTE: Helper to safely retrieve API Key
 const getApiKey = (manualOverride?: string): string | undefined => {
   if (manualOverride && manualOverride.trim().length > 0) return manualOverride;
+  
   try {
+    // Check import.meta.env
     // @ts-ignore
-    if (import.meta && import.meta.env) {
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
        // @ts-ignore
-       if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
+       return import.meta.env.VITE_API_KEY;
     }
   } catch (e) {}
-  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) return process.env.API_KEY;
+
+  try {
+    // Check process.env
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) return process.env.API_KEY;
+  } catch (e) {}
+
   return undefined;
 };
 

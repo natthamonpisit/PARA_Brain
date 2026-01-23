@@ -54,11 +54,12 @@ export default async function handler(req: any, res: any) {
 
         // --- IDEMPOTENCY CHECK (กันข้อความซ้ำ) ---
         // เช็คว่า Event ID นี้เคยเข้ามาหรือยัง
+        // CRITICAL FIX: Use maybeSingle() instead of single() so it doesn't throw error if row is missing
         const { data: existingLog } = await supabase
             .from('system_logs')
             .select('id, status')
             .eq('event_id', eventId)
-            .single();
+            .maybeSingle();
 
         if (existingLog) {
             console.log(`🔄 Duplicate Event Detected (${eventId}). Status: ${existingLog.status}. Skipping...`);
@@ -78,6 +79,7 @@ export default async function handler(req: any, res: any) {
 
         if (logError) {
             console.error("Failed to lock event:", logError);
+            // If insert fails (likely race condition on unique constraint), skip
             continue; 
         }
 

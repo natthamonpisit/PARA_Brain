@@ -118,6 +118,20 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
             {/* --- SETUP TAB --- */}
             {activeTab === 'SETUP' && (
                 <>
+                    {/* IMPORTANT WARNING */}
+                    <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex gap-3">
+                        <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                            <h4 className="font-bold text-orange-700 text-sm">Critical Setting: Webhook Redelivery</h4>
+                            <p className="text-xs text-orange-600 mt-1 leading-relaxed">
+                                Because AI takes time to think (5-10s), LINE might timeout and resend messages, causing duplicates.
+                            </p>
+                            <p className="text-xs font-bold text-orange-700 mt-2">
+                                👉 Go to LINE Developers Console &gt; Messaging API &gt; Webhook settings and DISABLE "Webhook redelivery".
+                            </p>
+                        </div>
+                    </div>
+
                     <div className="space-y-3">
                         <div className="flex items-center gap-2 text-slate-800 font-bold">
                             <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs">1</div>

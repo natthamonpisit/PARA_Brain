@@ -82,8 +82,8 @@ export const analyzeParaInput = async (
         properties: {
         operation: {
             type: Type.STRING,
-            enum: ['CREATE', 'COMPLETE', 'CHAT', 'TRANSACTION', 'MODULE_ITEM'],
-            description: "Determine the action: CREATE (PARA item), TRANSACTION (Finance), MODULE_ITEM (Dynamic App), COMPLETE (Task), or CHAT."
+            enum: ['CREATE', 'BATCH_CREATE', 'COMPLETE', 'CHAT', 'TRANSACTION', 'MODULE_ITEM'],
+            description: "Determine the action. Use BATCH_CREATE for multiple items."
         },
         chatResponse: {
             type: Type.STRING,
@@ -101,6 +101,22 @@ export const analyzeParaInput = async (
         suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
         relatedItemIdsCandidates: { type: Type.ARRAY, items: { type: Type.STRING } },
         
+        // BATCH ITEMS (For BATCH_CREATE)
+        batchItems: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    title: { type: Type.STRING },
+                    type: { type: Type.STRING, enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE, ParaType.TASK] },
+                    category: { type: Type.STRING },
+                    summary: { type: Type.STRING },
+                    suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING } }
+                }
+            },
+            nullable: true
+        },
+
         // Finance Fields
         amount: { type: Type.NUMBER, nullable: true },
         transactionType: { type: Type.STRING, enum: ['INCOME', 'EXPENSE', 'TRANSFER'], nullable: true },
@@ -162,7 +178,8 @@ export const analyzeParaInput = async (
         --- OUTPUT INSTRUCTIONS ---
         - **TRANSACTION**: Use when user spends/receives money. Must infer 'amount', 'transactionType', and 'accountId'.
         - **MODULE_ITEM**: Use when user provides data relevant to a specific module from the list above. Map data to 'moduleDataRaw'.
-        - **CREATE**: Use for Tasks, Projects, Areas, Resources.
+        - **CREATE**: Use for CREATING A SINGLE Task, Project, Area, or Resource.
+        - **BATCH_CREATE**: Use when user asks to create MULTIPLE items (e.g., "List 3 tasks", "Add project and area"). Fill 'batchItems' array.
         - **CHAT**: Use for questions, advice, or clarification.
 
         Output JSON only.

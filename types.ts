@@ -115,9 +115,10 @@ export interface ModuleItem {
 
 export interface AIAnalysisResult {
   // JAY'S NOTE: The 'Dispatcher' Field. This tells the UI Hook what function to call.
-  operation: 'CREATE' | 'COMPLETE' | 'CHAT' | 'TRANSACTION' | 'MODULE_ITEM' | 'SUMMARY'; 
+  // Added BATCH_CREATE for multiple items support
+  operation: 'CREATE' | 'BATCH_CREATE' | 'COMPLETE' | 'CHAT' | 'TRANSACTION' | 'MODULE_ITEM' | 'SUMMARY'; 
   
-  // PARA Fields
+  // PARA Fields (Single)
   type?: ParaType;
   category?: string;
   title?: string;
@@ -125,6 +126,15 @@ export interface AIAnalysisResult {
   suggestedTags?: string[];
   relatedItemIdsCandidates?: string[]; 
   
+  // PARA Fields (Batch)
+  batchItems?: {
+    title: string;
+    type: ParaType;
+    category: string;
+    summary?: string;
+    suggestedTags?: string[];
+  }[];
+
   // Finance Fields
   amount?: number;
   transactionType?: TransactionType;
@@ -165,6 +175,8 @@ export interface ChatMessage {
   text: string;
   // If AI took an action, we attach the object here to render a nice UI card
   createdItem?: ParaItem | Transaction | ModuleItem; 
+  // JAY'S NOTE: Support multiple items in one message
+  createdItems?: ParaItem[];
   itemType?: 'PARA' | 'TRANSACTION' | 'MODULE'; 
   
   // Suggestion UI for completing tasks

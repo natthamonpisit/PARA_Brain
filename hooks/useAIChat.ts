@@ -229,6 +229,37 @@ export const useAIChat = ({
           timestamp: new Date()
         });
 
+      } else if (result.operation === 'BATCH_CREATE' && result.batchItems) {
+         // --- BATCH CREATE LOGIC ---
+         const createdItems: ParaItem[] = [];
+         
+         for (const item of result.batchItems) {
+             const newItem: ParaItem = {
+                 id: generateId(),
+                 title: item.title || "Untitled",
+                 content: item.summary || "",
+                 type: item.type || ParaType.TASK,
+                 category: item.category || "Inbox",
+                 tags: item.suggestedTags || [],
+                 relatedItemIds: [],
+                 createdAt: new Date().toISOString(),
+                 updatedAt: new Date().toISOString(),
+                 isAiGenerated: true,
+                 isCompleted: false
+             };
+             await onAddItem(newItem);
+             createdItems.push(newItem);
+         }
+
+         addMessage({
+             id: generateId(),
+             role: 'assistant',
+             text: result.chatResponse,
+             createdItems: createdItems, // Pass array for UI
+             itemType: 'PARA',
+             timestamp: new Date()
+         });
+
       } else if (result.operation === 'CREATE') {
         const newItem: ParaItem = {
           id: generateId(),

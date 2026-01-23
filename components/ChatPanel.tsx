@@ -40,36 +40,34 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const isJsonInput = input.trim().startsWith('{');
 
-  const renderCreatedItemCard = (msg: ChatMessage) => {
-    if (!msg.createdItem) return null;
-
+  const renderCreatedItemCard = (item: ParaItem | Transaction | ModuleItem, itemType: string = 'PARA') => {
     let typeLabel = 'ITEM';
     let categoryLabel = 'General';
     let titleLabel = 'Untitled';
 
-    if (msg.itemType === 'TRANSACTION') {
-        const tx = msg.createdItem as Transaction;
+    if (itemType === 'TRANSACTION') {
+        const tx = item as Transaction;
         typeLabel = tx.type;
         categoryLabel = tx.category;
         titleLabel = tx.description;
-    } else if (msg.itemType === 'MODULE') {
-        const modItem = msg.createdItem as ModuleItem;
+    } else if (itemType === 'MODULE') {
+        const modItem = item as ModuleItem;
         typeLabel = 'MODULE';
         categoryLabel = modItem.tags?.[0] || 'Data';
         titleLabel = modItem.title;
     } else {
         // PARA
-        const para = msg.createdItem as ParaItem;
+        const para = item as ParaItem;
         typeLabel = para.type;
         categoryLabel = para.category;
         titleLabel = para.title;
     }
 
     return (
-        <div className="bg-white rounded-lg border border-indigo-100 p-2 shadow-sm">
+        <div key={item.id} className="bg-white rounded-lg border border-indigo-100 p-2 shadow-sm mb-2 last:mb-0">
             <div className="flex justify-between items-start mb-1">
                 <span className="text-[10px] font-bold text-slate-400 uppercase">{typeLabel}</span>
-                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded">{categoryLabel}</span>
+                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded truncate max-w-[80px]">{categoryLabel}</span>
             </div>
             <div className="font-medium text-slate-800 text-sm truncate">{titleLabel}</div>
         </div>
@@ -127,14 +125,33 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               {msg.text}
             </div>
 
-            {/* JAY'S NOTE: "Action Report" Card - Created Item */}
+            {/* JAY'S NOTE: "Action Report" Card - Created Item (SINGLE) */}
             {msg.createdItem && (
               <div className="mt-2 w-[90%] bg-indigo-50 border border-indigo-100 rounded-xl p-3 animate-in slide-in-from-left-2">
                 <div className="flex items-center gap-2 text-xs font-semibold text-indigo-700 mb-2">
                   <Database className="w-3 h-3" />
                   <span>Saved to Database</span>
                 </div>
-                {renderCreatedItemCard(msg)}
+                {renderCreatedItemCard(msg.createdItem, msg.itemType)}
+              </div>
+            )}
+
+            {/* JAY'S NOTE: "Action Report" Card - Created Items (BATCH) */}
+            {msg.createdItems && msg.createdItems.length > 0 && (
+              <div className="mt-2 w-[90%] bg-indigo-50 border border-indigo-100 rounded-xl p-3 animate-in slide-in-from-left-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-indigo-700 mb-2">
+                  <Database className="w-3 h-3" />
+                  <span>Saved {msg.createdItems.length} items</span>
+                </div>
+                {/* Render up to 5 items to avoid clutter */}
+                <div className="space-y-1">
+                    {msg.createdItems.slice(0, 5).map(item => renderCreatedItemCard(item, 'PARA'))}
+                </div>
+                {msg.createdItems.length > 5 && (
+                    <div className="text-[10px] text-indigo-400 text-center mt-2 font-medium">
+                        + {msg.createdItems.length - 5} more items
+                    </div>
+                )}
               </div>
             )}
 

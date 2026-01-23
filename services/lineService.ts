@@ -1,9 +1,9 @@
 
 export const lineService = {
   /**
-   * Sends a push message to a specific LINE User ID via Vercel Serverless Function.
+   * Sends a push message to the configured LINE_USER_ID via Vercel Serverless Function.
    */
-  async sendPushMessage(userId: string, message: string): Promise<any> {
+  async sendPushMessage(message: string): Promise<any> {
     try {
       // Calls the file located at /api/line-push.ts
       const response = await fetch('/api/line-push', {
@@ -12,7 +12,6 @@ export const lineService = {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-            userId: userId,
             message: message 
         })
       });
@@ -34,6 +33,6 @@ export const lineService = {
    * Helps user find their User ID
    */
   getHelpMessage(): string {
-    return "To get your User ID, go to LINE Developers Console > Basic Settings > Your User ID (bottom of page).";
+    return "User ID is now configured in Vercel Environment Variables (LINE_USER_ID).";
   }
 };

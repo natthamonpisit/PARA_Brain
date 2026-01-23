@@ -7,28 +7,28 @@ export default async function handler(req: any, res: any) {
 
   try {
     // 2. Get Data & Secrets from Vercel Environment Variables
-    const { userId, message } = req.body;
+    const { message } = req.body;
     
-    // พี่อุ๊ก: เจเช็คทั้ง 2 ตัวแปรตามที่พี่ตั้งค่าใน Vercel นะครับ
     const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const channelSecret = process.env.LINE_CHANNEL_SECRET;
+    const targetUserId = process.env.LINE_USER_ID; // เจดึงจาก Env ตรงนี้เลยครับ
 
-    // Debugging Logs (จะโชว์ใน Vercel Function Logs)
+    // Debugging Logs
     if (!channelAccessToken) {
       console.error("❌ MISSING: LINE_CHANNEL_ACCESS_TOKEN");
       return res.status(500).json({ error: "Server config error: Missing Access Token" });
     }
     
-    if (!channelSecret) {
-        console.warn("⚠️ WARNING: LINE_CHANNEL_SECRET is missing (Not critical for Push, but recommended)");
+    if (!targetUserId) {
+      console.error("❌ MISSING: LINE_USER_ID");
+      return res.status(500).json({ error: "Server config error: Missing LINE_USER_ID in Vercel" });
     }
 
-    if (!userId || !message) {
-      return res.status(400).json({ error: "Missing 'userId' or 'message' in request body" });
+    if (!message) {
+      return res.status(400).json({ error: "Missing 'message' in request body" });
     }
 
     // 3. Call LINE Messaging API
-    console.log(`Attempting to send message to: ${userId}`);
+    console.log(`Attempting to send message to configured user.`);
     
     const response = await fetch("https://api.line.me/v2/bot/message/push", {
       method: 'POST',
@@ -37,7 +37,7 @@ export default async function handler(req: any, res: any) {
         'Authorization': `Bearer ${channelAccessToken}`,
       },
       body: JSON.stringify({
-        to: userId,
+        to: targetUserId, // Use the Env Var
         messages: [{ type: 'text', text: message }],
       }),
     });

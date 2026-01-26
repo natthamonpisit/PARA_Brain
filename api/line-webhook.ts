@@ -154,7 +154,7 @@ async function processSmartAgentRequest(
                 content: { type: Type.STRING, nullable: true },
                 relatedItemId: { type: Type.STRING, nullable: true, description: "ID of the PARENT Project/Area if found in context." },
                 suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
-                dueDate: { type: Type.STRING, nullable: true },
+                dueDate: { type: Type.STRING, nullable: true, description: "Full ISO 8601 Timestamp (YYYY-MM-DDTHH:mm:ssZ)" },
 
                 // Finance
                 amount: { type: Type.NUMBER, nullable: true },
@@ -181,17 +181,27 @@ async function processSmartAgentRequest(
         // Format Context
         const projectsList = existingProjects?.length ? existingProjects.map((p: any) => `Project:${p.title}(ID:${p.id})`).join('\n') : "";
         const accountsList = accounts?.length ? accounts.map((a: any) => `${a.name}(ID:${a.id})`).join('\n') : "";
+        
+        // JAY: ADD TIME CONTEXT (Crucial for relative time parsing like "Tomorrow 7pm")
+        const now = new Date();
+        const timeContext = `Current Date/Time: ${now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })} (ISO Reference: ${now.toISOString()})`;
 
         const prompt = `
         Role: "Jay" (Life OS). User: "${userMessage}"
         
+        ${timeContext}
+
         CONTEXT:
         ${projectsList ? `[Existing Projects]\n${projectsList}` : ''}
         ${accountsList ? `[Accounts]\n${accountsList}` : ''}
 
         Detect: CREATE, TRANSACTION, MODULE_ITEM, COMPLETE, or CHAT.
-        If user wants to add task to a project, put Project ID in 'relatedItemId'.
-        Reply: Thai, Concise.
+        
+        RULES:
+        1. If user wants to add task to a project, put Project ID in 'relatedItemId'.
+        2. 'dueDate': If user specifies time (e.g. "tonight", "tomorrow 9am"), you MUST convert it to strict ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ) relative to Current Date/Time. 
+           Example: User says "19:00", you return "2024-05-10T19:00:00+07:00" (Full Timestamp). Do NOT return just "19:00".
+        3. Reply: Thai, Concise.
         `;
 
         const result = await ai.models.generateContent({
@@ -233,7 +243,12 @@ async function processSmartAgentRequest(
             };
 
             if (tableName === 'tasks' && dueDate) {
-                payload.due_date = dueDate;
+                // Safeguard: Verify date format briefly, though AI should handle it now
+                if (dueDate.includes('T')) {
+                    payload.due_date = dueDate;
+                } else {
+                    console.warn("AI returned invalid date format, skipping due_date:", dueDate);
+                }
             }
 
             // JAY FIX: Add .select() to ensure we get data back and catch RLS errors immediately

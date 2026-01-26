@@ -1,15 +1,15 @@
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { ParaItem, ParaType, ViewMode } from '../types';
 import ReactMarkdown from 'react-markdown';
-import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight, Paperclip, FileIcon, ExternalLink, FileText, Archive } from 'lucide-react';
+import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight, Paperclip, FileIcon, ExternalLink, FileText, Archive, ChevronDown, ChevronRight, CornerDownRight, Folder } from 'lucide-react';
 
 interface ParaBoardProps {
   items: ParaItem[];
   activeType: ParaType | 'All';
   viewMode: ViewMode;
   onDelete: (id: string) => void;
-  onArchive: (id: string) => void; // New Prop
+  onArchive: (id: string) => void; 
   onToggleComplete?: (id: string, currentStatus: boolean) => void;
   allItemsMap?: Record<string, ParaItem>; 
   // Selection Props
@@ -41,21 +41,32 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
       const areas = items.filter(i => i.type === ParaType.AREA);
       const unassignedItems = items.filter(i => i.type !== ParaType.AREA && !areas.some(a => a.title === i.category));
 
-      // Calculate Stats for each Area
+      // JAY'S FIX: Improved Logic for Recursive Counting (Grandchildren)
       const areaStats = areas.map(area => {
-          // Find items related to this Area (by matching category name or relation ID)
-          const relatedItems = items.filter(i => 
+          // 1. Direct Children: Items linked to Area OR Category matches Area
+          const directChildren = items.filter(i => 
               (i.category === area.title || i.relatedItemIds?.includes(area.id)) && i.id !== area.id
           );
 
-          const projects = relatedItems.filter(i => i.type === ParaType.PROJECT);
-          const tasks = relatedItems.filter(i => i.type === ParaType.TASK);
-          const resources = relatedItems.filter(i => i.type === ParaType.RESOURCE);
+          // 2. Identify Projects within Direct Children
+          const childProjects = directChildren.filter(i => i.type === ParaType.PROJECT);
 
-          const activeProjects = projects.filter(p => p.status !== 'Completed').length;
-          const pendingTasks = tasks.filter(t => !t.isCompleted).length;
-          const completedTasks = tasks.filter(t => t.isCompleted).length;
-          const totalTasks = tasks.length;
+          // 3. Grandchildren: Find Tasks linked to those Projects
+          const projectIds = childProjects.map(p => p.id);
+          const grandchildTasks = items.filter(i => 
+              i.type === ParaType.TASK && 
+              i.relatedItemIds?.some(relId => projectIds.includes(relId)) &&
+              !directChildren.includes(i) // Avoid double counting if linked to both
+          );
+
+          // Merge Lists
+          const allRelatedTasks = [...directChildren.filter(i => i.type === ParaType.TASK), ...grandchildTasks];
+          const allRelatedResources = directChildren.filter(i => i.type === ParaType.RESOURCE);
+
+          const activeProjects = childProjects.filter(p => p.status !== 'Completed').length;
+          const pendingTasks = allRelatedTasks.filter(t => !t.isCompleted).length;
+          const completedTasks = allRelatedTasks.filter(t => t.isCompleted).length;
+          const totalTasks = allRelatedTasks.length;
           
           const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
@@ -64,7 +75,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
               stats: {
                   projects: activeProjects,
                   tasks: pendingTasks,
-                  resources: resources.length,
+                  resources: allRelatedResources.length,
                   progress
               }
           };
@@ -175,6 +186,18 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                   </div>
               )}
           </div>
+      );
+  }
+
+  // --- HIERARCHY / TREE VIEW ---
+  if (viewMode === 'HIERARCHY') {
+      return (
+          <HierarchyView 
+              items={items} 
+              onDelete={onDelete} 
+              onArchive={onArchive} 
+              onToggleComplete={onToggleComplete} 
+          />
       );
   }
 
@@ -328,6 +351,220 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
       ))}
     </div>
   );
+};
+
+// --- NEW COMPONENT: HIERARCHY TREE VIEW ---
+const HierarchyView: React.FC<{
+    items: ParaItem[];
+    onDelete: (id: string) => void;
+    onArchive: (id: string) => void;
+    onToggleComplete?: (id: string, s: boolean) => void;
+}> = ({ items, onDelete, onArchive, onToggleComplete }) => {
+    
+    // Recursive Tree Builder
+    const tree = useMemo(() => {
+        const areas = items.filter(i => i.type === ParaType.AREA);
+        const projects = items.filter(i => i.type === ParaType.PROJECT);
+        const tasks = items.filter(i => i.type === ParaType.TASK);
+        const resources = items.filter(i => i.type === ParaType.RESOURCE);
+
+        // Map Areas
+        const structure = areas.map(area => {
+            // Find Projects belonging to this Area
+            // Condition: Explicit Relation OR Matching Category
+            const areaProjects = projects.filter(p => 
+                (p.relatedItemIds?.includes(area.id)) || 
+                (p.category === area.title)
+            );
+
+            // Map Projects with their Tasks
+            const projectNodes = areaProjects.map(proj => {
+                const projTasks = tasks.filter(t => t.relatedItemIds?.includes(proj.id));
+                const projResources = resources.filter(r => r.relatedItemIds?.includes(proj.id));
+                return { ...proj, children: [...projTasks, ...projResources] };
+            });
+
+            // Find "Direct" Tasks/Resources (belonging to Area but NOT to any Project above)
+            // This prevents double listing if a task is linked to both (unlikely but safe)
+            const accountedProjectIds = areaProjects.map(p => p.id);
+            const directChildren = [...tasks, ...resources].filter(item => {
+                const isLinkedToArea = (item.relatedItemIds?.includes(area.id) || item.category === area.title);
+                const isLinkedToKnownProject = item.relatedItemIds?.some(id => accountedProjectIds.includes(id));
+                return isLinkedToArea && !isLinkedToKnownProject;
+            });
+
+            return { 
+                ...area, 
+                children: [...projectNodes, ...directChildren],
+                projectCount: projectNodes.length
+            };
+        });
+
+        // Find Orphans (Items with NO parent Area or Project)
+        const allMappedIds = new Set<string>();
+        structure.forEach(area => {
+            allMappedIds.add(area.id);
+            area.children.forEach((child: any) => {
+                allMappedIds.add(child.id);
+                if (child.children) {
+                    child.children.forEach((grandChild: any) => allMappedIds.add(grandChild.id));
+                }
+            });
+        });
+
+        const orphans = items.filter(i => !allMappedIds.has(i.id) && i.type !== ParaType.ARCHIVE);
+        
+        return { structure, orphans };
+    }, [items]);
+
+    return (
+        <div className="pb-32 space-y-6 animate-in fade-in">
+             <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-indigo-100 rounded-lg">
+                    <Layers className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-900">System Hierarchy</h2>
+                    <p className="text-sm text-slate-500">Visualize relation tree: Area → Project → Task</p>
+                </div>
+            </div>
+
+            <div className="space-y-4">
+                {tree.structure.map(area => (
+                    <TreeNode 
+                        key={area.id} 
+                        item={area} 
+                        childrenItems={area.children as any} 
+                        level={0}
+                        onDelete={onDelete}
+                        onArchive={onArchive}
+                        onToggleComplete={onToggleComplete}
+                    />
+                ))}
+            </div>
+
+            {tree.orphans.length > 0 && (
+                <div className="mt-8 pt-8 border-t border-slate-200">
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Unassigned / Inbox</h3>
+                    <div className="space-y-2">
+                        {tree.orphans.map(item => (
+                             <TreeNode 
+                                key={item.id} 
+                                item={item} 
+                                childrenItems={[]} 
+                                level={0}
+                                onDelete={onDelete}
+                                onArchive={onArchive}
+                                onToggleComplete={onToggleComplete}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const TreeNode: React.FC<{
+    item: ParaItem;
+    childrenItems: any[];
+    level: number;
+    onDelete: (id: string) => void;
+    onArchive: (id: string) => void;
+    onToggleComplete?: (id: string, s: boolean) => void;
+}> = ({ item, childrenItems, level, onDelete, onArchive, onToggleComplete }) => {
+    const [isExpanded, setIsExpanded] = useState(true);
+    
+    // Icons based on Level/Type
+    const getIcon = () => {
+        if (item.type === ParaType.AREA) return <Layers className="w-4 h-4 text-orange-500" />;
+        if (item.type === ParaType.PROJECT) return <Folder className="w-4 h-4 text-red-500" />;
+        if (item.type === ParaType.TASK) return item.isCompleted ? <CheckSquare className="w-4 h-4 text-emerald-500" /> : <Square className="w-4 h-4 text-slate-400" />;
+        return <FileText className="w-4 h-4 text-blue-500" />;
+    };
+
+    const hasChildren = childrenItems && childrenItems.length > 0;
+
+    return (
+        <div className={`select-none`}>
+            <div 
+                className={`
+                    flex items-center gap-2 p-2 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer group
+                    ${level === 0 ? 'bg-white border border-slate-200 shadow-sm mb-2' : ''}
+                    ${level > 0 ? 'ml-6 border-l-2 border-slate-100 pl-4' : ''}
+                `}
+                onClick={(e) => {
+                    // Only toggle if clicking the row, not buttons
+                    if ((e.target as HTMLElement).closest('button')) return;
+                    setIsExpanded(!isExpanded);
+                }}
+            >
+                {/* Expander Arrow */}
+                <div className="w-4 h-4 flex items-center justify-center text-slate-400">
+                    {hasChildren ? (
+                        isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />
+                    ) : (
+                         level > 0 && <div className="w-1.5 h-1.5 rounded-full bg-slate-200"></div>
+                    )}
+                </div>
+
+                {/* Icon */}
+                <div className="shrink-0">
+                    {getIcon()}
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                        <span className={`text-sm font-medium truncate ${item.isCompleted ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                            {item.title}
+                        </span>
+                        {/* Task specific checkbox */}
+                        {item.type === ParaType.TASK && onToggleComplete && (
+                             <button 
+                                onClick={() => onToggleComplete(item.id, !!item.isCompleted)}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white border border-slate-200 px-2 rounded hover:text-emerald-600"
+                             >
+                                {item.isCompleted ? 'Undo' : 'Done'}
+                             </button>
+                        )}
+                    </div>
+                    {item.content && (
+                        <p className="text-[10px] text-slate-400 truncate max-w-md">{item.content}</p>
+                    )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                     {item.type !== ParaType.ARCHIVE && (
+                        <button onClick={() => onArchive(item.id)} className="p-1.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600">
+                            <Archive className="w-3.5 h-3.5" />
+                        </button>
+                     )}
+                     <button onClick={() => onDelete(item.id)} className="p-1.5 hover:bg-red-50 rounded text-slate-400 hover:text-red-500">
+                        <Trash2 className="w-3.5 h-3.5" />
+                     </button>
+                </div>
+            </div>
+
+            {/* Recursion for Children */}
+            {isExpanded && hasChildren && (
+                <div className="">
+                    {childrenItems.map(child => (
+                        <TreeNode 
+                            key={child.id} 
+                            item={child} 
+                            childrenItems={child.children} 
+                            level={level + 1}
+                            onDelete={onDelete}
+                            onArchive={onArchive}
+                            onToggleComplete={onToggleComplete}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 };
 
 // --- COMPONENTS ---

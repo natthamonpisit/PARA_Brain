@@ -7,7 +7,7 @@ export enum ParaType {
   TASK = 'Tasks',
 }
 
-export type ViewMode = 'GRID' | 'LIST' | 'TABLE' | 'CALENDAR' | 'HABIT';
+export type ViewMode = 'GRID' | 'LIST' | 'TABLE' | 'CALENDAR' | 'HABIT' | 'HIERARCHY';
 export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER';
 export type FinanceAccountType = 'BANK' | 'CASH' | 'CREDIT' | 'INVESTMENT';
 export type HistoryAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'COMPLETE';

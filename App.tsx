@@ -13,7 +13,7 @@ import { LifeAnalysisModal } from './components/LifeAnalysisModal';
 import { CalendarBoard } from './components/CalendarBoard'; // New
 import { HabitBoard } from './components/HabitBoard'; // New
 import { ParaType, AppModule, ModuleItem, ViewMode } from './types';
-import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search, Calendar as CalendarIcon, Flame, Archive } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search, Calendar as CalendarIcon, Flame, Archive, Network } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
 import { useModuleData } from './hooks/useModuleData'; 
@@ -300,6 +300,7 @@ export default function App() {
                     <div className="w-px h-4 bg-slate-300 mx-1 self-center"></div>
                     <button onClick={() => setViewMode('CALENDAR')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'CALENDAR' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Calendar"><CalendarIcon className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('HABIT')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'HABIT' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Habit Tracker"><Flame className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('HIERARCHY')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'HIERARCHY' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Tree View"><Network className="w-4 h-4" /></button>
                 </div>
             )}
 

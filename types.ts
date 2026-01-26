@@ -126,6 +126,7 @@ export interface AIAnalysisResult {
       category: string;
       summary: string;
       suggestedTags: string[];
+      relatedItemIdsCandidates?: string[];
   }[];
 
   // Finance Fields

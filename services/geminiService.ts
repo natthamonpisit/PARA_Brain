@@ -69,7 +69,13 @@ export const analyzeLifeOS = async (
         title: { type: Type.STRING, description: "A short, punchy title. If user input is short, use it as title. NEVER use 'Untitled'." },
         summary: { type: Type.STRING, nullable: true },
         suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
-        relatedItemIdsCandidates: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
+        // JAY'S FIX: Explicitly allow AI to suggest Parent IDs
+        relatedItemIdsCandidates: { 
+            type: Type.ARRAY, 
+            items: { type: Type.STRING }, 
+            nullable: true,
+            description: "Array of IDs of EXISTING Projects or Areas that this new item belongs to." 
+        },
         
         // BATCH ITEMS (For BATCH_CREATE)
         batchItems: {
@@ -81,7 +87,9 @@ export const analyzeLifeOS = async (
                     type: { type: Type.STRING, enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE, ParaType.TASK] },
                     category: { type: Type.STRING },
                     summary: { type: Type.STRING },
-                    suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    // JAY'S FIX: Allow linking inside batch items too
+                    relatedItemIdsCandidates: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true }
                 }
             },
             nullable: true
@@ -140,8 +148,8 @@ export const analyzeLifeOS = async (
 
         --- DATA CONTEXT ---
         
-        [EXISTING PARA ITEMS]
-        ${JSON.stringify(paraItems.slice(0, 50).map(i => ({id: i.id, title: i.title, type: i.type, category: i.category})))}
+        [EXISTING PARA ITEMS (ID: Title [Type])]
+        ${JSON.stringify(paraItems.slice(0, 100).map(i => `${i.id}: ${i.title} [${i.type}]`))}
 
         [FINANCE ACCOUNTS]
         ${JSON.stringify(financeContext.accounts.map(a => ({id: a.id, name: a.name, type: a.type})))}
@@ -154,16 +162,21 @@ export const analyzeLifeOS = async (
 
         --- INTELLIGENT RULES ---
         1. **TITLE GENERATION**: 
-           - If user says "Buy Milk", Title = "Buy Milk", Content = "Buy Milk".
+           - If user says "Buy Milk", Title = "Buy Milk".
            - If user says a long sentence, SUMMARIZE it into a Title (max 5-7 words).
-           - NEVER return null for 'title'.
-        2. **CATEGORIZATION**:
-           - Try to reuse existing categories from [EXISTING PARA ITEMS].
-           - If not found, infer a smart one (e.g., Health, Work, Finance, Personal).
-        3. **TRANSACTION**:
-           - If input involves money (spending/income), use 'TRANSACTION'.
-        4. **BATCH**:
-           - If multiple tasks are requested (e.g., "Plan trip: 1. Book flight 2. Pack bags"), use 'BATCH_CREATE'.
+        
+        2. **SMART LINKING (CRITICAL)**:
+           - Scan [EXISTING PARA ITEMS] to find a relevant Parent (Project or Area).
+           - Example: If user says "Fix nav bug", and there is a Project "Launch Website", you MUST return its ID in 'relatedItemIdsCandidates'.
+           - Example: If user says "Run 5km", and there is an Area "Health", link it!
+           - **Do NOT** leave items floating in "Inbox" if they clearly belong to an existing Project/Area.
+
+        3. **CATEGORIZATION**:
+           - Use the Category of the Parent item if linked.
+           - Otherwise, infer a smart category (e.g., Work, Personal, Dev).
+
+        4. **TRANSACTION**:
+           - If input involves money, use 'TRANSACTION'.
 
         Output JSON only.
     `;

@@ -72,6 +72,13 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                     // FALLBACK TITLE LOGIC
                     const finalTitle = item.title || "New Item";
 
+                    // Determine Relations: Use AI suggested candidates OR link to a newly created project in this batch
+                    let finalRelations: string[] = item.relatedItemIdsCandidates || [];
+                    
+                    if (item.type === ParaType.TASK && newlyCreatedProjectId) {
+                        finalRelations = [...finalRelations, newlyCreatedProjectId];
+                    }
+
                     const newItem: ParaItem = {
                         id: generateId(),
                         title: finalTitle,
@@ -79,16 +86,12 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                         type: item.type || ParaType.TASK,
                         category: item.category || "Inbox",
                         tags: item.suggestedTags || [],
-                        relatedItemIds: [],
+                        relatedItemIds: finalRelations,
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString(),
                         isAiGenerated: true,
                         isCompleted: false
                     };
-
-                    if (newItem.type === ParaType.TASK && newlyCreatedProjectId) {
-                        newItem.relatedItemIds = [newlyCreatedProjectId];
-                    }
 
                     await onAddItem(newItem);
                     
@@ -109,17 +112,18 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                 });
 
             } else if (result.operation === 'CREATE') {
-                // SMART FALLBACK: If AI still sends null title (very unlikely with new schema), use input text truncated.
+                // SMART FALLBACK
                 const finalTitle = result.title || (text.length > 30 ? text.substring(0, 30) + "..." : text);
 
                 const newItem: ParaItem = {
                     id: generateId(),
                     title: finalTitle,
-                    content: result.summary || text, // Ensure content has something
+                    content: result.summary || text, 
                     type: result.type || ParaType.TASK,
                     category: result.category || "Inbox",
                     tags: result.suggestedTags || [],
-                    relatedItemIds: [],
+                    // JAY'S FIX: Use the relations identified by AI
+                    relatedItemIds: result.relatedItemIdsCandidates || [],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                     isAiGenerated: true,

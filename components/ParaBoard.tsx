@@ -2,13 +2,14 @@
 import React from 'react';
 import { ParaItem, ParaType, ViewMode } from '../types';
 import ReactMarkdown from 'react-markdown';
-import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight, Paperclip, FileIcon, ExternalLink, FileText } from 'lucide-react';
+import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight, Paperclip, FileIcon, ExternalLink, FileText, Archive } from 'lucide-react';
 
 interface ParaBoardProps {
   items: ParaItem[];
   activeType: ParaType | 'All';
   viewMode: ViewMode;
   onDelete: (id: string) => void;
+  onArchive: (id: string) => void; // New Prop
   onToggleComplete?: (id: string, currentStatus: boolean) => void;
   allItemsMap?: Record<string, ParaItem>; 
   // Selection Props
@@ -26,7 +27,8 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
     items, 
     activeType, 
     viewMode,
-    onDelete, 
+    onDelete,
+    onArchive,
     onToggleComplete,
     allItemsMap = {},
     selectedIds,
@@ -94,9 +96,11 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Area</span>
                                   </div>
                               </div>
-                              <button onClick={() => onDelete(area.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1">
-                                  <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={() => onDelete(area.id)} className="text-slate-300 hover:text-red-500 p-1">
+                                      <Trash2 className="w-4 h-4" />
+                                  </button>
+                              </div>
                           </div>
 
                           {/* Stats Grid */}
@@ -257,6 +261,12 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                                           <CheckSquare className="w-4 h-4" />
                                       </button>
                                   )}
+                                  {/* Archive Action */}
+                                  {item.type !== ParaType.ARCHIVE && (
+                                    <button onClick={() => onArchive(item.id)} className="text-slate-300 hover:text-slate-600" title="Archive">
+                                        <Archive className="w-4 h-4" />
+                                    </button>
+                                  )}
                                   <button onClick={() => onDelete(item.id)} className="text-slate-300 hover:text-red-500">
                                       <Trash2 className="w-4 h-4" />
                                   </button>
@@ -297,6 +307,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                         <TaskCard 
                             item={item} 
                             onDelete={onDelete}
+                            onArchive={onArchive}
                             onToggleComplete={onToggleComplete}
                             allItemsMap={allItemsMap}
                             isSelected={selectedIds.has(item.id)}
@@ -305,6 +316,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                         <Card 
                             item={item} 
                             onDelete={onDelete} 
+                            onArchive={onArchive}
                             allItemsMap={allItemsMap} 
                             isSelected={selectedIds.has(item.id)}
                         />
@@ -323,10 +335,11 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
 const TaskCard: React.FC<{
     item: ParaItem;
     onDelete: (id: string) => void;
+    onArchive: (id: string) => void;
     onToggleComplete?: (id: string, status: boolean) => void;
     allItemsMap: Record<string, ParaItem>;
     isSelected: boolean;
-}> = ({ item, onDelete, onToggleComplete, allItemsMap, isSelected }) => {
+}> = ({ item, onDelete, onArchive, onToggleComplete, allItemsMap, isSelected }) => {
     return (
         <div className={`
             group bg-white rounded-xl border p-4 transition-all duration-200 flex flex-col h-full
@@ -400,6 +413,11 @@ const TaskCard: React.FC<{
                          </span>
                          {/* Hover Actions */}
                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {item.type !== ParaType.ARCHIVE && (
+                                <button onClick={() => onArchive(item.id)} className="p-1 hover:bg-slate-100 rounded text-slate-300 hover:text-slate-600" title="Archive">
+                                    <Archive className="w-3.5 h-3.5" />
+                                </button>
+                            )}
                             <button onClick={() => onDelete(item.id)} className="p-1 hover:bg-red-50 rounded text-slate-300 hover:text-red-500">
                                 <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -414,9 +432,10 @@ const TaskCard: React.FC<{
 const Card: React.FC<{ 
   item: ParaItem; 
   onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
   allItemsMap: Record<string, ParaItem>;
   isSelected: boolean;
-}> = ({ item, onDelete, allItemsMap, isSelected }) => {
+}> = ({ item, onDelete, onArchive, allItemsMap, isSelected }) => {
   
   const typeColors = {
     [ParaType.PROJECT]: 'bg-red-50 text-red-700 border-red-100',
@@ -438,6 +457,11 @@ const Card: React.FC<{
         
         {/* Hover Actions */}
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute top-4 right-4 bg-white shadow-sm border rounded-lg p-1">
+             {item.type !== ParaType.ARCHIVE && (
+                <button onClick={() => onArchive(item.id)} className="p-1 hover:bg-slate-50 rounded text-slate-400 hover:text-slate-600" title="Archive">
+                    <Archive className="w-4 h-4" />
+                </button>
+             )}
              <button onClick={() => onDelete(item.id)} className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-500">
                 <Trash2 className="w-4 h-4" />
              </button>

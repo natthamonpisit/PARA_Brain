@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { ParaItem, HistoryLog, ParaType, HistoryAction } from '../types';
 import { db } from '../services/db';
@@ -131,6 +132,31 @@ export const useParaData = () => {
     return updatedItem;
   };
 
+  // JAY'S NOTE: Manual Archive Action
+  // Moves item to 'Archives' type without deleting it.
+  const archiveItem = async (id: string) => {
+    const itemToArchive = items.find(i => i.id === id);
+    if (!itemToArchive) return;
+
+    // First delete from old table (because type change = table change in our DB structure)
+    // Actually, our db.add handles upsert, but if table changes, we might duplicate.
+    // Ideally we should delete from old table and add to new table.
+    
+    await db.delete(id, itemToArchive.type);
+    
+    const archivedItem: ParaItem = {
+        ...itemToArchive,
+        type: ParaType.ARCHIVE,
+        updatedAt: new Date().toISOString()
+    };
+
+    await db.add(archivedItem);
+    await logHistory('UPDATE', archivedItem); // Log as update/move
+    
+    // Update local state: Remove old, Add new
+    setItems(prev => prev.map(i => i.id === id ? archivedItem : i));
+  };
+
   // --- Import / Export ---
 
   const exportData = async () => {
@@ -179,6 +205,7 @@ export const useParaData = () => {
     addItem,
     deleteItem,
     toggleComplete,
+    archiveItem, // Exposed here
     exportData,
     importData,
     loadData

@@ -13,7 +13,7 @@ import { LifeAnalysisModal } from './components/LifeAnalysisModal';
 import { CalendarBoard } from './components/CalendarBoard'; // New
 import { HabitBoard } from './components/HabitBoard'; // New
 import { ParaType, AppModule, ModuleItem, ViewMode } from './types';
-import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search, Calendar as CalendarIcon, Flame } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search, Calendar as CalendarIcon, Flame, Archive } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
 import { useModuleData } from './hooks/useModuleData'; 
@@ -24,7 +24,7 @@ type MobileTab = 'board' | 'chat';
 export default function App() {
   // --- CORE HOOKS ---
   const { 
-    items, historyLogs, isLoadingDB, deleteItem, toggleComplete, exportData, importData, addItem
+    items, historyLogs, isLoadingDB, deleteItem, toggleComplete, exportData, importData, addItem, archiveItem
   } = useParaData();
 
   const {
@@ -168,6 +168,20 @@ export default function App() {
       showNotification('Batch complete success', 'success');
   };
 
+  // JAY'S NEW FEATURE: Batch Archive
+  const handleBatchArchive = async () => {
+      const ids = Array.from(selectedIds) as string[];
+      let count = 0;
+      for (const id of ids) {
+          try {
+            await archiveItem(id);
+            count++;
+          } catch(e) { console.error(e); }
+      }
+      setSelectedIds(new Set());
+      showNotification(`Archived ${count} items`, 'success');
+  };
+
   const handleAnalyzeLife = async () => {
       setIsAnalysisModalOpen(true);
       setAnalysisResult(''); // Loading state
@@ -189,6 +203,16 @@ export default function App() {
             await deleteItem(id);
         }
     } catch { showNotification('Failed to delete', 'error'); }
+  };
+
+  // Single Archive Wrapper
+  const handleArchiveWrapper = async (id: string) => {
+     try {
+         await archiveItem(id);
+         showNotification('Item moved to Archive', 'success');
+     } catch {
+         showNotification('Failed to archive', 'error');
+     }
   };
 
   const handleManualSave = async (data: any, mode: 'PARA' | 'TRANSACTION' | 'ACCOUNT' | 'MODULE') => {
@@ -361,6 +385,7 @@ export default function App() {
                             onSelect={handleSelect}
                             onSelectAll={handleSelectAll}
                             onDelete={handleDeleteWrapper} 
+                            onArchive={handleArchiveWrapper}
                             onToggleComplete={(id, s) => toggleComplete(id, s)} 
                         />
                     )}
@@ -404,6 +429,14 @@ export default function App() {
                                 <CheckSquare className="w-5 h-5" />
                              </button>
                         ) : null}
+                        
+                        {/* Batch Archive Button */}
+                         {activeType !== 'Archives' && (
+                            <button onClick={handleBatchArchive} className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition-colors" title="Archive Selected">
+                                <Archive className="w-5 h-5" />
+                            </button>
+                        )}
+                        
                         <button onClick={handleBatchDelete} className="p-2 hover:bg-slate-800 rounded-lg text-red-400 transition-colors" title="Delete Selected">
                             <Trash2 className="w-5 h-5" />
                         </button>

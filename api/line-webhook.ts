@@ -207,7 +207,7 @@ async function processSmartAgentRequest(
         const { operation, chatResponse, title, category, type, content, amount, transactionType, accountId, targetModuleId, moduleDataRaw, relatedItemId, suggestedTags, dueDate } = rawJSON;
 
         // --- 3. EXECUTE ACTION ---
-        let dbPromise = Promise.resolve<{error: any} | null>(null);
+        let dbPromise = Promise.resolve<{error: any, data?: any} | null>(null);
         let logAction = 'CHAT';
 
         if (operation === 'CREATE') {
@@ -236,7 +236,8 @@ async function processSmartAgentRequest(
                 payload.due_date = dueDate;
             }
 
-            dbPromise = supabase.from(tableName).insert(payload);
+            // JAY FIX: Add .select() to ensure we get data back and catch RLS errors immediately
+            dbPromise = supabase.from(tableName).insert(payload).select();
 
         } else if (operation === 'TRANSACTION') {
             logAction = 'CREATE_TX';
@@ -250,7 +251,7 @@ async function processSmartAgentRequest(
                     category: category || 'General',
                     account_id: targetAcc,
                     transaction_date: new Date().toISOString()
-                });
+                }).select();
             } else {
                 await replyToLine(replyToken, accessToken, "⚠️ หาบัญชีไม่เจอครับ");
                 return;
@@ -273,14 +274,14 @@ async function processSmartAgentRequest(
                     title: title || "Entry",
                     data: moduleData,
                     created_at: new Date().toISOString()
-                });
+                }).select();
             }
 
         } else if (operation === 'COMPLETE') {
              logAction = 'COMPLETE_TASK';
              if (relatedItemId) {
                 // Try to complete task by ID (if AI found it)
-                dbPromise = supabase.from('tasks').update({ is_completed: true }).eq('id', relatedItemId);
+                dbPromise = supabase.from('tasks').update({ is_completed: true }).eq('id', relatedItemId).select();
              } else {
                 // If AI couldn't find ID, maybe try finding by title (fuzzy)
                  // Skipping for now to keep it safe.

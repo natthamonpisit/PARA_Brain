@@ -5,7 +5,7 @@ import { supabase } from './supabase';
 // --- HELPERS: MAPPING ---
 
 // Convert App Model (camelCase) to DB Model (snake_case)
-const toDb = (item: ParaItem) => {
+export const toDb = (item: ParaItem) => {
   const dbItem: any = {
     id: item.id,
     content: item.content,
@@ -42,7 +42,7 @@ const toDb = (item: ParaItem) => {
 };
 
 // Convert DB Model (snake_case) to App Model (camelCase)
-const fromDb = (row: any): ParaItem => {
+export const fromDb = (row: any): ParaItem => {
   const title = row.title || row.name || 'Untitled';
   
   return {

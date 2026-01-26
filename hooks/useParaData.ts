@@ -1,7 +1,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ParaItem, HistoryLog, ParaType, HistoryAction } from '../types';
-import { db } from '../services/db';
+import { db, fromDb } from '../services/db';
+import { supabase } from '../services/supabase';
 import { generateId } from '../utils/helpers';
 
 const INITIAL_ITEMS: ParaItem[] = [
@@ -80,6 +81,67 @@ export const useParaData = () => {
     loadData();
   }, [loadData]);
 
+  // --- REALTIME SUBSCRIPTION (LIVE SYNC) ---
+  useEffect(() => {
+    const channel = supabase
+      .channel('para-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        (payload) => {
+          // Check if the change is in one of our PARA tables
+          if (['projects', 'areas', 'tasks', 'resources', 'archives'].includes(payload.table)) {
+             
+             if (payload.eventType === 'INSERT') {
+                 const row = payload.new as any;
+                 // Fallback: If 'type' is missing in row, try to infer from table name
+                 if (!row.type) {
+                      const typeMap: Record<string, ParaType> = {
+                          'projects': ParaType.PROJECT,
+                          'areas': ParaType.AREA,
+                          'tasks': ParaType.TASK,
+                          'resources': ParaType.RESOURCE,
+                          'archives': ParaType.ARCHIVE
+                      };
+                      row.type = typeMap[payload.table];
+                 }
+
+                 const newItem = fromDb(row);
+                 setItems(prev => {
+                     // Prevent duplicate (optimistic update vs realtime race)
+                     if (prev.find(i => i.id === newItem.id)) return prev;
+                     return [newItem, ...prev];
+                 });
+
+             } else if (payload.eventType === 'UPDATE') {
+                 const row = payload.new as any;
+                 // Ensure type exists
+                 if (!row.type) {
+                      const typeMap: Record<string, ParaType> = {
+                          'projects': ParaType.PROJECT,
+                          'areas': ParaType.AREA,
+                          'tasks': ParaType.TASK,
+                          'resources': ParaType.RESOURCE,
+                          'archives': ParaType.ARCHIVE
+                      };
+                      row.type = typeMap[payload.table];
+                 }
+                 const updatedItem = fromDb(row);
+                 setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+
+             } else if (payload.eventType === 'DELETE') {
+                 setItems(prev => prev.filter(i => i.id !== payload.old.id));
+             }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   // --- Internal Helper for Logging ---
   const logHistory = async (action: HistoryAction, item: ParaItem) => {
     const newLog: HistoryLog = {
@@ -96,9 +158,17 @@ export const useParaData = () => {
   // --- CRUD Operations ---
   
   const addItem = async (item: ParaItem) => {
-    await db.add(item);
-    await logHistory('CREATE', item);
+    // Optimistic Update
     setItems(prev => [item, ...prev]);
+    
+    try {
+        await db.add(item);
+        await logHistory('CREATE', item);
+    } catch (e) {
+        // Rollback on error
+        setItems(prev => prev.filter(i => i.id !== item.id));
+        console.error("Failed to add item:", e);
+    }
     return item;
   };
 
@@ -106,15 +176,28 @@ export const useParaData = () => {
     const itemToDelete = items.find(i => i.id === id);
     if (!itemToDelete) return;
     
-    await logHistory('DELETE', itemToDelete);
-    // CRITICAL UPDATE: Supabase needs the type to know which table to delete from
-    await db.delete(id, itemToDelete.type);
+    // Optimistic Update
     setItems(prev => prev.filter(i => i.id !== id));
+
+    try {
+        await logHistory('DELETE', itemToDelete);
+        await db.delete(id, itemToDelete.type);
+    } catch (e) {
+        // Rollback
+        setItems(prev => [itemToDelete, ...prev]);
+        console.error("Failed to delete item:", e);
+    }
   };
 
   const updateItem = async (updatedItem: ParaItem) => {
-    await db.add(updatedItem); // Uses upsert logic
+    // Optimistic
     setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+    
+    try {
+        await db.add(updatedItem); 
+    } catch (e) {
+        console.error("Failed to update item:", e);
+    }
   };
 
   const toggleComplete = async (id: string, currentStatus: boolean) => {
@@ -132,15 +215,13 @@ export const useParaData = () => {
     return updatedItem;
   };
 
-  // JAY'S NOTE: Manual Archive Action
-  // Moves item to 'Archives' type without deleting it.
   const archiveItem = async (id: string) => {
     const itemToArchive = items.find(i => i.id === id);
     if (!itemToArchive) return;
 
-    // First delete from old table (because type change = table change in our DB structure)
-    // Actually, our db.add handles upsert, but if table changes, we might duplicate.
-    // Ideally we should delete from old table and add to new table.
+    // Local Optimistic Remove (will be re-added as Archive via Realtime or Manual refresh in worst case)
+    // Actually, for cross-table move, optimistic update is tricky. 
+    // Let's rely on DB logic + reload/realtime.
     
     await db.delete(id, itemToArchive.type);
     
@@ -151,10 +232,7 @@ export const useParaData = () => {
     };
 
     await db.add(archivedItem);
-    await logHistory('UPDATE', archivedItem); // Log as update/move
-    
-    // Update local state: Remove old, Add new
-    setItems(prev => prev.map(i => i.id === id ? archivedItem : i));
+    await logHistory('UPDATE', archivedItem);
   };
 
   // --- Import / Export ---
@@ -203,10 +281,10 @@ export const useParaData = () => {
     isLoadingDB,
     dbError,
     addItem,
-    updateItem, // Added missing export
+    updateItem,
     deleteItem,
     toggleComplete,
-    archiveItem, // Exposed here
+    archiveItem,
     exportData,
     importData,
     loadData

@@ -10,9 +10,9 @@ import { HistoryModal } from './components/HistoryModal';
 import { ManualEntryModal } from './components/ManualEntryModal';
 import { LineConnectModal } from './components/LineConnectModal';
 import { LifeAnalysisModal } from './components/LifeAnalysisModal'; 
-import { CalendarBoard } from './components/CalendarBoard'; // New
-import { HabitBoard } from './components/HabitBoard'; // New
-import { ParaType, AppModule, ModuleItem, ViewMode } from './types';
+import { CalendarBoard } from './components/CalendarBoard'; 
+import { HabitBoard } from './components/HabitBoard'; 
+import { ParaType, AppModule, ModuleItem, ViewMode, ParaItem } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search, Calendar as CalendarIcon, Flame, Archive, Network } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
@@ -24,8 +24,8 @@ type MobileTab = 'board' | 'chat';
 export default function App() {
   // --- CORE HOOKS ---
   const { 
-    items, historyLogs, isLoadingDB, deleteItem, toggleComplete, exportData, importData, addItem, archiveItem
-  } = useParaData();
+    items, historyLogs, isLoadingDB, deleteItem, toggleComplete, exportData, importData, addItem, archiveItem, updateItem
+  } = useParaData(); // Added updateItem
 
   const {
       accounts, transactions, loadFinanceData, addTransaction, addAccount
@@ -41,11 +41,12 @@ export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState(''); 
-  const [calendarDate, setCalendarDate] = useState(new Date()); // New State for Calendar
+  const [calendarDate, setCalendarDate] = useState(new Date()); 
 
   // Modals
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<ParaItem | null>(null); // New: Track item being edited
   const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
   const [isLineModalOpen, setIsLineModalOpen] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
@@ -168,7 +169,6 @@ export default function App() {
       showNotification('Batch complete success', 'success');
   };
 
-  // JAY'S NEW FEATURE: Batch Archive
   const handleBatchArchive = async () => {
       const ids = Array.from(selectedIds) as string[];
       let count = 0;
@@ -215,14 +215,40 @@ export default function App() {
      }
   };
 
+  // Handle Edit Action from Board
+  const handleEditItem = (id: string) => {
+      const itemToEdit = items.find(i => i.id === id);
+      if (itemToEdit) {
+          setEditingItem(itemToEdit);
+          setIsManualModalOpen(true);
+      }
+  };
+
   const handleManualSave = async (data: any, mode: 'PARA' | 'TRANSACTION' | 'ACCOUNT' | 'MODULE') => {
       try {
-          if (mode === 'PARA') await addItem(data);
-          else if (mode === 'TRANSACTION') await addTransaction(data);
-          else if (mode === 'ACCOUNT') await addAccount(data);
-          else if (mode === 'MODULE') await addModuleItem(data);
+          if (mode === 'PARA') {
+              // Check if we are updating existing item
+              if (editingItem && editingItem.id === data.id) {
+                  await updateItem(data);
+                  showNotification('Updated successfully', 'success');
+              } else {
+                  await addItem(data);
+                  showNotification('Created successfully', 'success');
+              }
+          }
+          else if (mode === 'TRANSACTION') {
+              await addTransaction(data);
+              showNotification('Transaction saved', 'success');
+          }
+          else if (mode === 'ACCOUNT') {
+              await addAccount(data);
+              showNotification('Account saved', 'success');
+          }
+          else if (mode === 'MODULE') {
+              await addModuleItem(data);
+              showNotification('Entry saved', 'success');
+          }
           
-          showNotification('Saved successfully', 'success');
       } catch (e) {
           console.error(e);
           showNotification('Failed to save', 'error');
@@ -237,6 +263,11 @@ export default function App() {
       } catch (e) {
           showNotification('Failed to create module', 'error');
       }
+  };
+
+  const handleModalClose = () => {
+      setIsManualModalOpen(false);
+      setEditingItem(null); // Clear editing state
   };
 
   const pageTitle = activeModule ? activeModule.name : (activeType === 'All' ? 'Dashboard' : activeType);
@@ -387,7 +418,8 @@ export default function App() {
                             onSelectAll={handleSelectAll}
                             onDelete={handleDeleteWrapper} 
                             onArchive={handleArchiveWrapper}
-                            onToggleComplete={(id, s) => toggleComplete(id, s)} 
+                            onToggleComplete={(id, s) => toggleComplete(id, s)}
+                            onEdit={handleEditItem} 
                         />
                     )}
                 </div>
@@ -458,12 +490,14 @@ export default function App() {
       <LifeAnalysisModal isOpen={isAnalysisModalOpen} onClose={() => setIsAnalysisModalOpen(false)} content={analysisResult} />
       <ManualEntryModal
         isOpen={isManualModalOpen}
-        onClose={() => setIsManualModalOpen(false)}
+        onClose={handleModalClose}
         onSave={handleManualSave}
         defaultType={activeType}
         projects={items.filter(i => i.type === ParaType.PROJECT)}
         accounts={accounts}
         activeModule={activeModule || null}
+        editingItem={editingItem} // Pass editing item
+        allParaItems={items} // Pass all items to resolve relations
       />
       <ModuleBuilderModal isOpen={isModuleBuilderOpen} onClose={() => setIsModuleBuilderOpen(false)} onSave={handleCreateModule} />
       <LineConnectModal isOpen={isLineModalOpen} onClose={() => setIsLineModalOpen(false)} />

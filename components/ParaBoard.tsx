@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { ParaItem, ParaType, ViewMode } from '../types';
 import ReactMarkdown from 'react-markdown';
-import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight, Paperclip, FileIcon, ExternalLink, FileText, Archive, ChevronDown, ChevronRight, CornerDownRight, Folder } from 'lucide-react';
+import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, Target, Book, Layers, ArrowRight, Paperclip, FileIcon, ExternalLink, FileText, Archive, ChevronDown, ChevronRight, CornerDownRight, Folder, Pencil } from 'lucide-react';
 
 interface ParaBoardProps {
   items: ParaItem[];
@@ -11,6 +11,7 @@ interface ParaBoardProps {
   onDelete: (id: string) => void;
   onArchive: (id: string) => void; 
   onToggleComplete?: (id: string, currentStatus: boolean) => void;
+  onEdit?: (id: string) => void; // New Prop for Edit
   allItemsMap?: Record<string, ParaItem>; 
   // Selection Props
   selectedIds: Set<string>;
@@ -30,6 +31,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
     onDelete,
     onArchive,
     onToggleComplete,
+    onEdit,
     allItemsMap = {},
     selectedIds,
     onSelect,
@@ -108,6 +110,11 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                                   </div>
                               </div>
                               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {onEdit && (
+                                    <button onClick={() => onEdit(area.id)} className="text-slate-300 hover:text-indigo-500 p-1">
+                                        <Pencil className="w-4 h-4" />
+                                    </button>
+                                  )}
                                   <button onClick={() => onDelete(area.id)} className="text-slate-300 hover:text-red-500 p-1">
                                       <Trash2 className="w-4 h-4" />
                                   </button>
@@ -284,7 +291,11 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                                           <CheckSquare className="w-4 h-4" />
                                       </button>
                                   )}
-                                  {/* Archive Action */}
+                                  {onEdit && (
+                                    <button onClick={() => onEdit(item.id)} className="text-slate-300 hover:text-indigo-500" title="Edit">
+                                        <Pencil className="w-4 h-4" />
+                                    </button>
+                                  )}
                                   {item.type !== ParaType.ARCHIVE && (
                                     <button onClick={() => onArchive(item.id)} className="text-slate-300 hover:text-slate-600" title="Archive">
                                         <Archive className="w-4 h-4" />
@@ -332,6 +343,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                             onDelete={onDelete}
                             onArchive={onArchive}
                             onToggleComplete={onToggleComplete}
+                            onEdit={onEdit}
                             allItemsMap={allItemsMap}
                             isSelected={selectedIds.has(item.id)}
                         />
@@ -340,6 +352,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                             item={item} 
                             onDelete={onDelete} 
                             onArchive={onArchive}
+                            onEdit={onEdit}
                             allItemsMap={allItemsMap} 
                             isSelected={selectedIds.has(item.id)}
                         />
@@ -353,110 +366,141 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
   );
 };
 
-// --- NEW COMPONENT: HIERARCHY TREE VIEW ---
+// --- COMPONENTS ---
+
+// JAY'S NOTE: Define HierarchyView here so ParaBoard can use it.
 const HierarchyView: React.FC<{
-    items: ParaItem[];
-    onDelete: (id: string) => void;
-    onArchive: (id: string) => void;
-    onToggleComplete?: (id: string, s: boolean) => void;
+  items: ParaItem[];
+  onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
+  onToggleComplete?: (id: string, status: boolean) => void;
 }> = ({ items, onDelete, onArchive, onToggleComplete }) => {
     
-    // Recursive Tree Builder
-    const tree = useMemo(() => {
-        const areas = items.filter(i => i.type === ParaType.AREA);
-        const projects = items.filter(i => i.type === ParaType.PROJECT);
-        const tasks = items.filter(i => i.type === ParaType.TASK);
-        const resources = items.filter(i => i.type === ParaType.RESOURCE);
+    // Grouping Logic
+    const areas = items.filter(i => i.type === ParaType.AREA);
+    const projects = items.filter(i => i.type === ParaType.PROJECT);
+    const tasks = items.filter(i => i.type === ParaType.TASK);
 
-        // Map Areas
-        const structure = areas.map(area => {
-            // Find Projects belonging to this Area
-            // Condition: Explicit Relation OR Matching Category
-            const areaProjects = projects.filter(p => 
-                (p.relatedItemIds?.includes(area.id)) || 
-                (p.category === area.title)
-            );
+    // Helper: Find projects in area
+    const getProjects = (area: ParaItem) => {
+        return projects.filter(p => 
+            p.category === area.title || // Direct string match
+            (p.relatedItemIds && p.relatedItemIds.includes(area.id)) // Relation match
+        );
+    };
 
-            // Map Projects with their Tasks
-            const projectNodes = areaProjects.map(proj => {
-                const projTasks = tasks.filter(t => t.relatedItemIds?.includes(proj.id));
-                const projResources = resources.filter(r => r.relatedItemIds?.includes(proj.id));
-                return { ...proj, children: [...projTasks, ...projResources] };
-            });
+    // Helper: Find tasks in project
+    const getTasks = (project: ParaItem) => {
+        return tasks.filter(t => 
+             (t.relatedItemIds && t.relatedItemIds.includes(project.id))
+        );
+    };
 
-            // Find "Direct" Tasks/Resources (belonging to Area but NOT to any Project above)
-            // This prevents double listing if a task is linked to both (unlikely but safe)
-            const accountedProjectIds = areaProjects.map(p => p.id);
-            const directChildren = [...tasks, ...resources].filter(item => {
-                const isLinkedToArea = (item.relatedItemIds?.includes(area.id) || item.category === area.title);
-                const isLinkedToKnownProject = item.relatedItemIds?.some(id => accountedProjectIds.includes(id));
-                return isLinkedToArea && !isLinkedToKnownProject;
-            });
-
-            return { 
-                ...area, 
-                children: [...projectNodes, ...directChildren],
-                projectCount: projectNodes.length
-            };
-        });
-
-        // Find Orphans (Items with NO parent Area or Project)
-        const allMappedIds = new Set<string>();
-        structure.forEach(area => {
-            allMappedIds.add(area.id);
-            area.children.forEach((child: any) => {
-                allMappedIds.add(child.id);
-                if (child.children) {
-                    child.children.forEach((grandChild: any) => allMappedIds.add(grandChild.id));
-                }
-            });
-        });
-
-        const orphans = items.filter(i => !allMappedIds.has(i.id) && i.type !== ParaType.ARCHIVE);
-        
-        return { structure, orphans };
-    }, [items]);
+    // Unassigned
+    const unassignedProjects = projects.filter(p => !areas.some(a => p.category === a.title || p.relatedItemIds?.includes(a.id)));
 
     return (
         <div className="pb-32 space-y-6 animate-in fade-in">
-             <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-indigo-100 rounded-lg">
-                    <Layers className="w-6 h-6 text-indigo-600" />
-                </div>
-                <div>
-                    <h2 className="text-2xl font-bold text-slate-900">System Hierarchy</h2>
-                    <p className="text-sm text-slate-500">Visualize relation tree: Area → Project → Task</p>
-                </div>
-            </div>
+            <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <Layers className="w-6 h-6 text-indigo-600" />
+                System Hierarchy
+            </h2>
 
-            <div className="space-y-4">
-                {tree.structure.map(area => (
-                    <TreeNode 
-                        key={area.id} 
-                        item={area} 
-                        childrenItems={area.children as any} 
-                        level={0}
-                        onDelete={onDelete}
-                        onArchive={onArchive}
-                        onToggleComplete={onToggleComplete}
-                    />
-                ))}
-            </div>
+            {/* AREAS */}
+            {areas.map(area => (
+                <div key={area.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    {/* Area Header */}
+                    <div className="bg-orange-50/50 p-4 border-b border-orange-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                             <div className="p-1.5 bg-orange-100 text-orange-600 rounded-lg">
+                                 <Layers className="w-4 h-4" />
+                             </div>
+                             <h3 className="font-bold text-slate-900 text-lg">{area.title}</h3>
+                        </div>
+                        <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Area</span>
+                    </div>
 
-            {tree.orphans.length > 0 && (
-                <div className="mt-8 pt-8 border-t border-slate-200">
-                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Unassigned / Inbox</h3>
-                    <div className="space-y-2">
-                        {tree.orphans.map(item => (
-                             <TreeNode 
-                                key={item.id} 
-                                item={item} 
-                                childrenItems={[]} 
-                                level={0}
-                                onDelete={onDelete}
-                                onArchive={onArchive}
-                                onToggleComplete={onToggleComplete}
-                            />
+                    <div className="p-4 space-y-4">
+                        {getProjects(area).length === 0 ? (
+                            <div className="text-sm text-slate-400 italic pl-10">No active projects</div>
+                        ) : (
+                            getProjects(area).map(project => (
+                                <div key={project.id} className="relative pl-6 border-l-2 border-slate-100 ml-3">
+                                    {/* Project Header */}
+                                    <div className="flex items-center justify-between mb-2 group">
+                                        <div className="flex items-center gap-2">
+                                            <Target className="w-4 h-4 text-red-500" />
+                                            <span className="font-semibold text-slate-800">{project.title}</span>
+                                        </div>
+                                        <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                                            <button onClick={() => onArchive(project.id)} className="p-1 hover:bg-slate-100 rounded text-slate-300 hover:text-slate-600"><Archive className="w-3 h-3" /></button>
+                                            <button onClick={() => onDelete(project.id)} className="p-1 hover:bg-red-50 rounded text-slate-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                                        </div>
+                                    </div>
+
+                                    {/* Tasks */}
+                                    <div className="space-y-1 pl-6">
+                                        {getTasks(project).map(task => (
+                                            <div key={task.id} className="flex items-center gap-2 text-sm group min-h-[24px]">
+                                                <button 
+                                                    onClick={() => onToggleComplete && onToggleComplete(task.id, !!task.isCompleted)}
+                                                    className={task.isCompleted ? 'text-emerald-500' : 'text-slate-300 hover:text-emerald-500'}
+                                                >
+                                                    {task.isCompleted ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                                                </button>
+                                                <span className={`truncate ${task.isCompleted ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+                                                    {task.title}
+                                                </span>
+                                                <button onClick={() => onDelete(task.id)} className="ml-auto opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500">
+                                                    <Trash2 className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {getTasks(project).length === 0 && <div className="text-xs text-slate-300 italic">No tasks</div>}
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            ))}
+
+            {/* Unassigned Projects */}
+            {unassignedProjects.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm mt-8">
+                    <div className="bg-slate-50 p-4 border-b border-slate-100">
+                        <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                            <Folder className="w-4 h-4" /> Unassigned Projects
+                        </h3>
+                    </div>
+                    <div className="p-4 space-y-4">
+                        {unassignedProjects.map(project => (
+                             <div key={project.id} className="relative pl-6 border-l-2 border-slate-100 ml-3">
+                                <div className="flex items-center justify-between mb-2 group">
+                                    <div className="flex items-center gap-2">
+                                        <Target className="w-4 h-4 text-red-500" />
+                                        <span className="font-semibold text-slate-800">{project.title}</span>
+                                    </div>
+                                    <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                                         <button onClick={() => onDelete(project.id)} className="p-1 hover:bg-red-50 rounded text-slate-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                                    </div>
+                                </div>
+                                <div className="space-y-1 pl-6">
+                                    {getTasks(project).map(task => (
+                                        <div key={task.id} className="flex items-center gap-2 text-sm group">
+                                            <button 
+                                                onClick={() => onToggleComplete && onToggleComplete(task.id, !!task.isCompleted)}
+                                                className={task.isCompleted ? 'text-emerald-500' : 'text-slate-300 hover:text-emerald-500'}
+                                            >
+                                                {task.isCompleted ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                                            </button>
+                                            <span className={`truncate ${task.isCompleted ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+                                                {task.title}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                             </div>
                         ))}
                     </div>
                 </div>
@@ -465,118 +509,15 @@ const HierarchyView: React.FC<{
     );
 };
 
-const TreeNode: React.FC<{
-    item: ParaItem;
-    childrenItems: any[];
-    level: number;
-    onDelete: (id: string) => void;
-    onArchive: (id: string) => void;
-    onToggleComplete?: (id: string, s: boolean) => void;
-}> = ({ item, childrenItems, level, onDelete, onArchive, onToggleComplete }) => {
-    const [isExpanded, setIsExpanded] = useState(true);
-    
-    // Icons based on Level/Type
-    const getIcon = () => {
-        if (item.type === ParaType.AREA) return <Layers className="w-4 h-4 text-orange-500" />;
-        if (item.type === ParaType.PROJECT) return <Folder className="w-4 h-4 text-red-500" />;
-        if (item.type === ParaType.TASK) return item.isCompleted ? <CheckSquare className="w-4 h-4 text-emerald-500" /> : <Square className="w-4 h-4 text-slate-400" />;
-        return <FileText className="w-4 h-4 text-blue-500" />;
-    };
-
-    const hasChildren = childrenItems && childrenItems.length > 0;
-
-    return (
-        <div className={`select-none`}>
-            <div 
-                className={`
-                    flex items-center gap-2 p-2 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer group
-                    ${level === 0 ? 'bg-white border border-slate-200 shadow-sm mb-2' : ''}
-                    ${level > 0 ? 'ml-6 border-l-2 border-slate-100 pl-4' : ''}
-                `}
-                onClick={(e) => {
-                    // Only toggle if clicking the row, not buttons
-                    if ((e.target as HTMLElement).closest('button')) return;
-                    setIsExpanded(!isExpanded);
-                }}
-            >
-                {/* Expander Arrow */}
-                <div className="w-4 h-4 flex items-center justify-center text-slate-400">
-                    {hasChildren ? (
-                        isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />
-                    ) : (
-                         level > 0 && <div className="w-1.5 h-1.5 rounded-full bg-slate-200"></div>
-                    )}
-                </div>
-
-                {/* Icon */}
-                <div className="shrink-0">
-                    {getIcon()}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                        <span className={`text-sm font-medium truncate ${item.isCompleted ? 'line-through text-slate-400' : 'text-slate-800'}`}>
-                            {item.title}
-                        </span>
-                        {/* Task specific checkbox */}
-                        {item.type === ParaType.TASK && onToggleComplete && (
-                             <button 
-                                onClick={() => onToggleComplete(item.id, !!item.isCompleted)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white border border-slate-200 px-2 rounded hover:text-emerald-600"
-                             >
-                                {item.isCompleted ? 'Undo' : 'Done'}
-                             </button>
-                        )}
-                    </div>
-                    {item.content && (
-                        <p className="text-[10px] text-slate-400 truncate max-w-md">{item.content}</p>
-                    )}
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                     {item.type !== ParaType.ARCHIVE && (
-                        <button onClick={() => onArchive(item.id)} className="p-1.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600">
-                            <Archive className="w-3.5 h-3.5" />
-                        </button>
-                     )}
-                     <button onClick={() => onDelete(item.id)} className="p-1.5 hover:bg-red-50 rounded text-slate-400 hover:text-red-500">
-                        <Trash2 className="w-3.5 h-3.5" />
-                     </button>
-                </div>
-            </div>
-
-            {/* Recursion for Children */}
-            {isExpanded && hasChildren && (
-                <div className="">
-                    {childrenItems.map(child => (
-                        <TreeNode 
-                            key={child.id} 
-                            item={child} 
-                            childrenItems={child.children} 
-                            level={level + 1}
-                            onDelete={onDelete}
-                            onArchive={onArchive}
-                            onToggleComplete={onToggleComplete}
-                        />
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
-// --- COMPONENTS ---
-
 const TaskCard: React.FC<{
     item: ParaItem;
     onDelete: (id: string) => void;
     onArchive: (id: string) => void;
     onToggleComplete?: (id: string, status: boolean) => void;
+    onEdit?: (id: string) => void;
     allItemsMap: Record<string, ParaItem>;
     isSelected: boolean;
-}> = ({ item, onDelete, onArchive, onToggleComplete, allItemsMap, isSelected }) => {
+}> = ({ item, onDelete, onArchive, onToggleComplete, onEdit, allItemsMap, isSelected }) => {
     return (
         <div className={`
             group bg-white rounded-xl border p-4 transition-all duration-200 flex flex-col h-full
@@ -650,6 +591,11 @@ const TaskCard: React.FC<{
                          </span>
                          {/* Hover Actions */}
                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {onEdit && (
+                                <button onClick={() => onEdit(item.id)} className="p-1 hover:bg-slate-100 rounded text-slate-300 hover:text-indigo-500" title="Edit">
+                                    <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                            )}
                             {item.type !== ParaType.ARCHIVE && (
                                 <button onClick={() => onArchive(item.id)} className="p-1 hover:bg-slate-100 rounded text-slate-300 hover:text-slate-600" title="Archive">
                                     <Archive className="w-3.5 h-3.5" />
@@ -670,9 +616,10 @@ const Card: React.FC<{
   item: ParaItem; 
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
+  onEdit?: (id: string) => void;
   allItemsMap: Record<string, ParaItem>;
   isSelected: boolean;
-}> = ({ item, onDelete, onArchive, allItemsMap, isSelected }) => {
+}> = ({ item, onDelete, onArchive, onEdit, allItemsMap, isSelected }) => {
   
   const typeColors = {
     [ParaType.PROJECT]: 'bg-red-50 text-red-700 border-red-100',
@@ -694,6 +641,11 @@ const Card: React.FC<{
         
         {/* Hover Actions */}
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute top-4 right-4 bg-white shadow-sm border rounded-lg p-1">
+             {onEdit && (
+                <button onClick={() => onEdit(item.id)} className="p-1 hover:bg-slate-50 rounded text-slate-400 hover:text-indigo-500" title="Edit">
+                    <Pencil className="w-4 h-4" />
+                </button>
+             )}
              {item.type !== ParaType.ARCHIVE && (
                 <button onClick={() => onArchive(item.id)} className="p-1 hover:bg-slate-50 rounded text-slate-400 hover:text-slate-600" title="Archive">
                     <Archive className="w-4 h-4" />

@@ -203,6 +203,7 @@ export const useParaData = () => {
     isLoadingDB,
     dbError,
     addItem,
+    updateItem, // Added missing export
     deleteItem,
     toggleComplete,
     archiveItem, // Exposed here

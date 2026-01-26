@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ParaType, ParaItem, FinanceAccount, Transaction, TransactionType, FinanceAccountType, AppModule, ModuleItem } from '../types';
-import { X, Save, Type, Tag, AlignLeft, Layout, Banknote, Calendar, Wallet, Paperclip, Loader2, Image as ImageIcon } from 'lucide-react';
+import { X, Save, Type, Tag, AlignLeft, Layout, Banknote, Calendar, Wallet, Paperclip, Loader2, Image as ImageIcon, Folder, Layers } from 'lucide-react';
 import { generateId } from '../utils/helpers';
 import { getModuleIcon } from './DynamicModuleBoard';
 import { db } from '../services/db';
@@ -14,6 +14,9 @@ interface ManualEntryModalProps {
   projects?: ParaItem[]; 
   accounts?: FinanceAccount[];
   activeModule?: AppModule | null; // Pass active module if applicable
+  // New props for editing
+  editingItem?: ParaItem | null;
+  allParaItems?: ParaItem[]; // Needed to populate relation dropdowns
 }
 
 type ModalTab = 'PARA' | 'FINANCE' | 'MODULE';
@@ -25,7 +28,9 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
   defaultType,
   projects = [],
   accounts = [],
-  activeModule = null
+  activeModule = null,
+  editingItem = null,
+  allParaItems = []
 }) => {
   const [activeTab, setActiveTab] = useState<ModalTab>('PARA');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,6 +44,10 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
   const [dueDate, setDueDate] = useState('');
   const [attachments, setAttachments] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Relations (New Feature)
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedAreaId, setSelectedAreaId] = useState<string>('');
 
   // --- FINANCE STATE ---
   const [financeMode, setFinanceMode] = useState<'TRANSACTION' | 'ACCOUNT'>('TRANSACTION');
@@ -66,18 +75,42 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
         setActiveTab('FINANCE');
       } else {
         setActiveTab('PARA');
-        // Fix: Check if defaultType is a valid ParaType value
-        const isPara = Object.values(ParaType).includes(defaultType as any);
-        setType(isPara ? (defaultType as ParaType) : ParaType.TASK);
+        // If editing, load data
+        if (editingItem) {
+            setTitle(editingItem.title);
+            setType(editingItem.type);
+            setCategory(editingItem.category);
+            setContent(editingItem.content);
+            setDueDate(editingItem.dueDate || '');
+            setAttachments(editingItem.attachments || []);
+            
+            // Resolve Relations
+            const existingRelations = editingItem.relatedItemIds || [];
+            const linkedProject = allParaItems.find(i => i.type === ParaType.PROJECT && existingRelations.includes(i.id));
+            const linkedArea = allParaItems.find(i => i.type === ParaType.AREA && existingRelations.includes(i.id));
+            
+            setSelectedProjectId(linkedProject ? linkedProject.id : '');
+            setSelectedAreaId(linkedArea ? linkedArea.id : '');
+
+        } else {
+            // New Item
+            const isPara = Object.values(ParaType).includes(defaultType as any);
+            setType(isPara ? (defaultType as ParaType) : ParaType.TASK);
+            
+            // Reset forms
+            setTitle(''); setContent(''); setCategory('General'); setDueDate(''); setAttachments([]);
+            setSelectedProjectId(''); setSelectedAreaId('');
+        }
       }
       
-      // Reset forms
-      setTitle(''); setContent(''); setCategory('General'); setDueDate(''); setAttachments([]);
-      setTxDesc(''); setTxAmount(''); setTxCategory('General');
-      if (accounts.length > 0) setTxAccount(accounts[0].id);
-      setAccName(''); setAccBalance('');
+      // Reset Finance / Other forms if needed
+      if (!editingItem) {
+          setTxDesc(''); setTxAmount(''); setTxCategory('General');
+          if (accounts.length > 0) setTxAccount(accounts[0].id);
+          setAccName(''); setAccBalance('');
+      }
     }
-  }, [isOpen, defaultType, accounts, activeModule]);
+  }, [isOpen, defaultType, accounts, activeModule, editingItem, allParaItems]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -114,12 +147,21 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
             await onSave(newItem, 'MODULE');
 
         } else if (activeTab === 'PARA') {
+            // Build Relation IDs
+            const relatedIds: string[] = [];
+            if (selectedProjectId) relatedIds.push(selectedProjectId);
+            if (selectedAreaId) relatedIds.push(selectedAreaId);
+
             const newItem: ParaItem = {
-                id: generateId(),
+                id: editingItem ? editingItem.id : generateId(), // Preserve ID if editing
                 title, content, type,
                 category: category || 'General',
-                tags: [], isAiGenerated: false, isCompleted: false, relatedItemIds: [],
-                createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+                tags: editingItem ? editingItem.tags : [], 
+                isAiGenerated: editingItem ? editingItem.isAiGenerated : false, 
+                isCompleted: editingItem ? editingItem.isCompleted : false, 
+                relatedItemIds: relatedIds,
+                createdAt: editingItem ? editingItem.createdAt : new Date().toISOString(), 
+                updatedAt: new Date().toISOString(),
                 dueDate: dueDate || undefined,
                 attachments: attachments
             };
@@ -149,6 +191,10 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
     }
   };
 
+  // Helper lists for dropdowns
+  const availableProjects = allParaItems.filter(i => i.type === ParaType.PROJECT && i.id !== editingItem?.id);
+  const availableAreas = allParaItems.filter(i => i.type === ParaType.AREA && i.id !== editingItem?.id);
+
   if (!isOpen) return null;
 
   return (
@@ -157,7 +203,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
         
         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
               {activeModule ? (
                   <div className="flex items-center gap-2 text-indigo-700 font-bold">
                       {getModuleIcon(activeModule.icon, "w-5 h-5")}
@@ -165,8 +211,14 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                   </div>
               ) : (
                   <>
-                    <button onClick={() => setActiveTab('PARA')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'PARA' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}>Productivity</button>
-                    <button onClick={() => setActiveTab('FINANCE')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'FINANCE' ? 'bg-white shadow text-emerald-600' : 'text-slate-400'}`}>Finance</button>
+                     {editingItem ? (
+                        <span className="font-bold text-slate-700">Edit {editingItem.type.slice(0, -1)}</span>
+                     ) : (
+                        <>
+                            <button onClick={() => setActiveTab('PARA')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'PARA' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}>Productivity</button>
+                            <button onClick={() => setActiveTab('FINANCE')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'FINANCE' ? 'bg-white shadow text-emerald-600' : 'text-slate-400'}`}>Finance</button>
+                        </>
+                     )}
                   </>
               )}
           </div>
@@ -238,6 +290,41 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                         <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm" />
                     </div>
                 </div>
+                
+                {/* RELATIONS SECTION (New) */}
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-50">
+                    <div>
+                         <label className="text-xs font-bold text-indigo-500 uppercase mb-1 flex items-center gap-1">
+                             <Folder className="w-3 h-3" /> Link Project
+                         </label>
+                         <select 
+                            value={selectedProjectId} 
+                            onChange={(e) => setSelectedProjectId(e.target.value)} 
+                            className="w-full px-3 py-2 bg-indigo-50/50 border border-indigo-100 rounded-xl text-sm text-slate-700 focus:ring-indigo-200"
+                         >
+                            <option value="">-- None --</option>
+                            {availableProjects.map(p => (
+                                <option key={p.id} value={p.id}>{p.title}</option>
+                            ))}
+                         </select>
+                    </div>
+                    <div>
+                         <label className="text-xs font-bold text-orange-500 uppercase mb-1 flex items-center gap-1">
+                             <Layers className="w-3 h-3" /> Link Area
+                         </label>
+                         <select 
+                            value={selectedAreaId} 
+                            onChange={(e) => setSelectedAreaId(e.target.value)} 
+                            className="w-full px-3 py-2 bg-orange-50/50 border border-orange-100 rounded-xl text-sm text-slate-700 focus:ring-orange-200"
+                         >
+                            <option value="">-- None --</option>
+                            {availableAreas.map(a => (
+                                <option key={a.id} value={a.id}>{a.title}</option>
+                            ))}
+                         </select>
+                    </div>
+                </div>
+
                 {type === ParaType.TASK && (
                     <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Due Date</label>

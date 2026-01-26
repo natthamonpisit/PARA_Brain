@@ -36,7 +36,6 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
         setIsProcessing(true);
 
         try {
-            // Build Context Strings
             const recentHistory = messages.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
             
             const result = await analyzeLifeOS(text, {
@@ -46,41 +45,35 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                 recentContext: recentHistory
             });
 
-            // Handle Operations
-            if (result.operation === 'CHAT') {
-                addMessage({
-                    id: generateId(),
-                    role: 'assistant',
-                    text: result.chatResponse,
-                    timestamp: new Date()
-                });
-
-            } else if (result.operation === 'COMPLETE') {
-                // Find candidates to complete
-                addMessage({
-                    id: generateId(),
-                    role: 'assistant',
-                    text: result.chatResponse,
-                    timestamp: new Date()
-                });
-
-            } else if (result.operation === 'BATCH_CREATE' && result.batchItems) {
+            // --- BATCH CREATE LOGIC (ENHANCED) ---
+            if (result.operation === 'BATCH_CREATE' && result.batchItems) {
                 const createdItems: ParaItem[] = [];
-                let newlyCreatedProjectId: string | null = null;
-                
+                // Map tempId (from AI) to realId (UUID)
+                const tempIdMap: Record<string, string> = {}; 
+
+                // 1. First Pass: Create IDs for everyone so we can link them
+                result.batchItems.forEach(item => {
+                    if (item.tempId) {
+                        tempIdMap[item.tempId] = generateId();
+                    }
+                });
+
+                // 2. Second Pass: Create Items with correct links
+                // We assume AI sorts parents before children, but just in case, logic handles it.
                 for (const item of result.batchItems) {
-                    // FALLBACK TITLE LOGIC
+                    const realId = item.tempId ? tempIdMap[item.tempId] : generateId();
                     const finalTitle = item.title || "New Item";
 
-                    // Determine Relations: Use AI suggested candidates OR link to a newly created project in this batch
+                    // Resolve Relations
                     let finalRelations: string[] = item.relatedItemIdsCandidates || [];
                     
-                    if (item.type === ParaType.TASK && newlyCreatedProjectId) {
-                        finalRelations = [...finalRelations, newlyCreatedProjectId];
+                    // Link to parent created in THIS batch?
+                    if (item.parentTempId && tempIdMap[item.parentTempId]) {
+                        finalRelations.push(tempIdMap[item.parentTempId]);
                     }
 
                     const newItem: ParaItem = {
-                        id: generateId(),
+                        id: realId,
                         title: finalTitle,
                         content: item.summary || "",
                         type: item.type || ParaType.TASK,
@@ -94,11 +87,6 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                     };
 
                     await onAddItem(newItem);
-                    
-                    if (newItem.type === ParaType.PROJECT) {
-                        newlyCreatedProjectId = newItem.id;
-                    }
-
                     createdItems.push(newItem);
                 }
 
@@ -112,9 +100,8 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                 });
 
             } else if (result.operation === 'CREATE') {
-                // SMART FALLBACK
                 const finalTitle = result.title || (text.length > 30 ? text.substring(0, 30) + "..." : text);
-
+                
                 const newItem: ParaItem = {
                     id: generateId(),
                     title: finalTitle,
@@ -122,7 +109,6 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                     type: result.type || ParaType.TASK,
                     category: result.category || "Inbox",
                     tags: result.suggestedTags || [],
-                    // JAY'S FIX: Use the relations identified by AI
                     relatedItemIds: result.relatedItemIdsCandidates || [],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
@@ -141,10 +127,12 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                     timestamp: new Date()
                 });
 
+            } else if (result.operation === 'CHAT') {
+                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, timestamp: new Date() });
+            } else if (result.operation === 'COMPLETE') {
+                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, timestamp: new Date() });
             } else if (result.operation === 'TRANSACTION') {
-                // Transaction Description Fallback
-                const txDesc = result.title || (text.length > 40 ? text.substring(0, 40) + "..." : text);
-
+                const txDesc = result.title || text;
                 const newTx: Transaction = {
                     id: generateId(),
                     description: txDesc, 
@@ -154,76 +142,34 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                     accountId: result.accountId || (accounts[0] ? accounts[0].id : ''),
                     transactionDate: new Date().toISOString()
                 };
-
                 if (newTx.accountId) {
                     await onAddTransaction(newTx);
-                    addMessage({
-                        id: generateId(),
-                        role: 'assistant',
-                        text: result.chatResponse,
-                        createdItem: newTx,
-                        itemType: 'TRANSACTION',
-                        timestamp: new Date()
-                    });
+                    addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, createdItem: newTx, itemType: 'TRANSACTION', timestamp: new Date() });
                 } else {
-                     addMessage({
-                        id: generateId(),
-                        role: 'assistant',
-                        text: "I couldn't find a valid account for this transaction. Please create one first.",
-                        timestamp: new Date()
-                    });
+                     addMessage({ id: generateId(), role: 'assistant', text: "No valid account found.", timestamp: new Date() });
                 }
-
             } else if (result.operation === 'MODULE_ITEM') {
                 if (result.targetModuleId) {
                     const modData: Record<string, any> = {};
                     if (result.moduleDataRaw) {
                         result.moduleDataRaw.forEach(f => {
-                             // Simple type inference
                              const numVal = Number(f.value);
                              modData[f.key] = isNaN(numVal) ? f.value : numVal;
                         });
                     }
-                    
                     const newItem: ModuleItem = {
-                        id: generateId(),
-                        moduleId: result.targetModuleId,
-                        title: result.title || "New Entry",
-                        data: modData,
-                        tags: result.suggestedTags || [],
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString()
+                        id: generateId(), moduleId: result.targetModuleId, title: result.title || "New Entry", data: modData, tags: result.suggestedTags || [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
                     };
-
                     await onAddModuleItem(newItem);
-                    
-                    addMessage({
-                        id: generateId(),
-                        role: 'assistant',
-                        text: result.chatResponse,
-                        createdItem: newItem,
-                        itemType: 'MODULE',
-                        timestamp: new Date()
-                    });
+                    addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, createdItem: newItem, itemType: 'MODULE', timestamp: new Date() });
                 }
             } else {
-                 // Fallback
-                 addMessage({
-                    id: generateId(),
-                    role: 'assistant',
-                    text: result.chatResponse,
-                    timestamp: new Date()
-                });
+                 addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, timestamp: new Date() });
             }
 
         } catch (error: any) {
             console.error("AI Error:", error);
-            addMessage({
-                id: generateId(),
-                role: 'assistant',
-                text: `Sorry, I encountered an error: ${error.message}`,
-                timestamp: new Date()
-            });
+            addMessage({ id: generateId(), role: 'assistant', text: `Error: ${error.message}`, timestamp: new Date() });
         } finally {
             setIsProcessing(false);
         }

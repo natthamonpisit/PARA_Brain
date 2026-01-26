@@ -121,6 +121,8 @@ export interface AIAnalysisResult {
   
   // BATCH ITEMS (For BATCH_CREATE)
   batchItems?: {
+      tempId?: string; // For linking within batch
+      parentTempId?: string; // For linking within batch
       title: string;
       type: ParaType;
       category: string;

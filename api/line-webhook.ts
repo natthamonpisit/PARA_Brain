@@ -5,7 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Initialize Services
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+// Priority: Try to use Service Role Key (for backend bypass) -> Fallback to Anon Key
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 export default async function handler(req: any, res: any) {
   // 1. Method Validation
@@ -31,7 +32,6 @@ export default async function handler(req: any, res: any) {
     }
 
     // 2. Process Events Loop
-    // We use Promise.all to process multiple messages in parallel (though usually just 1)
     await Promise.all(events.map(async (event: any) => {
       if (event.type === 'message' && event.message.type === 'text') {
         const userId = event.source.userId;
@@ -39,7 +39,7 @@ export default async function handler(req: any, res: any) {
         const userMessage = event.message.text.trim();
         const eventId = event.webhookEventId;
 
-        console.log(`📩 Message from ${userId} (EventID: ${eventId}): ${userMessage}`);
+        console.log(`📩 Message from ${userId}: ${userMessage}`);
 
         // --- SECURITY CHECK ---
         if (authorizedUserId && userId !== authorizedUserId) {
@@ -47,7 +47,7 @@ export default async function handler(req: any, res: any) {
             return;
         }
 
-        // --- COMMAND HANDLERS (Bypass AI for speed) ---
+        // --- COMMAND HANDLERS ---
         if (userMessage.toLowerCase() === 'id') {
             await replyToLine(replyToken, channelAccessToken, `Your User ID is:\n${userId}`);
             return;
@@ -56,14 +56,11 @@ export default async function handler(req: any, res: any) {
         // --- IDEMPOTENCY CHECK ---
         const { data: existingLog } = await supabase
             .from('system_logs')
-            .select('id, status')
+            .select('id')
             .eq('event_id', eventId)
             .maybeSingle();
 
-        if (existingLog) {
-            console.log(`🔄 Duplicate Event Detected (${eventId}). Skipping...`);
-            return;
-        }
+        if (existingLog) return;
 
         // --- LOCK THE EVENT ---
         const { data: newLog, error: logError } = await supabase.from('system_logs').insert({
@@ -92,7 +89,7 @@ export default async function handler(req: any, res: any) {
   }
 }
 
-// --- SMART AGENT LOGIC (OPTIMIZED FOR SPEED) ---
+// --- SMART AGENT LOGIC ---
 
 async function processSmartAgentRequest(
     userMessage: string, 
@@ -103,9 +100,7 @@ async function processSmartAgentRequest(
 ) {
     const apiKey = process.env.API_KEY;
 
-    // Helper to update the log
     const updateLog = async (action: string, status: string, response: string) => {
-        // Fire and forget log update to save time
         supabase.from('system_logs').update({
             ai_response: response,
             action_type: action,
@@ -119,30 +114,27 @@ async function processSmartAgentRequest(
     }
 
     try {
-        // --- 1. SMART CONTEXT LOADING (Parallel & Conditional) ---
-        // Only load heavy data if the user message suggests it's needed
-        
+        // --- 1. SMART CONTEXT LOADING ---
         const msgLower = userMessage.toLowerCase();
         const isFinanceRelated = /money|baht|bath|บาท|จ่าย|ซื้อ|โอน|income|expense|cost|price|฿/.test(msgLower);
         const isTaskRelated = /task|job|project|remind|งาน|โปรเจ|จำ|ลืม|ทำ/.test(msgLower);
         
-        // Define Promises
+        // Load Context
         const accountsPromise = isFinanceRelated 
             ? supabase.from('accounts').select('id, name').limit(10) 
             : Promise.resolve({ data: [] });
-            
-        const modulesPromise = supabase.from('modules').select('id, name, schema_config'); // Always load modules (usually light)
+        const modulesPromise = supabase.from('modules').select('id, name, schema_config');
         
-        const tasksPromise = isTaskRelated 
-            ? supabase.from('tasks').select('id, title').eq('is_completed', false).limit(10)
+        // JAY: Load both Tasks AND Projects to allow linking
+        const itemsPromise = isTaskRelated 
+            ? supabase.from('projects').select('id, title, type').limit(20) // Load projects to link tasks
             : Promise.resolve({ data: [] });
 
-        // Wait for all data concurrently (Fast!)
         const [
             { data: accounts }, 
             { data: modules }, 
-            { data: recentTasks }
-        ] = await Promise.all([accountsPromise, modulesPromise, tasksPromise]);
+            { data: existingProjects }
+        ] = await Promise.all([accountsPromise, modulesPromise, itemsPromise]);
 
         // --- 2. BUILD PROMPT ---
         const responseSchema = {
@@ -153,14 +145,16 @@ async function processSmartAgentRequest(
                     enum: ['CREATE', 'TRANSACTION', 'MODULE_ITEM', 'COMPLETE', 'CHAT'],
                     description: "Action type."
                 },
-                chatResponse: { type: Type.STRING, description: "Short Thai response." }, // Emphasize SHORT
+                chatResponse: { type: Type.STRING, description: "Short Thai response." },
                 
-                // PARA
-                title: { type: Type.STRING, nullable: true },
-                category: { type: Type.STRING, nullable: true },
+                // PARA Fields
+                title: { type: Type.STRING },
+                category: { type: Type.STRING },
                 type: { type: Type.STRING, enum: ['Tasks', 'Projects', 'Resources', 'Areas'], nullable: true },
                 content: { type: Type.STRING, nullable: true },
-                relatedItemId: { type: Type.STRING, nullable: true },
+                relatedItemId: { type: Type.STRING, nullable: true, description: "ID of the PARENT Project/Area if found in context." },
+                suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
+                dueDate: { type: Type.STRING, nullable: true },
 
                 // Finance
                 amount: { type: Type.NUMBER, nullable: true },
@@ -184,29 +178,24 @@ async function processSmartAgentRequest(
 
         const ai = new GoogleGenAI({ apiKey });
         
-        // Format Context Strings
-        const modulesManual = modules?.length ? modules.map((m: any, i: number) => {
-             const fields = m.schema_config?.fields.map((f: any) => `${f.key}`).join(',');
-             return `MOD${i}:${m.name}(ID:${m.id})[${fields}]`;
-        }).join('\n') : "";
-
+        // Format Context
+        const projectsList = existingProjects?.length ? existingProjects.map((p: any) => `Project:${p.title}(ID:${p.id})`).join('\n') : "";
         const accountsList = accounts?.length ? accounts.map((a: any) => `${a.name}(ID:${a.id})`).join('\n') : "";
-        const tasksList = recentTasks?.length ? recentTasks.map((t: any) => `Task:${t.title}(ID:${t.id})`).join('\n') : "";
 
         const prompt = `
         Role: "Jay" (Life OS). User: "${userMessage}"
         
-        CTXT:
-        ${modulesManual ? `[Modules]\n${modulesManual}` : ''}
-        ${accountsList ? `[Accs]\n${accountsList}` : ''}
-        ${tasksList ? `[Tasks]\n${tasksList}` : ''}
+        CONTEXT:
+        ${projectsList ? `[Existing Projects]\n${projectsList}` : ''}
+        ${accountsList ? `[Accounts]\n${accountsList}` : ''}
 
         Detect: CREATE, TRANSACTION, MODULE_ITEM, COMPLETE, or CHAT.
+        If user wants to add task to a project, put Project ID in 'relatedItemId'.
         Reply: Thai, Concise.
         `;
 
         const result = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview', // Speed King
+            model: 'gemini-3-flash-preview',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -215,26 +204,39 @@ async function processSmartAgentRequest(
         });
 
         const rawJSON = JSON.parse(result.text || "{}");
-        const { operation, chatResponse, title, category, type, content, amount, transactionType, accountId, targetModuleId, moduleDataRaw, relatedItemId } = rawJSON;
+        const { operation, chatResponse, title, category, type, content, amount, transactionType, accountId, targetModuleId, moduleDataRaw, relatedItemId, suggestedTags, dueDate } = rawJSON;
 
-        // --- 3. EXECUTE ACTION (Parallel with Reply where possible) ---
-        // We start the DB operation but don't strictly await the result before replying if we want to be super fast.
-        // But to be safe (ensure data is saved), we await. Database inserts are usually < 100ms.
-
-        let dbPromise = Promise.resolve<any>(null);
+        // --- 3. EXECUTE ACTION ---
+        let dbPromise = Promise.resolve<{error: any} | null>(null);
         let logAction = 'CHAT';
 
         if (operation === 'CREATE') {
             logAction = 'CREATE_PARA';
-            dbPromise = supabase.from(type === 'Projects' ? 'projects' : 'tasks').insert({
+            let tableName = 'tasks';
+            if (type === 'Projects') tableName = 'projects';
+            else if (type === 'Areas') tableName = 'areas';
+            else if (type === 'Resources') tableName = 'resources';
+            else if (type === 'Archives') tableName = 'archives';
+
+            // JAY: Prepare Payload properly
+            const payload: any = {
                 id: uuidv4(),
                 title: title || userMessage,
                 category: category || 'Inbox',
                 type: type || 'Tasks',
                 content: content || '',
                 is_completed: false,
-                created_at: new Date().toISOString()
-            });
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                tags: suggestedTags || [],
+                related_item_ids: relatedItemId ? [relatedItemId] : [] // Fix: Wrap in array
+            };
+
+            if (tableName === 'tasks' && dueDate) {
+                payload.due_date = dueDate;
+            }
+
+            dbPromise = supabase.from(tableName).insert(payload);
 
         } else if (operation === 'TRANSACTION') {
             logAction = 'CREATE_TX';
@@ -249,6 +251,9 @@ async function processSmartAgentRequest(
                     account_id: targetAcc,
                     transaction_date: new Date().toISOString()
                 });
+            } else {
+                await replyToLine(replyToken, accessToken, "⚠️ หาบัญชีไม่เจอครับ");
+                return;
             }
 
         } else if (operation === 'MODULE_ITEM') {
@@ -274,30 +279,39 @@ async function processSmartAgentRequest(
         } else if (operation === 'COMPLETE') {
              logAction = 'COMPLETE_TASK';
              if (relatedItemId) {
+                // Try to complete task by ID (if AI found it)
                 dbPromise = supabase.from('tasks').update({ is_completed: true }).eq('id', relatedItemId);
+             } else {
+                // If AI couldn't find ID, maybe try finding by title (fuzzy)
+                 // Skipping for now to keep it safe.
              }
         }
 
         // Wait for DB Action
-        await dbPromise;
+        const dbResult = await dbPromise;
 
-        // --- 4. REPLY (FREE TOKEN) ---
+        if (dbResult && dbResult.error) {
+             console.error("DB Insert Error:", dbResult.error);
+             const errorMsg = `บันทึกไม่สำเร็จ: ${dbResult.error.message}`;
+             await replyToLine(replyToken, accessToken, errorMsg);
+             updateLog('ERROR', 'DB_FAILED', dbResult.error.message);
+             return;
+        }
+
+        // --- 4. REPLY ---
         await replyToLine(replyToken, accessToken, chatResponse);
-        
-        // Log Update (Background)
         updateLog(logAction, 'SUCCESS', chatResponse);
 
     } catch (error: any) {
         console.error("AI Logic Error:", error);
-        // Even if error, try to reply so user isn't ghosted
-        await replyToLine(replyToken, accessToken, "เจทำงานไม่ทันครับ (Timeout) ลองอีกทีนะครับ");
+        await replyToLine(replyToken, accessToken, "ระบบขัดข้องชั่วคราวครับ");
         updateLog('ERROR', 'FAILED', error.message);
     }
 }
 
 async function replyToLine(replyToken: string, accessToken: string, text: string) {
     try {
-        const res = await fetch("https://api.line.me/v2/bot/message/reply", {
+        await fetch("https://api.line.me/v2/bot/message/reply", {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -308,10 +322,6 @@ async function replyToLine(replyToken: string, accessToken: string, text: string
                 messages: [{ type: 'text', text: text }],
             }),
         });
-        // Check for validity
-        if (!res.ok) {
-            console.error("LINE Reply Error:", await res.text());
-        }
     } catch (e) {
         console.error("Failed to reply to LINE:", e);
     }

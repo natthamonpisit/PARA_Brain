@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { FinanceAccount, Transaction, FinanceAccountType, ParaItem } from '../types';
 import { Wallet, TrendingUp, TrendingDown, ArrowRightLeft, CreditCard, Building2, Banknote, PieChart, Link2 } from 'lucide-react';
@@ -63,7 +64,8 @@ export const FinanceBoard: React.FC<FinanceBoardProps> = ({ accounts, transactio
           <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
               <Wallet className="w-5 h-5 text-indigo-600" /> Accounts
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Updated to use Auto-Fill Grid */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
               {accounts.map(acc => (
                   <div key={acc.id} className="bg-white border border-slate-200 rounded-xl p-4 flex justify-between items-center hover:shadow-md transition-shadow">
                       <div className="flex items-center gap-3">

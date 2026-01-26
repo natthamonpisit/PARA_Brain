@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { AppModule, ModuleItem } from '../types';
 import { MoreHorizontal, Calendar, Tag, Box, Heart, Activity, Book, Briefcase, Calculator, Smartphone, Settings } from 'lucide-react';
@@ -30,7 +31,8 @@ export const DynamicModuleBoard: React.FC<DynamicModuleBoardProps> = ({ module, 
 
   return (
     <div className="pb-32 animate-in fade-in duration-500">
-       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+       {/* Updated to use Auto-Fill Grid */}
+       <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
            {items.map(item => (
                <div key={item.id} className="group bg-white rounded-xl border border-slate-200 p-5 hover:shadow-lg transition-all duration-300 relative">
                    <div className="flex justify-between items-start mb-3">

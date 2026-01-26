@@ -90,27 +90,27 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                   <p className="text-slate-500">Your areas of responsibility at a glance.</p>
               </div>
 
-              {/* AREA CARDS GRID */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* AREA CARDS GRID - Responsive Auto-Fill */}
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-6">
                   {areaStats.map(({ area, stats }) => (
                       <div 
                         key={area.id} 
                         onClick={() => onItemClick && onItemClick(area.id)}
-                        className="group bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-xl hover:border-indigo-100 transition-all duration-300 relative overflow-hidden cursor-pointer"
+                        className="group bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-xl hover:border-indigo-100 transition-all duration-300 relative overflow-hidden cursor-pointer flex flex-col"
                       >
                           <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-orange-400 to-orange-500"></div>
 
                           <div className="flex justify-between items-start mb-4">
-                              <div className="flex items-center gap-3">
-                                  <div className="p-2.5 bg-orange-50 text-orange-600 rounded-xl">
+                              <div className="flex items-center gap-3 min-w-0">
+                                  <div className="p-2.5 bg-orange-50 text-orange-600 rounded-xl shrink-0">
                                      <Layers className="w-6 h-6" />
                                   </div>
-                                  <div>
-                                     <h3 className="text-lg font-bold text-slate-900 leading-tight">{area.title}</h3>
+                                  <div className="min-w-0">
+                                     <h3 className="text-lg font-bold text-slate-900 leading-tight truncate">{area.title}</h3>
                                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Area</span>
                                   </div>
                               </div>
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                   {onEdit && (
                                     <button onClick={(e) => { e.stopPropagation(); onEdit(area.id); }} className="text-slate-300 hover:text-indigo-500 p-1">
                                         <Pencil className="w-4 h-4" />
@@ -122,7 +122,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                               </div>
                           </div>
 
-                          <div className="grid grid-cols-3 gap-2 mb-6">
+                          <div className="grid grid-cols-3 gap-2 mb-6 mt-auto">
                               <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-100">
                                   <div className="flex items-center justify-center gap-1 text-red-500 mb-1">
                                       <Target className="w-3.5 h-3.5" />
@@ -142,7 +142,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                                       <Book className="w-3.5 h-3.5" />
                                   </div>
                                   <div className="text-lg font-bold text-slate-800 leading-none">{stats.resources}</div>
-                                  <div className="text-[9px] text-slate-400 font-medium mt-1">Resources</div>
+                                  <div className="text-[9px] text-slate-400 font-medium mt-1">Res</div>
                               </div>
                           </div>
 
@@ -175,7 +175,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                           <div className="w-2 h-2 rounded-full bg-slate-300"></div>
                           Unassigned / Inbox
                       </h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-75 hover:opacity-100 transition-opacity">
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4 opacity-75 hover:opacity-100 transition-opacity">
                           {unassignedItems.slice(0, 6).map(item => (
                               <div key={item.id} onClick={() => onItemClick && onItemClick(item.id)} className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-slate-100">
                                   <div>
@@ -321,7 +321,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
             <span className="text-xs font-medium text-slate-400">{categoryItems.length} items</span>
           </div>
 
-          <div className={`grid gap-4 ${viewMode === 'LIST' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'}`}>
+          <div className={`grid gap-4 ${viewMode === 'LIST' ? 'grid-cols-1' : 'grid-cols-[repeat(auto-fill,minmax(280px,1fr))]'}`}>
             {categoryItems.map(item => {
                 // Find child resources for Project/Area cards using 'allItems'
                 let childResources: ParaItem[] | undefined = undefined;

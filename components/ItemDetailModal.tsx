@@ -250,10 +250,9 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                         </div>
                     </div>
 
-                    {/* NEW SECTION: ALL RESOURCES (Utilizing empty space at bottom left) */}
+                    {/* NEW SECTION: ALL RESOURCES (Moved up per user request) */}
                     {aggregatedResources.length > 0 && (
-                        <div className="mt-auto pt-8">
-                            <div className="w-full h-px bg-slate-100 mb-4"></div>
+                        <div className="mt-6 pt-6 border-t border-slate-50">
                             <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
                                 <Book className="w-3 h-3 text-blue-500" />
                                 All Related Resources <span className="bg-blue-50 text-blue-600 px-1.5 rounded-full text-[10px]">{aggregatedResources.length}</span>

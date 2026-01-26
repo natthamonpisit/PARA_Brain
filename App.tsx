@@ -12,6 +12,7 @@ import { LineConnectModal } from './components/LineConnectModal';
 import { LifeAnalysisModal } from './components/LifeAnalysisModal'; 
 import { CalendarBoard } from './components/CalendarBoard'; 
 import { HabitBoard } from './components/HabitBoard'; 
+import { ItemDetailModal } from './components/ItemDetailModal'; // New Import
 import { ParaType, AppModule, ModuleItem, ViewMode, ParaItem } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search, Calendar as CalendarIcon, Flame, Archive, Network } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
@@ -25,7 +26,7 @@ export default function App() {
   // --- CORE HOOKS ---
   const { 
     items, historyLogs, isLoadingDB, deleteItem, toggleComplete, exportData, importData, addItem, archiveItem, updateItem
-  } = useParaData(); // Added updateItem
+  } = useParaData(); 
 
   const {
       accounts, transactions, loadFinanceData, addTransaction, addAccount
@@ -46,11 +47,14 @@ export default function App() {
   // Modals
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<ParaItem | null>(null); // New: Track item being edited
+  const [editingItem, setEditingItem] = useState<ParaItem | null>(null); 
   const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
   const [isLineModalOpen, setIsLineModalOpen] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState('');
+  
+  // NEW: Detail Modal State
+  const [detailItem, setDetailItem] = useState<ParaItem | null>(null);
   
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('board');
@@ -125,7 +129,7 @@ export default function App() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // --- BATCH ACTIONS ---
+  // --- ACTIONS ---
   const handleSelect = (id: string) => {
       const newSet = new Set(selectedIds);
       if (newSet.has(id)) newSet.delete(id);
@@ -193,7 +197,7 @@ export default function App() {
       }
   };
 
-  // Single Delete Wrapper
+  // Wrapper Functions
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
     try {
@@ -205,7 +209,6 @@ export default function App() {
     } catch { showNotification('Failed to delete', 'error'); }
   };
 
-  // Single Archive Wrapper
   const handleArchiveWrapper = async (id: string) => {
      try {
          await archiveItem(id);
@@ -215,19 +218,29 @@ export default function App() {
      }
   };
 
-  // Handle Edit Action from Board
+  // --- MODAL HANDLERS ---
+  
+  // 1. Edit Item
   const handleEditItem = (id: string) => {
       const itemToEdit = items.find(i => i.id === id);
       if (itemToEdit) {
           setEditingItem(itemToEdit);
           setIsManualModalOpen(true);
+          setDetailItem(null); // Close detail view if open
+      }
+  };
+
+  // 2. View Detail
+  const handleViewDetail = (id: string) => {
+      const item = items.find(i => i.id === id);
+      if (item) {
+          setDetailItem(item);
       }
   };
 
   const handleManualSave = async (data: any, mode: 'PARA' | 'TRANSACTION' | 'ACCOUNT' | 'MODULE') => {
       try {
           if (mode === 'PARA') {
-              // Check if we are updating existing item
               if (editingItem && editingItem.id === data.id) {
                   await updateItem(data);
                   showNotification('Updated successfully', 'success');
@@ -267,7 +280,7 @@ export default function App() {
 
   const handleModalClose = () => {
       setIsManualModalOpen(false);
-      setEditingItem(null); // Clear editing state
+      setEditingItem(null);
   };
 
   const pageTitle = activeModule ? activeModule.name : (activeType === 'All' ? 'Dashboard' : activeType);
@@ -292,14 +305,11 @@ export default function App() {
         
         {/* Header */}
         <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 md:px-6 py-3 flex justify-between items-center shrink-0 gap-4">
-          
-          {/* Left: Menu & Title */}
           <div className="flex items-center gap-3 shrink-0">
              <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-slate-600"><Menu className="w-6 h-6" /></button>
              <h2 className="text-xl font-bold tracking-tight text-slate-900 hidden xs:block">{pageTitle}</h2>
           </div>
 
-          {/* Middle: Search Bar (Desktop) */}
           <div className="flex-1 max-w-lg mx-auto hidden md:block relative">
              <div className="relative group">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
@@ -310,24 +320,15 @@ export default function App() {
                   placeholder="Search titles, tags, content..." 
                   className="w-full pl-9 pr-4 py-1.5 bg-slate-100 hover:bg-slate-200/70 focus:bg-white border border-transparent focus:border-indigo-200 focus:ring-4 focus:ring-indigo-500/10 rounded-full text-sm transition-all duration-200 outline-none placeholder:text-slate-400"
                 />
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                )}
              </div>
           </div>
 
-          {/* Right: Actions */}
           <div className="flex items-center gap-3 shrink-0">
-            {/* View Switcher */}
             {activeType !== 'Finance' && !activeModule && activeType !== 'All' && (
                 <div className="hidden md:flex bg-slate-100 p-1 rounded-lg border border-slate-200">
                     <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List"><List className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('TABLE')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'TABLE' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Table"><TableIcon className="w-4 h-4" /></button>
-                    
-                    {/* NEW VIEW MODES */}
                     <div className="w-px h-4 bg-slate-300 mx-1 self-center"></div>
                     <button onClick={() => setViewMode('CALENDAR')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'CALENDAR' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Calendar"><CalendarIcon className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('HABIT')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'HABIT' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Habit Tracker"><Flame className="w-4 h-4" /></button>
@@ -342,7 +343,6 @@ export default function App() {
               <span className="hidden md:inline">New Item</span>
             </button>
 
-            {/* Chat Toggle */}
             <button 
                 onClick={() => setIsChatOpen(!isChatOpen)}
                 className={`hidden md:flex items-center gap-1 px-2 py-1.5 rounded-lg border transition-colors ${isChatOpen ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-500'}`}
@@ -353,23 +353,15 @@ export default function App() {
           </div>
         </header>
 
-        {/* Mobile Search Bar (Below Header) */}
+        {/* Mobile Search Bar */}
         <div className="md:hidden px-4 py-2 bg-white border-b border-slate-100 sticky top-[60px] z-10">
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
-                    type="text" 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search..."
-                    className="w-full bg-slate-100 border-none rounded-lg py-2 pl-10 pr-10 text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                />
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-            </div>
+            <input 
+                type="text" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search..."
+                className="w-full bg-slate-100 border-none rounded-lg py-2 pl-4 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none"
+            />
         </div>
 
         {/* Notification Toast */}
@@ -399,12 +391,7 @@ export default function App() {
                             items={items} 
                             currentDate={calendarDate}
                             onDateChange={setCalendarDate}
-                            onSelectItem={(id) => {
-                                const item = items.find(i => i.id === id);
-                                if(item) {
-                                    alert(`${item.title}\n${item.content}`); // Simple preview for now
-                                }
-                            }}
+                            onSelectItem={handleViewDetail}
                         />
                     ) : viewMode === 'HABIT' ? (
                         <HabitBoard items={items} />
@@ -420,12 +407,13 @@ export default function App() {
                             onArchive={handleArchiveWrapper}
                             onToggleComplete={(id, s) => toggleComplete(id, s)}
                             onEdit={handleEditItem} 
+                            onItemClick={handleViewDetail} // Connect Detail View
                         />
                     )}
                 </div>
             </div>
 
-            {/* Collapsible Chat Panel (Desktop) */}
+            {/* Chat Panel */}
             <div className={`
                 hidden md:block border-l border-slate-200 bg-white transition-all duration-300 ease-in-out relative z-10
                 ${isChatOpen ? 'w-96 translate-x-0' : 'w-0 translate-x-full overflow-hidden border-none'}
@@ -442,37 +430,26 @@ export default function App() {
                 </div>
             </div>
 
-            {/* Mobile Chat View (Overlay) */}
+            {/* Mobile Chat */}
             <div className={`md:hidden absolute inset-0 bg-white z-20 pb-14 ${mobileTab === 'chat' ? 'block' : 'hidden'}`}>
                <ChatPanel messages={messages} onSendMessage={handleSendMessage} onCompleteTask={handleChatCompletion} isProcessing={isProcessing} className="w-full h-full" />
             </div>
 
-            {/* Batch Action Bar (Floating) */}
+            {/* Batch Action Bar */}
             {selectedIds.size > 0 && (
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-6 duration-300">
                     <div className="flex items-center gap-2 border-r border-slate-700 pr-4">
-                        <div className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">
-                            {selectedIds.size}
-                        </div>
+                        <div className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">{selectedIds.size}</div>
                         <span className="text-sm font-medium">Selected</span>
                     </div>
                     <div className="flex items-center gap-2">
                         {activeType === 'Tasks' || activeType === 'All' ? (
-                             <button onClick={handleBatchComplete} className="p-2 hover:bg-slate-800 rounded-lg text-emerald-400 transition-colors" title="Complete Selected">
-                                <CheckSquare className="w-5 h-5" />
-                             </button>
+                             <button onClick={handleBatchComplete} className="p-2 hover:bg-slate-800 rounded-lg text-emerald-400 transition-colors" title="Complete Selected"><CheckSquare className="w-5 h-5" /></button>
                         ) : null}
-                        
-                        {/* Batch Archive Button */}
-                         {activeType !== 'Archives' && (
-                            <button onClick={handleBatchArchive} className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition-colors" title="Archive Selected">
-                                <Archive className="w-5 h-5" />
-                            </button>
+                        {activeType !== 'Archives' && (
+                            <button onClick={handleBatchArchive} className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition-colors" title="Archive Selected"><Archive className="w-5 h-5" /></button>
                         )}
-                        
-                        <button onClick={handleBatchDelete} className="p-2 hover:bg-slate-800 rounded-lg text-red-400 transition-colors" title="Delete Selected">
-                            <Trash2 className="w-5 h-5" />
-                        </button>
+                        <button onClick={handleBatchDelete} className="p-2 hover:bg-slate-800 rounded-lg text-red-400 transition-colors" title="Delete Selected"><Trash2 className="w-5 h-5" /></button>
                     </div>
                 </div>
             )}
@@ -496,9 +473,20 @@ export default function App() {
         projects={items.filter(i => i.type === ParaType.PROJECT)}
         accounts={accounts}
         activeModule={activeModule || null}
-        editingItem={editingItem} // Pass editing item
-        allParaItems={items} // Pass all items to resolve relations
+        editingItem={editingItem}
+        allParaItems={items}
       />
+      
+      {/* NEW: Item Detail Modal */}
+      <ItemDetailModal 
+        isOpen={!!detailItem}
+        onClose={() => setDetailItem(null)}
+        item={detailItem}
+        allItems={items}
+        onNavigate={handleViewDetail}
+        onEdit={handleEditItem}
+      />
+
       <ModuleBuilderModal isOpen={isModuleBuilderOpen} onClose={() => setIsModuleBuilderOpen(false)} onSave={handleCreateModule} />
       <LineConnectModal isOpen={isLineModalOpen} onClose={() => setIsLineModalOpen(false)} />
     </div>

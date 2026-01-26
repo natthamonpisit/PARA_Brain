@@ -39,6 +39,10 @@ export const analyzeLifeOS = async (
     }
 ): Promise<AIAnalysisResult> => {
     const { paraItems, financeContext, modules, recentContext, summariesContext } = context;
+    
+    // CURRENT TIME CONTEXT (Crucial for "Tomorrow", "Next Friday")
+    const now = new Date();
+    const dateTimeContext = `Current Date/Time: ${now.toLocaleString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
 
     // 4. Define Strict Output Schema
     // This ensures we get executable JSON, not just markdown text.
@@ -61,7 +65,8 @@ export const analyzeLifeOS = async (
             nullable: true
         },
         category: { type: Type.STRING, nullable: true },
-        title: { type: Type.STRING, nullable: true },
+        // JAY'S UPGRADE: Title is NO LONGER NULLABLE. AI MUST GENERATE IT.
+        title: { type: Type.STRING, description: "A short, punchy title. If user input is short, use it as title. NEVER use 'Untitled'." },
         summary: { type: Type.STRING, nullable: true },
         suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
         relatedItemIdsCandidates: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
@@ -72,7 +77,7 @@ export const analyzeLifeOS = async (
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    title: { type: Type.STRING },
+                    title: { type: Type.STRING, description: "Must not be empty." },
                     type: { type: Type.STRING, enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE, ParaType.TASK] },
                     category: { type: Type.STRING },
                     summary: { type: Type.STRING },
@@ -106,7 +111,7 @@ export const analyzeLifeOS = async (
 
         reasoning: { type: Type.STRING }
         },
-        required: ["operation", "chatResponse", "reasoning"]
+        required: ["operation", "chatResponse", "reasoning", "title"] // Title is now required
     };
 
     const modulesManual = modules.map(m => {
@@ -117,14 +122,16 @@ export const analyzeLifeOS = async (
     const prompt = `
         1. ROLE & PERSONA: You are "Jay" (เจ), a Personal Life OS Architect for Ouk.
         - **Personality**: Smart, proactive, concise, encouraging, and organized. You speak Thai (Main) mixed with technical English terms.
+        - **Core Logic**: You never create items named "Untitled". You always infer a title from the context.
         
         2. **JAY'S CORE FUNCTION MEMORY**:
            - **PARA Brain**: Organize Tasks, Projects, Areas.
            - **Wealth Engine**: Track Finances.
            - **Dynamic Modules**: Handle custom data modules based on the Schema provided below.
 
-        3. **LONG TERM MEMORY (Context from previous days)**:
-           ${summariesContext || "No previous summaries found."}
+        3. **TIME AWARENESS**:
+           ${dateTimeContext}
+           (Use this to calculate Due Dates correctly. e.g., "Next Friday" means calculate from today)
 
         4. **DYNAMIC MODULES SCHEMA (Updated Live)**:
            The user has defined the following custom modules. You MUST use these IDs and Field Keys when mapping 'MODULE_ITEM'.
@@ -145,16 +152,18 @@ export const analyzeLifeOS = async (
         --- USER INPUT --- 
         "${input}"
 
-        --- OUTPUT INSTRUCTIONS ---
-        - **TRANSACTION**: Use when user spends/receives money. Must infer 'amount', 'transactionType', and 'accountId'.
-        - **MODULE_ITEM**: Use when user provides data relevant to a specific module from the list above. Map data to 'moduleDataRaw'.
-        - **CREATE**: Use for CREATING A SINGLE Task, Project, Area, or Resource.
-        - **BATCH_CREATE**: Use when user asks to create MULTIPLE items (e.g., "List 3 tasks", "Add project and area"). Fill 'batchItems' array.
-        - **CHAT**: Use for questions, advice, or clarification.
-        
-        CRITICAL REVIEW LOOP:
-        - If the user provides a list of tasks, you MUST capture ALL of them in 'batchItems'. Do not truncate.
-        - If the user asks for a Project AND Tasks, put the Project FIRST in the 'batchItems' array. The system will automatically link subsequent tasks to it.
+        --- INTELLIGENT RULES ---
+        1. **TITLE GENERATION**: 
+           - If user says "Buy Milk", Title = "Buy Milk", Content = "Buy Milk".
+           - If user says a long sentence, SUMMARIZE it into a Title (max 5-7 words).
+           - NEVER return null for 'title'.
+        2. **CATEGORIZATION**:
+           - Try to reuse existing categories from [EXISTING PARA ITEMS].
+           - If not found, infer a smart one (e.g., Health, Work, Finance, Personal).
+        3. **TRANSACTION**:
+           - If input involves money (spending/income), use 'TRANSACTION'.
+        4. **BATCH**:
+           - If multiple tasks are requested (e.g., "Plan trip: 1. Book flight 2. Pack bags"), use 'BATCH_CREATE'.
 
         Output JSON only.
     `;

@@ -69,9 +69,12 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                 let newlyCreatedProjectId: string | null = null;
                 
                 for (const item of result.batchItems) {
+                    // FALLBACK TITLE LOGIC
+                    const finalTitle = item.title || "New Item";
+
                     const newItem: ParaItem = {
                         id: generateId(),
-                        title: item.title || "Untitled",
+                        title: finalTitle,
                         content: item.summary || "",
                         type: item.type || ParaType.TASK,
                         category: item.category || "Inbox",
@@ -106,10 +109,13 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                 });
 
             } else if (result.operation === 'CREATE') {
+                // SMART FALLBACK: If AI still sends null title (very unlikely with new schema), use input text truncated.
+                const finalTitle = result.title || (text.length > 30 ? text.substring(0, 30) + "..." : text);
+
                 const newItem: ParaItem = {
                     id: generateId(),
-                    title: result.title || "Untitled",
-                    content: result.summary || "",
+                    title: finalTitle,
+                    content: result.summary || text, // Ensure content has something
                     type: result.type || ParaType.TASK,
                     category: result.category || "Inbox",
                     tags: result.suggestedTags || [],
@@ -132,9 +138,12 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                 });
 
             } else if (result.operation === 'TRANSACTION') {
+                // Transaction Description Fallback
+                const txDesc = result.title || (text.length > 40 ? text.substring(0, 40) + "..." : text);
+
                 const newTx: Transaction = {
                     id: generateId(),
-                    description: text, // Fallback description or use result.title if added to schema
+                    description: txDesc, 
                     amount: result.amount || 0,
                     type: result.transactionType || 'EXPENSE',
                     category: result.category || 'General',

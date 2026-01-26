@@ -1,7 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { ParaItem, ParaType } from '../types';
-import { X, Calendar, Tag, ArrowUpRight, Folder, CheckSquare, Layers, FileText, ChevronRight, Link2, Pencil, ExternalLink, CornerDownRight, Circle, Book, BarChart3 } from 'lucide-react';
+import { X, Calendar, Tag, ArrowUpRight, Folder, CheckSquare, Layers, FileText, ChevronRight, Link2, Pencil, ExternalLink, CornerDownRight, Circle, Book, BarChart3, Paperclip } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface ItemDetailModalProps {
@@ -89,6 +89,24 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
       };
   }, [item, childProjects, childTasks, childResources, allItems]);
 
+  // NEW: Aggregate ALL Resources (Direct + Nested) for Left Panel Display
+  const aggregatedResources = useMemo(() => {
+      let resources = [...childResources];
+      
+      // If Area, grab resources from child projects too
+      if (item.type === ParaType.AREA) {
+          childProjects.forEach(p => {
+              const { resources: pResources } = getProjectContents(p.id);
+              resources = [...resources, ...pResources];
+          });
+      }
+      
+      // Deduplicate by ID
+      const uniqueResources = new Map();
+      resources.forEach(r => uniqueResources.set(r.id, r));
+      return Array.from(uniqueResources.values());
+  }, [item, childResources, childProjects, allItems]);
+
 
   const getIcon = (type: ParaType, className="w-5 h-5") => {
       switch(type) {
@@ -160,8 +178,8 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
             <div className="flex flex-col md:flex-row min-h-full">
                 
                 {/* Left Column: Content & Metadata (40%) */}
-                <div className="w-full md:w-5/12 p-8 border-b md:border-b-0 md:border-r border-slate-100 bg-white">
-                    <div className="prose prose-slate prose-p:text-slate-600 prose-headings:text-slate-800 max-w-none">
+                <div className="w-full md:w-5/12 p-8 border-b md:border-b-0 md:border-r border-slate-100 bg-white flex flex-col">
+                    <div className="prose prose-slate prose-p:text-slate-600 prose-headings:text-slate-800 max-w-none mb-6">
                         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Description</h3>
                         {item.content ? (
                             <ReactMarkdown>{item.content}</ReactMarkdown>
@@ -172,8 +190,8 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
 
                     {/* Attachments */}
                     {item.attachments && item.attachments.length > 0 && (
-                        <div className="mt-8 pt-6 border-t border-slate-50">
-                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2"><PaperclipIcon className="w-3 h-3"/> Attachments</h4>
+                        <div className="mt-2 pt-6 border-t border-slate-50">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2"><Paperclip className="w-3 h-3"/> Attachments</h4>
                             <div className="flex flex-col gap-2">
                                 {item.attachments.map((url, i) => {
                                     const isImg = isImageFile(url);
@@ -231,6 +249,35 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                             </div>
                         </div>
                     </div>
+
+                    {/* NEW SECTION: ALL RESOURCES (Utilizing empty space at bottom left) */}
+                    {aggregatedResources.length > 0 && (
+                        <div className="mt-auto pt-8">
+                            <div className="w-full h-px bg-slate-100 mb-4"></div>
+                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
+                                <Book className="w-3 h-3 text-blue-500" />
+                                All Related Resources <span className="bg-blue-50 text-blue-600 px-1.5 rounded-full text-[10px]">{aggregatedResources.length}</span>
+                            </h4>
+                            <div className="space-y-2">
+                                {aggregatedResources.map(res => (
+                                     <div 
+                                        key={res.id} 
+                                        onClick={() => onNavigate(res.id)}
+                                        className="flex items-center gap-3 p-2.5 bg-blue-50/30 border border-blue-100 rounded-lg hover:bg-blue-50 hover:border-blue-200 cursor-pointer transition-all group"
+                                    >
+                                        <div className="p-1.5 bg-white rounded-md text-blue-500 shadow-sm border border-blue-50">
+                                            <Book className="w-3.5 h-3.5" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-slate-700 truncate group-hover:text-blue-700">{res.title}</p>
+                                            <p className="text-[10px] text-slate-400 truncate">{res.category}</p>
+                                        </div>
+                                        <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-400" />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Right Column: Hierarchy Tree (60%) */}
@@ -341,7 +388,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                          {childResources.length > 0 && (
                             <div>
                                 <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 ml-1 flex items-center gap-2">
-                                    Resources <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[10px]">{childResources.length}</span>
+                                    Direct Resources <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[10px]">{childResources.length}</span>
                                 </h4>
                                 <div className="space-y-2">
                                     {childResources.map(res => (
@@ -410,8 +457,3 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
     </div>
   );
 };
-
-// Helper Icon
-const PaperclipIcon = ({className}:{className?:string}) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-);

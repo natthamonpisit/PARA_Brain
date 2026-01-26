@@ -1,7 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { ParaItem, ParaType } from '../types';
-import { X, Calendar, Tag, ArrowUpRight, Folder, CheckSquare, Layers, FileText, ChevronRight, Link2, Pencil, ExternalLink, CornerDownRight, Circle } from 'lucide-react';
+import { X, Calendar, Tag, ArrowUpRight, Folder, CheckSquare, Layers, FileText, ChevronRight, Link2, Pencil, ExternalLink, CornerDownRight, Circle, Book, BarChart3 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface ItemDetailModalProps {
@@ -18,7 +18,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
     onClose, 
     item, 
     allItems, 
-    onNavigate,
+    onNavigate, 
     onEdit
 }) => {
   if (!isOpen || !item) return null;
@@ -54,20 +54,48 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
   const childTasks = childrenItems.filter(i => i.type === ParaType.TASK);
   const childResources = childrenItems.filter(i => i.type === ParaType.RESOURCE);
 
-  // Helper: Find Tasks belonging to a specific Project (For Grandchild view)
-  const getTasksForProject = (projectId: string) => {
-      return allItems.filter(t => 
+  // Helper: Find Contents belonging to a specific Project (For Grandchild view)
+  const getProjectContents = (projectId: string) => {
+      const tasks = allItems.filter(t => 
           t.type === ParaType.TASK && 
           t.relatedItemIds?.includes(projectId) &&
           !t.isCompleted // Show active tasks primarily
       );
+      const resources = allItems.filter(r => 
+          r.type === ParaType.RESOURCE && 
+          r.relatedItemIds?.includes(projectId)
+      );
+      return { tasks, resources };
   };
+
+  // Logic for Area Summary (Bottom up Aggregation)
+  const areaStats = useMemo(() => {
+      if (item.type !== ParaType.AREA) return null;
+
+      let totalTasks = childTasks.length;
+      let totalResources = childResources.length;
+
+      // Add nested counts from projects
+      childProjects.forEach(p => {
+          const contents = getProjectContents(p.id);
+          totalTasks += contents.tasks.length;
+          totalResources += contents.resources.length;
+      });
+
+      return {
+          projects: childProjects.length,
+          tasks: totalTasks,
+          resources: totalResources
+      };
+  }, [item, childProjects, childTasks, childResources, allItems]);
+
 
   const getIcon = (type: ParaType, className="w-5 h-5") => {
       switch(type) {
           case ParaType.PROJECT: return <Folder className={`${className} text-red-500`} />;
           case ParaType.AREA: return <Layers className={`${className} text-orange-500`} />;
           case ParaType.TASK: return <CheckSquare className={`${className} text-emerald-500`} />;
+          case ParaType.RESOURCE: return <Book className={`${className} text-blue-500`} />;
           default: return <FileText className={`${className} text-blue-500`} />;
       }
   };
@@ -78,7 +106,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
       
-      {/* Container: Increased max-w to 5xl for a spacious dashboard feel */}
+      {/* Container */}
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col relative z-10 overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
         
         {/* Header Area */}
@@ -212,6 +240,24 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                         Hierarchy & Contents
                     </h3>
 
+                    {/* Area Stats (Bottom-Up) */}
+                    {item.type === ParaType.AREA && areaStats && (
+                        <div className="grid grid-cols-3 gap-3 mb-6">
+                            <div className="bg-white border border-slate-200 p-3 rounded-xl text-center shadow-sm">
+                                <div className="text-xl font-bold text-red-600">{areaStats.projects}</div>
+                                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Projects</div>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-3 rounded-xl text-center shadow-sm">
+                                <div className="text-xl font-bold text-emerald-600">{areaStats.tasks}</div>
+                                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Tasks</div>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-3 rounded-xl text-center shadow-sm">
+                                <div className="text-xl font-bold text-blue-600">{areaStats.resources}</div>
+                                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Res</div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="space-y-6">
                         
                         {/* 1. PROJECTS LIST (If Area) */}
@@ -220,7 +266,9 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                                 <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 ml-1">Projects</h4>
                                 <div className="space-y-4">
                                     {childProjects.map(project => {
-                                        const projectTasks = getTasksForProject(project.id);
+                                        const { tasks: projectTasks, resources: projectResources } = getProjectContents(project.id);
+                                        const hasContent = projectTasks.length > 0 || projectResources.length > 0;
+                                        
                                         return (
                                             <div key={project.id} className="relative">
                                                 {/* Project Card */}
@@ -234,22 +282,44 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                                                         </div>
                                                         <div>
                                                             <span className="text-sm font-bold text-slate-800 block">{project.title}</span>
-                                                            <span className="text-[10px] text-slate-400">{projectTasks.length} active tasks</span>
+                                                            <div className="flex gap-2 text-[10px] text-slate-400">
+                                                                <span>{projectTasks.length} tasks</span>
+                                                                {projectResources.length > 0 && <span>• {projectResources.length} res</span>}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <ChevronRight className="w-4 h-4 text-slate-300" />
                                                 </div>
 
-                                                {/* NESTED TASKS (The "Under Project" Effect) */}
-                                                {projectTasks.length > 0 && (
+                                                {/* NESTED CONTENTS (Tasks & Resources) */}
+                                                {hasContent && (
                                                     <div className="ml-6 pl-4 border-l-2 border-slate-200 pt-2 pb-1 space-y-2 mt-[-4px]">
+                                                        
+                                                        {/* Resources first (usually static) */}
+                                                        {projectResources.map(res => (
+                                                             <div 
+                                                                key={res.id} 
+                                                                onClick={() => onNavigate(res.id)}
+                                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors group"
+                                                            >
+                                                                <div className="w-4 h-px bg-slate-200 group-hover:bg-blue-200"></div>
+                                                                <div className="w-4 h-4 flex items-center justify-center">
+                                                                    <Book className="w-3.5 h-3.5 text-blue-500" />
+                                                                </div>
+                                                                <span className="text-sm text-slate-600 group-hover:text-blue-700">
+                                                                    {res.title}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+
+                                                        {/* Tasks */}
                                                         {projectTasks.map(task => (
                                                             <div 
                                                                 key={task.id} 
                                                                 onClick={() => onNavigate(task.id)}
                                                                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 cursor-pointer transition-colors group"
                                                             >
-                                                                <div className="w-4 h-px bg-slate-200 group-hover:bg-slate-300"></div> {/* Connector Line */}
+                                                                <div className="w-4 h-px bg-slate-200 group-hover:bg-slate-300"></div>
                                                                 <div className={`w-4 h-4 rounded border flex items-center justify-center ${task.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 bg-white'}`}>
                                                                     {task.isCompleted && <CheckSquare className="w-3 h-3 text-white" />}
                                                                 </div>
@@ -267,11 +337,37 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                             </div>
                         )}
 
-                        {/* 2. DIRECT TASKS LIST */}
+                        {/* 2. DIRECT RESOURCES LIST (If Project or Area) */}
+                         {childResources.length > 0 && (
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 ml-1 flex items-center gap-2">
+                                    Resources <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[10px]">{childResources.length}</span>
+                                </h4>
+                                <div className="space-y-2">
+                                    {childResources.map(res => (
+                                         <div 
+                                            key={res.id} 
+                                            onClick={() => onNavigate(res.id)}
+                                            className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl hover:shadow-sm hover:border-blue-200 cursor-pointer transition-all"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                                                    <Book className="w-4 h-4" />
+                                                </div>
+                                                <span className="text-sm font-medium text-slate-700">{res.title}</span>
+                                            </div>
+                                            <ExternalLink className="w-3.5 h-3.5 text-slate-300" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 3. DIRECT TASKS LIST */}
                         {childTasks.length > 0 && (
                             <div>
                                 <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 ml-1 flex items-center gap-2">
-                                    Tasks <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded text-[10px]">{childTasks.length}</span>
+                                    Tasks <span className="bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded text-[10px]">{childTasks.length}</span>
                                 </h4>
                                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
                                     {childTasks.map(child => (
@@ -303,7 +399,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                                     <Folder className="w-6 h-6 text-slate-300" />
                                 </div>
                                 <p className="text-sm font-medium text-slate-500">Empty Item</p>
-                                <p className="text-xs text-slate-400 mt-1">No sub-projects or tasks found.</p>
+                                <p className="text-xs text-slate-400 mt-1">No sub-projects, tasks, or resources found.</p>
                             </div>
                         )}
                     </div>

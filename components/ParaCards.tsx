@@ -1,7 +1,7 @@
 
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, FileText, ExternalLink, Archive, Pencil } from 'lucide-react';
+import { Calendar, Tag, Link2, CheckSquare, Square, Trash2, FileText, ExternalLink, Archive, Pencil, Book } from 'lucide-react';
 import { ParaItem, ParaType } from '../types';
 
 // Helper
@@ -16,6 +16,7 @@ interface CardProps {
     onClick?: (id: string) => void;
     allItemsMap?: Record<string, ParaItem>;
     isSelected: boolean;
+    childResources?: ParaItem[]; // New Prop: Resources that belong to this item
 }
 
 export const TaskCard: React.FC<CardProps> = ({ 
@@ -71,32 +72,32 @@ export const TaskCard: React.FC<CardProps> = ({
                         </div>
                     )}
                     
-                    {/* Attachments Preview */}
+                    {/* Resource List (Attachments) - Bottom Left */}
                     {item.attachments && item.attachments.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-2">
-                            {item.attachments.map((url, i) => {
-                                const isImg = isImageFile(url);
-                                return (
-                                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" 
-                                       className={`
-                                           relative rounded border border-slate-200 overflow-hidden shrink-0 hover:ring-2 ring-indigo-500
-                                           ${isImg ? 'w-10 h-10' : 'flex items-center gap-1 px-2 py-1 bg-slate-50 text-xs'}
-                                       `}
-                                       title="View Attachment"
-                                       onClick={(e) => e.stopPropagation()}
-                                    >
-                                        {isImg ? (
-                                            <img src={url} alt="attachment" className="w-full h-full object-cover" />
-                                        ) : (
-                                            <>
-                                                <FileText className="w-3.5 h-3.5 text-indigo-500" />
-                                                <span className="max-w-[80px] truncate text-[9px] text-slate-600">File {i+1}</span>
-                                            </>
-                                        )}
-                                    </a>
-                                );
-                            })}
-                        </div>
+                         <div className="mt-2 flex flex-wrap gap-2">
+                             {item.attachments.map((url, i) => {
+                                 const isImg = isImageFile(url);
+                                 return (
+                                     <a key={i} href={url} target="_blank" rel="noopener noreferrer" 
+                                        className={`
+                                            relative rounded border border-slate-200 overflow-hidden shrink-0 hover:ring-2 ring-indigo-500
+                                            ${isImg ? 'w-8 h-8' : 'flex items-center gap-1 px-1.5 py-1 bg-slate-50 text-[9px]'}
+                                        `}
+                                        title="View Attachment"
+                                        onClick={(e) => e.stopPropagation()}
+                                     >
+                                         {isImg ? (
+                                             <img src={url} alt="attachment" className="w-full h-full object-cover" />
+                                         ) : (
+                                             <>
+                                                 <FileText className="w-3 h-3 text-indigo-500" />
+                                                 <span className="max-w-[60px] truncate text-slate-600">File {i+1}</span>
+                                             </>
+                                         )}
+                                     </a>
+                                 );
+                             })}
+                         </div>
                     )}
 
                     <div className="flex items-center justify-between mt-auto pt-2">
@@ -127,7 +128,7 @@ export const TaskCard: React.FC<CardProps> = ({
 };
 
 export const ParaCard: React.FC<CardProps> = ({ 
-    item, onDelete, onArchive, onEdit, onClick, allItemsMap, isSelected 
+    item, onDelete, onArchive, onEdit, onClick, allItemsMap, isSelected, childResources
 }) => {
   
   const typeColors = {
@@ -178,33 +179,10 @@ export const ParaCard: React.FC<CardProps> = ({
       <div className="prose prose-sm prose-slate mb-4 line-clamp-4 flex-1 text-slate-600">
         <ReactMarkdown>{item.content}</ReactMarkdown>
       </div>
-      
-      {/* Attachments Section */}
-      {item.attachments && item.attachments.length > 0 && (
-         <div className="mb-4">
-             <div className="flex flex-wrap gap-2">
-                 {item.attachments.map((url, i) => {
-                     const isImg = isImageFile(url);
-                     return (
-                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" 
-                           className={`
-                             flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs hover:bg-slate-200 hover:text-indigo-600 border border-slate-200 transition-colors
-                           `}
-                           onClick={(e) => e.stopPropagation()}
-                        >
-                            {isImg ? <div className="w-3 h-3 rounded-full bg-purple-400"></div> : <FileText className="w-3 h-3" />}
-                            {isImg ? `Image ${i+1}` : `File ${i+1}`}
-                            <ExternalLink className="w-2.5 h-2.5 opacity-50" />
-                        </a>
-                     );
-                 })}
-             </div>
-         </div>
-      )}
 
-      {/* Relations Section */}
+      {/* Relations Section (Parents) */}
       {item.relatedItemIds && item.relatedItemIds.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="mb-2 flex flex-wrap gap-2">
             {item.relatedItemIds.map(relId => {
                 const relItem = allItemsMap ? allItemsMap[relId] : null;
                 if (!relItem) return null;
@@ -217,8 +195,43 @@ export const ParaCard: React.FC<CardProps> = ({
             })}
         </div>
       )}
+      
+      {/* --- RESOURCE LIST (Bottom Left) --- */}
+      {/* Combines Attachments AND Linked Child Resources */}
+      {( (item.attachments && item.attachments.length > 0) || (childResources && childResources.length > 0) ) && (
+         <div className="mt-auto mb-4 pt-3 border-t border-slate-50">
+             <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">Resources</div>
+             <div className="flex flex-wrap gap-2">
+                 
+                 {/* 1. Linked Child Resources (e.g. Playlist in Wedding Project) */}
+                 {childResources && childResources.map(res => (
+                     <div key={res.id} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs border border-blue-100">
+                         <Book className="w-3 h-3" />
+                         <span className="max-w-[100px] truncate">{res.title}</span>
+                     </div>
+                 ))}
 
-      <div className="mt-auto pt-4 border-t border-slate-50 flex items-center justify-between text-xs text-slate-400">
+                 {/* 2. Direct Attachments */}
+                 {item.attachments && item.attachments.map((url, i) => {
+                     const isImg = isImageFile(url);
+                     return (
+                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" 
+                           className={`
+                             flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs hover:bg-slate-200 hover:text-indigo-600 border border-slate-200 transition-colors
+                           `}
+                           onClick={(e) => e.stopPropagation()}
+                        >
+                            {isImg ? <div className="w-3 h-3 rounded-full bg-purple-400"></div> : <FileText className="w-3 h-3" />}
+                            <span className="max-w-[80px] truncate">{isImg ? `Image ${i+1}` : `File ${i+1}`}</span>
+                            <ExternalLink className="w-2.5 h-2.5 opacity-50" />
+                        </a>
+                     );
+                 })}
+             </div>
+         </div>
+      )}
+
+      <div className="pt-2 flex items-center justify-between text-xs text-slate-400 border-t border-slate-50">
         <div className="flex gap-2">
           {item.tags.slice(0, 2).map(tag => (
             <span key={tag} className="flex items-center gap-1">

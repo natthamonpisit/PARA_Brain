@@ -88,6 +88,11 @@ export default function App() {
     );
   }, [items, searchQuery]);
 
+  // Create Map for quick lookup (passed to ParaBoard)
+  const allItemsMap = useMemo(() => {
+      return items.reduce((acc, item) => ({...acc, [item.id]: item}), {} as Record<string, ParaItem>);
+  }, [items]);
+
   const filteredTransactions = useMemo(() => {
     if (!searchQuery.trim()) return transactions;
     const q = searchQuery.toLowerCase();
@@ -398,6 +403,8 @@ export default function App() {
                     ) : (
                         <ParaBoard 
                             items={filteredParaItems} 
+                            allItems={items} // Pass FULL list for finding children/relations
+                            allItemsMap={allItemsMap} // Pass MAP for quick lookup
                             activeType={activeType as any} 
                             viewMode={viewMode}
                             selectedIds={selectedIds}

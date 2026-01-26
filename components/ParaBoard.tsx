@@ -5,15 +5,16 @@ import { Tag, CheckSquare, Trash2, Target, Book, Layers, ArrowRight, Archive, Fo
 import { TaskCard, ParaCard } from './ParaCards';
 
 interface ParaBoardProps {
-  items: ParaItem[];
+  items: ParaItem[]; // displayed items (filtered)
   activeType: ParaType | 'All';
   viewMode: ViewMode;
   onDelete: (id: string) => void;
   onArchive: (id: string) => void; 
   onToggleComplete?: (id: string, currentStatus: boolean) => void;
   onEdit?: (id: string) => void;
-  onItemClick?: (id: string) => void; // New Prop
+  onItemClick?: (id: string) => void;
   allItemsMap?: Record<string, ParaItem>; 
+  allItems?: ParaItem[]; // Full list for finding relationships/children
   // Selection Props
   selectedIds: Set<string>;
   onSelect: (id: string) => void;
@@ -30,6 +31,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
     onEdit,
     onItemClick,
     allItemsMap = {},
+    allItems = [],
     selectedIds,
     onSelect,
     onSelectAll
@@ -37,13 +39,16 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
   
   // --- DASHBOARD VIEW (AREA HUB) ---
   if (activeType === 'All') {
-      const areas = items.filter(i => i.type === ParaType.AREA);
-      const unassignedItems = items.filter(i => i.type !== ParaType.AREA && !areas.some(a => a.title === i.category));
+      // Use 'allItems' for accurate dashboard stats if available, otherwise fallback to 'items'
+      // Note: Dashboard usually needs full context.
+      const sourceItems = allItems.length > 0 ? allItems : items;
+      const areas = sourceItems.filter(i => i.type === ParaType.AREA);
+      const unassignedItems = sourceItems.filter(i => i.type !== ParaType.AREA && !areas.some(a => a.title === i.category));
 
       // Recursive Counting Logic
       const areaStats = areas.map(area => {
           // 1. Direct Children
-          const directChildren = items.filter(i => 
+          const directChildren = sourceItems.filter(i => 
               (i.category === area.title || i.relatedItemIds?.includes(area.id)) && i.id !== area.id
           );
 
@@ -52,7 +57,7 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
 
           // 3. Grandchildren: Find Tasks linked to those Projects
           const projectIds = childProjects.map(p => p.id);
-          const grandchildTasks = items.filter(i => 
+          const grandchildTasks = sourceItems.filter(i => 
               i.type === ParaType.TASK && 
               i.relatedItemIds?.some(relId => projectIds.includes(relId)) &&
               !directChildren.includes(i) // Avoid double counting
@@ -317,7 +322,17 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
           </div>
 
           <div className={`grid gap-4 ${viewMode === 'LIST' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'}`}>
-            {categoryItems.map(item => (
+            {categoryItems.map(item => {
+                // Find child resources for Project/Area cards using 'allItems'
+                let childResources: ParaItem[] | undefined = undefined;
+                if (allItems.length > 0 && (item.type === ParaType.PROJECT || item.type === ParaType.AREA)) {
+                    childResources = allItems.filter(child => 
+                        child.type === ParaType.RESOURCE && 
+                        (child.relatedItemIds?.includes(item.id) || child.category === item.title)
+                    );
+                }
+
+                return (
                 <div key={item.id} className="relative group">
                     {/* Checkbox Overlay */}
                     <div className={`absolute top-3 left-3 z-10 ${selectedIds.has(item.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
@@ -349,10 +364,12 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                             onClick={onItemClick}
                             allItemsMap={allItemsMap} 
                             isSelected={selectedIds.has(item.id)}
+                            childResources={childResources} // Pass found resources
                         />
                     )}
                 </div>
-            ))}
+                );
+            })}
           </div>
         </div>
       ))}

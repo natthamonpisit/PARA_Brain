@@ -8,11 +8,16 @@ const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const targetUserId = process.env.LINE_USER_ID;
 
 export default async function handler(req: any, res: any) {
-  // Use a simple secret query param to prevent strangers from triggering your bot
-  // Setup cron job as: https://your-app.vercel.app/api/cron-reminders?key=YOUR_SECRET
-  // For now, we'll keep it open or rely on the randomness of the URL if user prefers.
+  const cronSecret = process.env.CRON_SECRET;
+  const providedKey = req.query?.key || req.headers?.['x-cron-key'];
+  if (!cronSecret || providedKey !== cronSecret) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   
   try {
+    if (!supabaseUrl || !supabaseKey || !channelAccessToken || !targetUserId) {
+      return res.status(500).json({ error: "Missing server configuration" });
+    }
     const supabase = createClient(supabaseUrl!, supabaseKey!);
     const now = new Date().toISOString();
 

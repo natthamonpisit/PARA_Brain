@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
 // Initialize Services
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -15,9 +16,23 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const channelSecret = process.env.LINE_CHANNEL_SECRET;
+    if (!channelSecret) {
+      console.error("❌ MISSING: LINE_CHANNEL_SECRET");
+      return res.status(500).json({ error: "Server Config Error" });
+    }
+
+    if (!verifyLineSignature(req, channelSecret)) {
+      return res.status(401).json({ error: "Invalid signature" });
+    }
+
     const { events } = req.body;
     const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     const authorizedUserId = process.env.LINE_USER_ID;
+    if (!supabaseUrl || !supabaseKey) {
+      console.error("❌ MISSING: Supabase credentials");
+      return res.status(500).json({ error: "Server Config Error" });
+    }
 
     // Use Supabase instance inside handler to ensure freshness
     const supabase = createClient(supabaseUrl!, supabaseKey!);
@@ -85,7 +100,30 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error("Webhook Critical Error:", error);
-    return res.status(200).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+function verifyLineSignature(req: any, channelSecret: string): boolean {
+  const signature = req.headers['x-line-signature'] || req.headers['X-Line-Signature'];
+  if (!signature || typeof signature !== 'string') return false;
+
+  const rawBody =
+    req.rawBody ||
+    (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+
+  const digest = crypto
+    .createHmac('sha256', channelSecret)
+    .update(rawBody)
+    .digest('base64');
+
+  try {
+    const sigBuf = Buffer.from(signature);
+    const digestBuf = Buffer.from(digest);
+    if (sigBuf.length !== digestBuf.length) return false;
+    return crypto.timingSafeEqual(sigBuf, digestBuf);
+  } catch {
+    return false;
   }
 }
 
@@ -98,7 +136,7 @@ async function processSmartAgentRequest(
     logId: string,
     supabase: any
 ) {
-    const apiKey = process.env.API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
 
     const updateLog = async (action: string, status: string, response: string) => {
         supabase.from('system_logs').update({

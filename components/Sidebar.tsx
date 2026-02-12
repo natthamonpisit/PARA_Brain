@@ -1,12 +1,12 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, Download, Upload, History, X, CheckSquare, Settings, Key, Wallet, Plus, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, MessageCircle, Send, ShieldCheck, Sparkles, BrainCircuit } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
-  activeType: ParaType | 'All' | 'Finance' | string;
-  onSelectType: (type: ParaType | 'All' | 'Finance' | string) => void;
+  activeType: ParaType | 'All' | 'Finance' | 'Review' | string;
+  onSelectType: (type: ParaType | 'All' | 'Finance' | 'Review' | string) => void;
   stats: Record<string, number>;
   onExport?: () => void;
   onImport?: (file: File) => void;
@@ -41,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = [
     { type: 'All', label: 'Dashboard', icon: Box, color: 'text-slate-500' },
+    { type: 'Review', label: 'Review', icon: ClipboardCheck, color: 'text-violet-500' },
     { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },
     { type: ParaType.PROJECT, label: 'Projects', icon: FolderKanban, color: 'text-red-500' },
     { type: ParaType.AREA, label: 'Areas', icon: LayoutGrid, color: 'text-orange-500' },

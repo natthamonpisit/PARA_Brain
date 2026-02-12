@@ -190,13 +190,20 @@ export const useParaData = () => {
   };
 
   const updateItem = async (updatedItem: ParaItem) => {
+    const originalItem = items.find(i => i.id === updatedItem.id);
     // Optimistic
     setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
     
     try {
-        await db.add(updatedItem); 
+        await db.add(updatedItem);
+        if (originalItem && originalItem.type !== updatedItem.type) {
+          await db.delete(updatedItem.id, originalItem.type);
+        }
     } catch (e) {
         console.error("Failed to update item:", e);
+        if (originalItem) {
+          setItems(prev => prev.map(i => i.id === originalItem.id ? originalItem : i));
+        }
     }
   };
 
@@ -238,9 +245,7 @@ export const useParaData = () => {
   // --- Import / Export ---
 
   const exportData = async () => {
-    const allItems = await db.getAll();
-    const allHistory = await db.getLogs();
-    const exportData = { items: allItems, history: allHistory };
+    const exportData = await db.getExportSnapshot();
     const dataStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -260,11 +265,17 @@ export const useParaData = () => {
         try {
           const content = e.target?.result as string;
           const parsed = JSON.parse(content);
-          const newItems = Array.isArray(parsed) ? parsed : parsed.items;
+          const newItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
+          const newHistory = Array.isArray(parsed.history) ? parsed.history : [];
+          const newAccounts = Array.isArray(parsed.accounts) ? parsed.accounts : [];
+          const newTransactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
           
           setIsLoadingDB(true);
-          await db.clear(); // Clears all tables
+          await db.clearParaAndHistory();
           await db.bulkAdd(newItems);
+          await db.bulkAddLogs(newHistory);
+          if (newAccounts.length > 0) await db.bulkAddAccounts(newAccounts);
+          if (newTransactions.length > 0) await db.bulkAddTransactions(newTransactions);
           await loadData();
           resolve();
         } catch (err) {

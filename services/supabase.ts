@@ -29,25 +29,11 @@ const getEnvVar = (key: string): string => {
   return val;
 };
 
-// FALLBACK CREDENTIALS (From .env)
-const FALLBACK_URL = 'https://rdohomvszfraxmcvboao.supabase.co';
-const FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJkb2hvbXZzemZyYXhtY3Zib2FvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxNTE2OTgsImV4cCI6MjA4NDcyNzY5OH0.QoJXQJM88wSIoMP4nMIO4w7bBOW-YbQNYI-2QvKEcj8';
-
-// SECURE CONFIGURATION
 const envUrl = getEnvVar('VITE_SUPABASE_URL');
 const envKey = getEnvVar('VITE_SUPABASE_ANON_KEY');
 
-// Ensure we don't pass empty strings to createClient which might trigger internal errors
-const supabaseUrl = envUrl || FALLBACK_URL;
-const supabaseKey = envKey || FALLBACK_KEY;
-
 if (!envUrl || !envKey) {
-    // Log warning but continue with fallback
-    console.warn('[Supabase] Environment variables missing. Using fallback configuration.');
+  throw new Error('[Supabase] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
 }
 
-if (!supabaseUrl || !supabaseKey) {
-    console.error('[Supabase] Critical Error: Missing configuration.');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(envUrl, envKey);

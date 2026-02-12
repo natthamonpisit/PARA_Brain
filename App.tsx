@@ -5,6 +5,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { ParaBoard } from './components/ParaBoard';
 import { FinanceBoard } from './components/FinanceBoard'; 
 import { DynamicModuleBoard } from './components/DynamicModuleBoard'; 
+import { ReviewBoard } from './components/ReviewBoard';
 import { ModuleBuilderModal } from './components/ModuleBuilderModal'; 
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
@@ -37,7 +38,7 @@ export default function App() {
   } = useModuleData();
 
   // --- UI STATE ---
-  const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | string>('All');
+  const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | 'Review' | string>('All');
   const [viewMode, setViewMode] = useState<ViewMode>('GRID');
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -69,7 +70,7 @@ export default function App() {
   // --- VIEW LOGIC ---
   useEffect(() => {
       // Load modules when selected
-      if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
+      if (typeof activeType === 'string' && !['All', 'Finance', 'Review', ...Object.values(ParaType)].includes(activeType as any)) {
           loadModuleItems(activeType);
       }
       // Clear selection when changing tabs
@@ -156,7 +157,7 @@ export default function App() {
       const ids = Array.from(selectedIds) as string[];
       for (const id of ids) {
           try {
-             if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
+             if (typeof activeType === 'string' && !['All', 'Finance', 'Review', ...Object.values(ParaType)].includes(activeType as any)) {
                  await deleteModuleItem(id, activeType as string);
              } else {
                  await deleteItem(id);
@@ -206,7 +207,7 @@ export default function App() {
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
     try {
-        if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
+        if (typeof activeType === 'string' && !['All', 'Finance', 'Review', ...Object.values(ParaType)].includes(activeType as any)) {
             await deleteModuleItem(id, activeType as string);
         } else {
             await deleteItem(id);
@@ -329,7 +330,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            {activeType !== 'Finance' && !activeModule && activeType !== 'All' && (
+            {activeType !== 'Finance' && activeType !== 'Review' && !activeModule && activeType !== 'All' && (
                 <div className="hidden md:flex bg-slate-100 p-1 rounded-lg border border-slate-200">
                     <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List"><List className="w-4 h-4" /></button>
@@ -391,6 +392,8 @@ export default function App() {
                         />
                     ) : activeType === 'Finance' ? (
                         <FinanceBoard accounts={accounts} transactions={filteredTransactions} projects={items.filter(i => i.type === ParaType.PROJECT)} />
+                    ) : activeType === 'Review' ? (
+                        <ReviewBoard items={items} onOpenItem={handleViewDetail} />
                     ) : viewMode === 'CALENDAR' ? (
                         <CalendarBoard 
                             items={items} 

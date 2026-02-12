@@ -5,13 +5,13 @@ import { ParaItem, ParaType, FinanceAccount, AppModule, AIAnalysisResult, Histor
 // Helper to safely get API Key from various environment locations
 const getApiKey = (): string => {
     try {
-        if (typeof process !== 'undefined' && process.env?.API_KEY) return process.env.API_KEY;
+        if (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
     } catch (e) {}
     try {
         // @ts-ignore
-        if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
+        if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) return import.meta.env.VITE_GEMINI_API_KEY;
         // @ts-ignore
-        if (typeof import.meta !== 'undefined' && import.meta.env?.API_KEY) return import.meta.env.API_KEY;
+        if (typeof import.meta !== 'undefined' && import.meta.env?.GEMINI_API_KEY) return import.meta.env.GEMINI_API_KEY;
     } catch (e) {}
     return '';
 };

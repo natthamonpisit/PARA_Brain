@@ -18,6 +18,7 @@
 - Tuning Sprint P0 (Bundle/Agent Query/Retry Policy): `completed`
 - UX Mission Control Sprint V1: `completed`
 - Telegram Integration Sprint: `in_progress`
+- Thailand Pulse Sprint (Phase 1 -> 1.2): `completed`
 
 ## Phase 1 Deliverables
 - [x] DB schema migration for profile/memory/run tracking
@@ -159,6 +160,34 @@
 - [x] Telegram log rows (`system_logs.event_source=TELEGRAM`) are loaded and streamed into web ChatPanel
 - [x] Telegram sender labeling rendered in chat timeline
 - [ ] Special cards from Telegram logs (created PARA item / transaction / module card) are not generated yet
+
+## Thailand Pulse Sprint (Phase 1 -> 1.2)
+- [x] New left menu + one-page `Thailand Pulse` board with category cards, trend radar, source coverage, and save-to-resource flow
+- [x] Feed API (`/api/thailand-pulse`) with provider layer:
+  - RSS fallback
+  - Exa discovery when `EXA_API_KEY` exists
+  - Firecrawl citation enrichment when `FIRECRAWL_API_KEY` exists
+- [x] Citation contract rendered in UI (per-story sources/evidence)
+- [x] Supabase snapshot persistence (`pulse_snapshots`) for cross-device history
+- [x] History API (`GET /api/thailand-pulse?mode=history&days=7`)
+- [x] Cron ingestion endpoint (`/api/cron-thailand-pulse`)
+- [x] Vercel 12h schedule (`vercel.json`)
+- [x] DB migration applied on production-like DB:
+  - `supabase/migrations/20260213_phaseH_thailand_pulse_snapshots.sql`
+  - Verified table/indexes exist via `\d+ pulse_snapshots`
+
+## How To Run Thailand Pulse (Phase 1.2)
+1. Ensure env values exist:
+   - Required: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+   - Optional intelligence layer: `EXA_API_KEY`, `FIRECRAWL_API_KEY`
+2. Apply migration:
+   - `supabase/migrations/20260213_phaseH_thailand_pulse_snapshots.sql`
+3. Pull latest snapshot:
+   - `GET /api/thailand-pulse?interests=Technology,AI,Economic,Political,Business`
+4. Read history:
+   - `GET /api/thailand-pulse?mode=history&days=7`
+5. Trigger scheduled ingest manually (or via cron):
+   - `POST /api/cron-thailand-pulse` with `x-cron-key: <CRON_SECRET>`
 
 ## Next Session (Recommended)
 1. Build Telegram log -> structured operation mapping so chat can render created-item cards directly from inbound Telegram events

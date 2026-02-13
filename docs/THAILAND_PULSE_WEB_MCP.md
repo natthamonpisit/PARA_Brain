@@ -13,6 +13,7 @@ Last updated: 2026-02-13
   - Snapshot history is persisted in Supabase table `pulse_snapshots`.
   - API route `GET /api/thailand-pulse?mode=history&days=7` serves cross-device history.
   - Cron route `/api/cron-thailand-pulse` is available and scheduled every 12 hours via `vercel.json`.
+  - Migration `20260213_phaseH_thailand_pulse_snapshots.sql` applied on 2026-02-13.
 
 ## Runtime Provider Strategy
 1. `EXA_API_KEY` available:

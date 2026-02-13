@@ -16,6 +16,11 @@
   - UX Mission Control V1 shipped (dashboard redesign + focus queue + floating chat widget)
   - Telegram migration completed (LINE removed) + Telegram logs now appear in web chat stream
   - Remaining gap: special cards (created item card, etc.) are still not generated directly from Telegram logs
+  - Thailand Pulse Phase 1.2 completed:
+    - Web MCP provider layer (`EXA` + `Firecrawl` + RSS fallback)
+    - Citation rendering in UI and provider labeling
+    - Supabase snapshot persistence + history API sync (`pulse_snapshots`)
+    - 12-hour cron endpoint + Vercel schedule
 
 ## Priority P0 (ต้องทำก่อน)
 1. Frontend bundle split
@@ -82,6 +87,27 @@
   - เก็บ latency และ error rate ต่อ endpoint
 - KPI:
   - debug production issue ได้ใน < 10 นาที
+
+## Thailand Pulse Quality Backlog (New)
+1. Source allow/deny policy
+- งาน:
+  - เพิ่ม user-configurable allowlist/denylist สำหรับ publisher domain
+- KPI:
+  - ลดข่าว noise/low-trust ใน feed ได้ชัดเจน
+
+2. Confidence scoring formula
+- งาน:
+  - คำนวณ score ต่อข่าวจาก (trust tier + corroboration count + freshness)
+  - แสดง score พร้อมเหตุผลแบบสั้น
+- KPI:
+  - ranking ของข่าวตรงความสำคัญผู้ใช้มากขึ้น
+
+3. Relevance feedback loop
+- งาน:
+  - เพิ่มปุ่ม `relevant` / `not relevant` และบันทึก feedback
+  - ใช้ feedback ปรับ ranking ในรอบถัดไป
+- KPI:
+  - CTR บนข่าวที่ถูก save เพิ่มขึ้น
 
 ## Priority P2 (หลัง E2E)
 7. In-memory / edge cache strategy

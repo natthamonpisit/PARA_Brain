@@ -6,6 +6,32 @@ import { sendTelegramText } from './_lib/telegram';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const TELEGRAM_LOG_CONTRACT = 'telegram_chat_v1';
+
+type TelegramOperation = 'CREATE' | 'TRANSACTION' | 'MODULE_ITEM' | 'COMPLETE' | 'CHAT' | 'ERROR' | 'PENDING_APPROVAL';
+type TelegramItemType = 'PARA' | 'TRANSACTION' | 'MODULE';
+
+function toTelegramLogPayload(params: {
+  operation: TelegramOperation;
+  chatResponse: string;
+  itemType?: TelegramItemType;
+  createdItem?: Record<string, any> | null;
+  createdItems?: Record<string, any>[] | null;
+  meta?: Record<string, any>;
+}) {
+  const payload: Record<string, any> = {
+    contract: TELEGRAM_LOG_CONTRACT,
+    version: 1,
+    source: 'TELEGRAM',
+    operation: params.operation,
+    chatResponse: params.chatResponse
+  };
+  if (params.itemType) payload.itemType = params.itemType;
+  if (params.createdItem) payload.createdItem = params.createdItem;
+  if (params.createdItems && params.createdItems.length > 0) payload.createdItems = params.createdItems;
+  if (params.meta) payload.meta = params.meta;
+  return payload;
+}
 
 function verifyTelegramSecret(req: any): boolean {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -119,14 +145,19 @@ async function processSmartAgentRequest(params: {
   supabase: any;
 }) {
   const { userMessage, botToken, chatId, replyToMessageId, logId, supabase } = params;
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
   const approvalGatesEnabled = process.env.ENABLE_APPROVAL_GATES === 'true';
 
-  const updateLog = async (action: string, status: string, response: string) => {
+  const updateLog = async (
+    action: string,
+    status: string,
+    response: string,
+    payload?: Record<string, any>
+  ) => {
     await supabase
       .from('system_logs')
       .update({
-        ai_response: response,
+        ai_response: payload ? JSON.stringify(payload) : response,
         action_type: action,
         status
       })
@@ -143,7 +174,18 @@ async function processSmartAgentRequest(params: {
   };
 
   if (!apiKey) {
-    await safeReply('⚠️ Server Error: API Key missing.');
+    const msg = '⚠️ Server Error: API Key missing. Set GEMINI_API_KEY or VITE_GEMINI_API_KEY.';
+    await safeReply(msg);
+    await updateLog(
+      'ERROR',
+      'FAILED',
+      msg,
+      toTelegramLogPayload({
+        operation: 'ERROR',
+        chatResponse: msg,
+        meta: { reason: 'MISSING_GEMINI_API_KEY' }
+      })
+    );
     return;
   }
 
@@ -234,8 +276,11 @@ RULES:
     );
 
     const rawJSON = JSON.parse(result.text || '{}');
+    const operationRaw = typeof rawJSON.operation === 'string' ? rawJSON.operation : 'CHAT';
+    const operation: TelegramOperation = ['CREATE', 'TRANSACTION', 'MODULE_ITEM', 'COMPLETE', 'CHAT'].includes(operationRaw)
+      ? operationRaw as TelegramOperation
+      : 'CHAT';
     const {
-      operation,
       chatResponse,
       title,
       category,
@@ -250,24 +295,40 @@ RULES:
       suggestedTags,
       dueDate
     } = rawJSON;
+    const safeChatResponse = typeof chatResponse === 'string' && chatResponse.trim()
+      ? chatResponse
+      : 'รับทราบครับ';
 
     if (approvalGatesEnabled && ['TRANSACTION', 'MODULE_ITEM', 'COMPLETE'].includes(operation)) {
-      const pendingMsg = `${chatResponse}\n\n⚠️ Action requires approval and was not executed automatically.`;
+      const pendingMsg = `${safeChatResponse}\n\n⚠️ Action requires approval and was not executed automatically.`;
       await safeReply(pendingMsg);
-      await updateLog('PENDING_APPROVAL', 'PENDING', pendingMsg);
+      await updateLog(
+        'PENDING_APPROVAL',
+        'PENDING',
+        pendingMsg,
+        toTelegramLogPayload({
+          operation: 'PENDING_APPROVAL',
+          chatResponse: pendingMsg,
+          meta: { requestedOperation: operation }
+        })
+      );
       return;
     }
 
     let dbPromise = Promise.resolve<{ error: any; data?: any } | null>(null);
     let logAction = 'CHAT';
+    let logItemType: TelegramItemType | undefined;
+    let tableUsed: string | null = null;
 
     if (operation === 'CREATE') {
       logAction = 'CREATE_PARA';
+      logItemType = 'PARA';
       let tableName = 'tasks';
       if (type === 'Projects') tableName = 'projects';
       else if (type === 'Areas') tableName = 'areas';
       else if (type === 'Resources') tableName = 'resources';
       else if (type === 'Archives') tableName = 'archives';
+      tableUsed = tableName;
 
       const payload: any = {
         id: uuidv4(),
@@ -287,9 +348,22 @@ RULES:
       dbPromise = supabase.from(tableName).insert(payload).select();
     } else if (operation === 'TRANSACTION') {
       logAction = 'CREATE_TX';
+      logItemType = 'TRANSACTION';
+      tableUsed = 'transactions';
       const targetAcc = accountId || (accounts && accounts.length > 0 ? accounts[0].id : null);
       if (!targetAcc) {
-        await safeReply('⚠️ หาบัญชีไม่เจอครับ');
+        const msg = '⚠️ หาบัญชีไม่เจอครับ';
+        await safeReply(msg);
+        await updateLog(
+          'ERROR',
+          'FAILED',
+          msg,
+          toTelegramLogPayload({
+            operation: 'ERROR',
+            chatResponse: msg,
+            meta: { reason: 'ACCOUNT_NOT_FOUND' }
+          })
+        );
         return;
       }
       dbPromise = supabase
@@ -306,6 +380,8 @@ RULES:
         .select();
     } else if (operation === 'MODULE_ITEM') {
       logAction = 'CREATE_MODULE';
+      logItemType = 'MODULE';
+      tableUsed = 'module_items';
       if (targetModuleId) {
         const moduleData: Record<string, any> = {};
         if (moduleDataRaw && Array.isArray(moduleDataRaw)) {
@@ -325,9 +401,24 @@ RULES:
             created_at: new Date().toISOString()
           })
           .select();
+      } else {
+        const msg = '⚠️ ไม่พบโมดูลเป้าหมายสำหรับบันทึกข้อมูล';
+        await safeReply(msg);
+        await updateLog(
+          'ERROR',
+          'FAILED',
+          msg,
+          toTelegramLogPayload({
+            operation: 'ERROR',
+            chatResponse: msg,
+            meta: { reason: 'MODULE_TARGET_MISSING' }
+          })
+        );
+        return;
       }
     } else if (operation === 'COMPLETE') {
       logAction = 'COMPLETE_TASK';
+      tableUsed = 'tasks';
       if (relatedItemId) {
         dbPromise = supabase.from('tasks').update({ is_completed: true }).eq('id', relatedItemId).select();
       }
@@ -337,16 +428,54 @@ RULES:
     if (dbResult && dbResult.error) {
       const errorMsg = `บันทึกไม่สำเร็จ: ${dbResult.error.message}`;
       await safeReply(errorMsg);
-      await updateLog('ERROR', 'DB_FAILED', dbResult.error.message);
+      await updateLog(
+        'ERROR',
+        'DB_FAILED',
+        dbResult.error.message,
+        toTelegramLogPayload({
+          operation: 'ERROR',
+          chatResponse: errorMsg,
+          meta: { reason: 'DB_FAILED', error: dbResult.error.message, operation }
+        })
+      );
       return;
     }
 
-    await safeReply(chatResponse || 'รับทราบครับ');
-    await updateLog(logAction, 'SUCCESS', chatResponse || '');
+    const createdItem =
+      dbResult && Array.isArray(dbResult.data) && dbResult.data.length > 0
+        ? dbResult.data[0]
+        : null;
+    await safeReply(safeChatResponse);
+    await updateLog(
+      logAction,
+      'SUCCESS',
+      safeChatResponse,
+      toTelegramLogPayload({
+        operation,
+        chatResponse: safeChatResponse,
+        itemType: logItemType,
+        createdItem,
+        meta: {
+          action: logAction,
+          status: 'SUCCESS',
+          table: tableUsed
+        }
+      })
+    );
   } catch (error: any) {
     console.error('[telegram-webhook] AI logic failed', error);
-    await safeReply('ระบบขัดข้องชั่วคราวครับ');
-    await updateLog('ERROR', 'FAILED', error.message || 'Unknown error');
+    const safeErrorText = error?.message || 'Unknown error';
+    const userMsg = 'ระบบขัดข้องชั่วคราวครับ';
+    await safeReply(userMsg);
+    await updateLog(
+      'ERROR',
+      'FAILED',
+      safeErrorText,
+      toTelegramLogPayload({
+        operation: 'ERROR',
+        chatResponse: userMsg,
+        meta: { reason: 'UNHANDLED_EXCEPTION', error: safeErrorText }
+      })
+    );
   }
 }
-

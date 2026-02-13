@@ -4,14 +4,14 @@ import { sendTelegramText } from './_lib/telegram';
 // Initialize Services
 // Note: In Vercel Serverless, process.env works automatically.
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramChatId = process.env.TELEGRAM_CHAT_ID || process.env.TELEGRAM_USER_ID;
 
 export default async function handler(req: any, res: any) {
   const cronSecret = process.env.CRON_SECRET;
   const providedKey = req.query?.key || req.headers?.['x-cron-key'];
-  if (!cronSecret || providedKey !== cronSecret) {
+  if (cronSecret && providedKey !== cronSecret) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   

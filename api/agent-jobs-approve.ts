@@ -8,7 +8,7 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const secret = process.env.APPROVAL_SECRET || process.env.AGENT_JOB_SECRET || process.env.CRON_SECRET;
-  if (!secret) return res.status(500).json({ error: 'Missing approval/job secret' });
+  if (!secret) return res.status(401).json({ error: 'Unauthorized. Set APPROVAL_SECRET or AGENT_JOB_SECRET.' });
   if (getAuthKey(req) !== secret) return res.status(401).json({ error: 'Unauthorized' });
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL;

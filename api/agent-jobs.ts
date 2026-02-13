@@ -7,7 +7,7 @@ function getAuthKey(req: any): string {
 function requireAuth(req: any, res: any): string | null {
   const agentJobSecret = process.env.AGENT_JOB_SECRET || process.env.CRON_SECRET;
   if (!agentJobSecret) {
-    res.status(500).json({ error: 'Missing AGENT_JOB_SECRET (or CRON_SECRET fallback)' });
+    res.status(401).json({ error: 'Unauthorized. Set AGENT_JOB_SECRET (or CRON_SECRET fallback).' });
     return null;
   }
   const provided = getAuthKey(req);

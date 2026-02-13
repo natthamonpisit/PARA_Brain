@@ -130,6 +130,21 @@ export interface SystemLog {
   created_at: string;
 }
 
+export type ChatMessageSource = 'WEB' | 'TELEGRAM';
+export type ChatCreatedItemType = 'PARA' | 'TRANSACTION' | 'MODULE';
+
+export interface TelegramLogPayloadV1 {
+  contract: 'telegram_chat_v1';
+  version: 1;
+  source: 'TELEGRAM';
+  operation: 'CREATE' | 'TRANSACTION' | 'MODULE_ITEM' | 'COMPLETE' | 'CHAT' | 'ERROR' | 'PENDING_APPROVAL';
+  chatResponse: string;
+  itemType?: ChatCreatedItemType;
+  createdItem?: ParaItem | Transaction | ModuleItem;
+  createdItems?: ParaItem[];
+  meta?: Record<string, any>;
+}
+
 export interface AIAnalysisResult {
   // JAY'S NOTE: The 'Dispatcher' Field. This tells the UI Hook what function to call.
   // Added BATCH_CREATE for multiple items support
@@ -176,9 +191,9 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   timestamp: Date;
-  source?: 'WEB' | 'TELEGRAM';
+  source?: ChatMessageSource;
   createdItem?: ParaItem | Transaction | ModuleItem;
   createdItems?: ParaItem[]; // For batch
   suggestedCompletionItems?: ParaItem[];
-  itemType?: 'PARA' | 'TRANSACTION' | 'MODULE';
+  itemType?: ChatCreatedItemType;
 }

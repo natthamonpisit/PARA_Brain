@@ -87,6 +87,12 @@ export const useAgentData = () => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = body.error || `Run failed (${res.status})`;
+        if (res.status === 401) {
+          throw new Error(`${msg} Set ALLOW_AGENT_UI_TRIGGER=true or provide x-cron-key.`);
+        }
+        if (res.status === 500 && String(msg).includes('Missing server configuration')) {
+          throw new Error(`${msg} Required env: VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY/VITE_GEMINI_API_KEY.`);
+        }
         const enriched = body.retryable ? `${msg} You can retry with force run.` : msg;
         throw new Error(enriched);
       }

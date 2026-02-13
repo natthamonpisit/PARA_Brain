@@ -1,5 +1,15 @@
 import { useState, useCallback, useEffect } from 'react';
-import { ParaItem, ChatMessage, FinanceAccount, AppModule, ParaType, Transaction, ModuleItem } from '../types';
+import {
+    ParaItem,
+    ChatMessage,
+    FinanceAccount,
+    AppModule,
+    ParaType,
+    Transaction,
+    ModuleItem,
+    ChatCreatedItemType,
+    TelegramLogPayloadV1
+} from '../types';
 import { analyzeLifeOS, performLifeAnalysis } from '../services/geminiService';
 import { generateId } from '../utils/helpers';
 import { HistoryLog } from '../types';
@@ -40,6 +50,40 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
         return Number.isNaN(d.getTime()) ? new Date() : d;
     };
 
+    const isItemType = (value: any): value is ChatCreatedItemType => {
+        return value === 'PARA' || value === 'TRANSACTION' || value === 'MODULE';
+    };
+
+    const parseTelegramPayload = (value: any): {
+        text: string;
+        itemType?: ChatCreatedItemType;
+        createdItem?: ParaItem | Transaction | ModuleItem;
+        createdItems?: ParaItem[];
+    } => {
+        const raw = String(value || '').trim();
+        if (!raw) return { text: '' };
+        if (!raw.startsWith('{')) return { text: raw };
+        try {
+            const parsed = JSON.parse(raw) as Partial<TelegramLogPayloadV1>;
+            if (parsed.contract !== 'telegram_chat_v1' || parsed.version !== 1) {
+                return { text: raw };
+            }
+            const text = typeof parsed.chatResponse === 'string' && parsed.chatResponse.trim()
+                ? parsed.chatResponse
+                : raw;
+            const itemType = isItemType(parsed.itemType) ? parsed.itemType : undefined;
+            const createdItem = parsed.createdItem && typeof parsed.createdItem === 'object'
+                ? parsed.createdItem as ParaItem | Transaction | ModuleItem
+                : undefined;
+            const createdItems = Array.isArray(parsed.createdItems)
+                ? parsed.createdItems.filter((item) => !!item && typeof item === 'object') as ParaItem[]
+                : undefined;
+            return { text, itemType, createdItem, createdItems };
+        } catch {
+            return { text: raw };
+        }
+    };
+
     const mapTelegramLogToMessages = useCallback((row: any): ChatMessage[] => {
         if (!row?.id) return [];
         const timestamp = toSafeDate(row.created_at);
@@ -54,11 +98,15 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
             });
         }
         if (row.ai_response) {
+            const parsed = parseTelegramPayload(row.ai_response);
             incoming.push({
                 id: `sys:${row.id}:assistant`,
                 role: 'assistant',
                 source: 'TELEGRAM',
-                text: String(row.ai_response),
+                text: parsed.text || String(row.ai_response),
+                itemType: parsed.itemType,
+                createdItem: parsed.createdItem,
+                createdItems: parsed.createdItems,
                 timestamp
             });
         }

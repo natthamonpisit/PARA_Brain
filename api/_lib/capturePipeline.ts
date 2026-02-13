@@ -36,6 +36,15 @@ interface CaptureContext {
   modules: any[];
 }
 
+interface AreaRoutingDecision {
+  applied: boolean;
+  reason: string;
+  areaName?: string;
+  suggestedProjectTitle?: string;
+  ensureProjectLink?: boolean;
+  extraTags?: string[];
+}
+
 interface CaptureModelOutput {
   intent?: CaptureIntent;
   confidence?: number;
@@ -115,6 +124,11 @@ const CONFIDENCE_CONFIRM_THRESHOLD = Number(process.env.CAPTURE_CONFIRM_THRESHOL
 const SEMANTIC_DEDUP_THRESHOLD = Number(process.env.CAPTURE_SEMANTIC_DEDUP_THRESHOLD || 0.9);
 const ALFRED_AUTO_CAPTURE_ENABLED = process.env.ALFRED_AUTO_CAPTURE_ENABLED !== 'false';
 const CAPTURE_MODEL_NAME = process.env.CAPTURE_MODEL_NAME || 'gemini-3-flash-preview';
+const TRAVEL_SIGNAL_RE =
+  /(เที่ยว|ทริป|เดินป่า|แคมป์|camp|camping|hike|hiking|trek|trekking|backpack|vacation|holiday|road\s*trip|itinerary)/i;
+const TRAVEL_HEALTH_ROUTINE_RE =
+  /(ทุกวัน|ทุกสัปดาห์|ทุกอาทิตย์|เป็นประจำ|routine|habit|สุขภาพ|ฟิต|ออกกำลังกาย|workout|training)/i;
+const TRAVEL_FAMILY_RE = /(ครอบครัว|family|แฟน|คู่รัก|ภรรยา|สามี|ลูก|พ่อแม่|parents|wife|husband|partner|เพื่อน|friend)/i;
 
 const truncate = (value: string, max = 180): string => {
   if (!value) return '';
@@ -287,6 +301,70 @@ const buildPlanningTaskContent = (params: {
   const summary = normalizeMessage(String(modelOutput.summary || fallbackSummary || message));
   if (!guidance) return summary;
   return ['Summary', summary, '', 'Starter Direction', guidance].join('\n');
+};
+
+const findExplicitAreaMention = (areas: any[], message: string): any | null => {
+  const haystack = normalizeMessage(message).toLowerCase();
+  if (!haystack) return null;
+  for (const area of areas) {
+    const candidates = [area?.name, area?.title]
+      .map((v) => String(v || '').trim().toLowerCase())
+      .filter((v) => v.length >= 4);
+    for (const needle of candidates) {
+      if (haystack.includes(needle)) return area;
+    }
+  }
+  return null;
+};
+
+const toTripProjectTitle = (seed: string): string => {
+  const cleaned = normalizeMessage(seed).replace(/^trip\s*[:\-]?\s*/i, '');
+  if (!cleaned) return 'Trip Plan';
+  return `Trip: ${truncate(cleaned, 48)}`;
+};
+
+const resolveTravelAreaRouting = (params: {
+  message: string;
+  modelOutput: CaptureModelOutput;
+  context: CaptureContext;
+}): AreaRoutingDecision => {
+  const { message, modelOutput, context } = params;
+  const normalized = normalizeMessage(message).toLowerCase();
+  if (!normalized) return { applied: false, reason: 'empty_message' };
+  if (!TRAVEL_SIGNAL_RE.test(normalized)) {
+    return { applied: false, reason: 'no_travel_signal' };
+  }
+
+  const explicitArea = findExplicitAreaMention(context.areas, message);
+  if (explicitArea) {
+    return { applied: false, reason: 'explicit_area_in_message' };
+  }
+
+  const isFamilyTrip = TRAVEL_FAMILY_RE.test(normalized);
+  const isHealthRoutineTrip = TRAVEL_HEALTH_ROUTINE_RE.test(normalized);
+  let areaName = 'Side Projects & Experiments';
+  let reason = 'travel_default_side_projects';
+  let extraTags = ['travel', 'outdoor'];
+
+  if (isFamilyTrip) {
+    areaName = 'Family & Relationships';
+    reason = 'travel_family_signal';
+    extraTags = ['travel', 'family'];
+  } else if (isHealthRoutineTrip) {
+    areaName = 'Health & Energy';
+    reason = 'travel_health_routine_signal';
+    extraTags = ['travel', 'health', 'fitness'];
+  }
+
+  const projectSeed = String(modelOutput.title || modelOutput.goal || modelOutput.summary || message);
+  return {
+    applied: true,
+    reason,
+    areaName,
+    suggestedProjectTitle: toTripProjectTitle(projectSeed),
+    ensureProjectLink: true,
+    extraTags
+  };
 };
 
 const findByTitle = (rows: any[], title: string): any | null => {
@@ -539,6 +617,9 @@ PARA constraints:
 - Task should belong to a project when possible.
 - Project should map to an area by category or relatedAreaTitle.
 - Resource with URL should go to type=Resources unless user clearly asks for task/action.
+- Travel/Hiking rule intent: one-off trip defaults to "Side Projects & Experiments".
+- Travel with family signal should map to "Family & Relationships".
+- Travel with routine/fitness signal should map to "Health & Energy".
 
 Existing Areas:
 ${areasText || '(none)'}
@@ -743,6 +824,28 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     modelOutput.relatedAreaTitle = normalizeMessage(String(modelOutput.recommendedAreaTitle || ''));
   }
 
+  const travelRouting = resolveTravelAreaRouting({
+    message,
+    modelOutput,
+    context
+  });
+  if (travelRouting.applied && (isActionable || operation === 'CREATE' || autoCapturePlan)) {
+    const currentArea = String(modelOutput.relatedAreaTitle || modelOutput.category || '').trim();
+    const currentAreaMatched = currentArea ? findByTitle(context.areas, currentArea) : null;
+    const shouldOverrideArea = !currentAreaMatched || /^(inbox|general)$/i.test(currentArea);
+    if (shouldOverrideArea) {
+      modelOutput.relatedAreaTitle = travelRouting.areaName;
+      modelOutput.category = travelRouting.areaName;
+    }
+    if (!modelOutput.relatedProjectTitle && travelRouting.suggestedProjectTitle) {
+      modelOutput.relatedProjectTitle = travelRouting.suggestedProjectTitle;
+    }
+    if (travelRouting.ensureProjectLink && typeof modelOutput.createProjectIfMissing !== 'boolean') {
+      modelOutput.createProjectIfMissing = true;
+    }
+    chatResponse = `${chatResponse}\n\n(จัดหมวดอัตโนมัติ: ${travelRouting.areaName})`;
+  }
+
   if (!isActionable && operation !== 'CHAT') {
     operation = 'CHAT';
   }
@@ -840,7 +943,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     const nowIso = new Date().toISOString();
     const baseTitle = String(modelOutput.title || '').trim() || truncate(message, 80);
     const baseCategory = String(modelOutput.category || '').trim() || 'Inbox';
-    const tags = toSafeTags(modelOutput.suggestedTags);
+    const routeTags = toSafeTags(travelRouting.extraTags || []);
+    const tags = Array.from(new Set([...toSafeTags(modelOutput.suggestedTags), ...routeTags])).slice(0, 12);
 
     if (operation === 'CHAT') {
       return {
@@ -856,7 +960,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         dedup,
         meta: {
           planningRequest,
-          guidanceIncluded: Boolean(alfredGuidance)
+          guidanceIncluded: Boolean(alfredGuidance),
+          travelRouting
         }
       };
     }
@@ -953,7 +1058,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
             forceConfirmed,
             planningRequest,
             autoCapturePlan,
-            guidanceIncluded: Boolean(alfredGuidance)
+            guidanceIncluded: Boolean(alfredGuidance),
+            travelRouting
           }
         };
       }
@@ -996,7 +1102,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
           paraType,
           forceConfirmed,
           planningRequest,
-          guidanceIncluded: Boolean(alfredGuidance)
+          guidanceIncluded: Boolean(alfredGuidance),
+          travelRouting
         }
       };
     }

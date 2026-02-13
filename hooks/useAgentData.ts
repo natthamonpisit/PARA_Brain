@@ -38,8 +38,17 @@ export const useAgentData = () => {
     setLastError(null);
     try {
       const [runsRes, summariesRes] = await Promise.all([
-        supabase.from('agent_runs').select('*').order('started_at', { ascending: false }).limit(20),
-        supabase.from('memory_summaries').select('*').eq('summary_type', 'DAILY').order('summary_date', { ascending: false }).limit(14)
+        supabase
+          .from('agent_runs')
+          .select('id,run_type,status,prompt_version,model,output_file,error_text,metrics,started_at,completed_at')
+          .order('started_at', { ascending: false })
+          .limit(12),
+        supabase
+          .from('memory_summaries')
+          .select('id,summary_type,summary_date,title,content_md,input_refs,created_by,created_at')
+          .eq('summary_type', 'DAILY')
+          .order('summary_date', { ascending: false })
+          .limit(7)
       ]);
       if (runsRes.error) throw new Error(runsRes.error.message);
       if (summariesRes.error) throw new Error(summariesRes.error.message);

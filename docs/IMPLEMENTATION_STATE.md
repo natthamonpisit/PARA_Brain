@@ -14,6 +14,9 @@
 - Phase D (Capture Flow Desktop + Mobile): `completed`
 - Phase E (Automation + Heartbeat): `completed`
 - Phase F (OpenClaw / External Agent Integration): `completed`
+- Phase G (Personal Ops + Finance Autopilot): `completed`
+- Tuning Sprint P0 (Bundle/Agent Query/Retry Policy): `completed`
+- UX Mission Control Sprint V1: `completed`
 
 ## Phase 1 Deliverables
 - [x] DB schema migration for profile/memory/run tracking
@@ -115,6 +118,48 @@
 - [x] Weekly summary persisted to `memory_summaries` (`WEEKLY`)
 - [x] Cron endpoint for weekly review (`POST /api/cron-weekly-review`)
 - [x] Agent KPI cards in UI (overdue, triage backlog, net 30d, automation success 7d)
+
+## Tuning Sprint P0 Deliverables
+- [x] Frontend lazy split for `AgentBoard`, `ReviewBoard`, `FinanceBoard`, `ChatPanel`
+- [x] Vendor manual chunks in Vite build for `react`, `@google/genai`, `@supabase/supabase-js`
+- [x] Agent query slimming in `hooks/useAgentData.ts` (explicit select fields + tighter limits)
+- [x] Shared timeout/retry policy for external API calls (LINE + Gemini) in server endpoint paths
+
+## How To Verify Tuning Sprint P0
+1. Build: `npm run build` and review chunk output for split vendor/main improvements
+2. Smoke: `npm run agent:daily:dry`
+3. Manual smoke: open Agent tab and confirm refresh/run flow + chat/finance/review tabs lazy-load correctly
+
+## UX Mission Control Sprint V1 Deliverables
+- [x] App shell converted to mission-control look and feel (dark command-center tone across sidebar/header/content)
+- [x] Unified focus queue added as a shared strip for non-Agent tabs (`components/FocusDock.tsx`)
+- [x] Dashboard replaced with mission control board (`components/MissionControlBoard.tsx`)
+- [x] Mission board includes KPI visualizations (SVG bar/line/donut + completion progress)
+- [x] Agent tab redesigned to mission-control 3-pane layout with mobile/tablet responsive behavior
+- [x] Right-side chat column replaced by floating chat widget overlay (open/close from FAB)
+- [x] External skills installed and used for dashboard/visualization guidance:
+  - `dashboard-creator-ext`
+  - `d3-viz-ext`
+
+## How To Verify UX Mission Control Sprint V1
+1. Run build: `npm run build`
+2. Open app and verify:
+   - `Mission` menu shows mission dashboard instead of old Life Dashboard
+   - Focus queue appears above each non-Agent board
+   - Chat opens as floating overlay widget (does not consume fixed right column)
+3. Responsive checks:
+   - Desktop: mission board + floating chat at bottom-right
+   - Tablet: mission board cards remain readable and chat overlay stays usable
+   - Mobile: chat opens as full-height floating overlay and closes cleanly
+
+## Next Session (Recommended)
+1. Harmonize old board card styles (`ParaBoard`, `FinanceBoard`, `ReviewBoard`) to match mission-control design tokens
+2. Polish chat widget UX:
+   - sticky position memory
+   - ESC-to-close on desktop
+   - optional compact mode
+3. Run manual responsive QA checklist + fix overflow/spacing regressions
+4. Continue queued backend tuning P1 after UX polish
 
 ## Notes
 - Keep DB as source-of-truth.

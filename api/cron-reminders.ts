@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { fetchWithTimeoutRetry } from './_lib/externalPolicy';
 
 // Initialize Services
 // Note: In Vercel Serverless, process.env works automatically.
@@ -54,7 +55,7 @@ ${task.category ? `📂 ${task.category}` : ''}
 Don't forget to complete it!`;
 
         // Send to LINE
-        const lineRes = await fetch("https://api.line.me/v2/bot/message/push", {
+        const lineRes = await fetchWithTimeoutRetry("https://api.line.me/v2/bot/message/push", {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

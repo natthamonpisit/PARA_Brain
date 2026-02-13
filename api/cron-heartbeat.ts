@@ -1,3 +1,5 @@
+import { fetchWithTimeoutRetry } from './_lib/externalPolicy';
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -27,7 +29,7 @@ export default async function handler(req: any, res: any) {
         `Warn checks: ${warnCount}`,
         ...result.checks.map((c: any) => `- [${c.status}] ${c.key}: ${c.detail}`)
       ].join('\n');
-      await fetch('https://api.line.me/v2/bot/message/push', {
+      await fetchWithTimeoutRetry('https://api.line.me/v2/bot/message/push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

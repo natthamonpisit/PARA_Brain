@@ -1,7 +1,20 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { AgentRun, MemorySummary, ParaItem, ParaType } from '../types';
-import { Loader2, RefreshCw, Play } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Clock3,
+  Loader2,
+  Play,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  Siren,
+  Workflow
+} from 'lucide-react';
 
 interface AgentBoardProps {
   isLoading: boolean;
@@ -28,6 +41,12 @@ const statusClass: Record<AgentRun['status'], string> = {
   FAILED: 'bg-rose-100 text-rose-700'
 };
 
+const statusTone: Record<AgentRun['status'], string> = {
+  STARTED: 'border-amber-400/50 bg-amber-500/10 text-amber-200',
+  SUCCESS: 'border-emerald-400/50 bg-emerald-500/10 text-emerald-200',
+  FAILED: 'border-rose-400/50 bg-rose-500/10 text-rose-200'
+};
+
 export const AgentBoard: React.FC<AgentBoardProps> = ({
   isLoading,
   isRunning,
@@ -41,141 +60,324 @@ export const AgentBoard: React.FC<AgentBoardProps> = ({
   onOpenTriageItem,
   opsKpis
 }) => {
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 flex flex-wrap gap-3 items-center justify-between">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900">Agent Daily Brief</h3>
-          <p className="text-sm text-slate-500">Runs orchestrator, stores summary, and tracks run status.</p>
+  const [mobilePane, setMobilePane] = useState<'command' | 'queue' | 'feed'>('command');
+
+  const runningRuns = useMemo(() => runs.filter((r) => r.status === 'STARTED'), [runs]);
+  const failedRuns = useMemo(() => runs.filter((r) => r.status === 'FAILED').slice(0, 6), [runs]);
+  const successfulRuns = useMemo(() => runs.filter((r) => r.status === 'SUCCESS').slice(0, 6), [runs]);
+
+  const queueSummary = useMemo(() => {
+    const pendingAttention = failedRuns.length + triageItems.length;
+    return {
+      running: runningRuns.length,
+      pendingAttention,
+      healthy: pendingAttention === 0 && runningRuns.length === 0
+    };
+  }, [failedRuns.length, triageItems.length, runningRuns.length]);
+
+  const timeline = useMemo(() => runs.slice(0, 10), [runs]);
+
+  const renderCommandPane = () => (
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-cyan-300/90">Command Center</p>
+            <h3 className="mt-1 text-lg font-semibold text-slate-100">Agent Daily Control</h3>
+            <p className="mt-1 text-sm text-slate-400">Run orchestrator, watch queue health, and clear triage backlog.</p>
+          </div>
+          <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${queueSummary.healthy ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-amber-400/40 bg-amber-500/10 text-amber-200'}`}>
+            {queueSummary.healthy ? <ShieldCheck className="h-3.5 w-3.5" /> : <Siren className="h-3.5 w-3.5" />}
+            {queueSummary.healthy ? 'Stable' : 'Needs Attention'}
+          </span>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={onRefresh}
-            className="px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
+        <div className="mt-4 grid grid-cols-3 gap-2.5">
+          <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Running</p>
+            <p className="mt-1 text-xl font-semibold text-slate-100">{queueSummary.running}</p>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Alert Queue</p>
+            <p className="mt-1 text-xl font-semibold text-amber-200">{queueSummary.pendingAttention}</p>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Success 7d</p>
+            <p className="mt-1 text-xl font-semibold text-emerald-200">{opsKpis ? `${opsKpis.automationSuccessRate7d.toFixed(1)}%` : '-'}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+        <p className="text-xs uppercase tracking-[0.16em] text-cyan-300/90">Controls</p>
+        <div className="mt-3 flex flex-col gap-2">
           <button
             onClick={() => onRunDaily()}
             disabled={isRunning}
-            className="px-3 py-2 text-sm rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60 flex items-center gap-2"
+            className="flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-3 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            Run Daily
+            {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {isRunning ? 'Running Daily Job' : 'Run Daily Brief'}
           </button>
-          <button
-            onClick={() => onRunDaily({ force: true })}
-            disabled={isRunning}
-            className="px-3 py-2 text-sm rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-60"
-          >
-            Force Run
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={onRefresh}
+              className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+            <button
+              onClick={() => onRunDaily({ force: true })}
+              disabled={isRunning}
+              className="flex items-center justify-center gap-2 rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-200 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <AlertTriangle className="h-4 w-4" />
+              Force Run
+            </button>
+          </div>
         </div>
-      </div>
-
-      {lastError && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-4 py-3 text-sm">
-          {lastError}
-        </div>
-      )}
+      </section>
 
       {opsKpis && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-white border border-slate-200 rounded-xl p-3">
-            <p className="text-xs text-slate-500">Overdue Tasks</p>
-            <p className="text-lg font-bold text-slate-900">{opsKpis.overdueTasks}</p>
+        <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-cyan-300/90">Operational Pulse</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Overdue Tasks</p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">{opsKpis.overdueTasks}</p>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Triage Pending</p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">{opsKpis.triagePending}</p>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Net 30d</p>
+              <p className={`mt-1 text-lg font-semibold ${opsKpis.net30d >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
+                {opsKpis.net30d.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Run Success 7d</p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">{opsKpis.automationSuccessRate7d.toFixed(1)}%</p>
+            </div>
           </div>
-          <div className="bg-white border border-slate-200 rounded-xl p-3">
-            <p className="text-xs text-slate-500">Triage Pending</p>
-            <p className="text-lg font-bold text-slate-900">{opsKpis.triagePending}</p>
+        </section>
+      )}
+    </div>
+  );
+
+  const renderQueuePane = () => (
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-cyan-300/90">Queue Board</p>
+            <h4 className="mt-1 text-base font-semibold text-slate-100">Run + Triage Workflow</h4>
           </div>
-          <div className="bg-white border border-slate-200 rounded-xl p-3">
-            <p className="text-xs text-slate-500">Net 30d</p>
-            <p className={`text-lg font-bold ${opsKpis.net30d >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {opsKpis.net30d.toLocaleString('en-US', { maximumFractionDigits: 2 })}
-            </p>
+          <Workflow className="h-4 w-4 text-cyan-300" />
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">Running</p>
+              <span className="text-xs text-slate-400">{runningRuns.length}</span>
+            </div>
+            <div className="space-y-2">
+              {runningRuns.length === 0 && <p className="text-xs text-slate-500">No active run.</p>}
+              {runningRuns.map((run) => (
+                <article key={run.id} className={`rounded-lg border p-2 text-xs ${statusTone[run.status]}`}>
+                  <p className="font-semibold">{run.runType}</p>
+                  <p className="mt-1 opacity-80">Started {new Date(run.startedAt).toLocaleString()}</p>
+                </article>
+              ))}
+            </div>
           </div>
-          <div className="bg-white border border-slate-200 rounded-xl p-3">
-            <p className="text-xs text-slate-500">Automation Success 7d</p>
-            <p className="text-lg font-bold text-slate-900">{opsKpis.automationSuccessRate7d.toFixed(1)}%</p>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-200">Needs Attention</p>
+              <span className="text-xs text-slate-400">{failedRuns.length + triageItems.length}</span>
+            </div>
+            <div className="space-y-2">
+              {failedRuns.map((run) => (
+                <article key={run.id} className="rounded-lg border border-rose-400/50 bg-rose-500/10 p-2 text-xs text-rose-200">
+                  <p className="font-semibold">{run.runType}</p>
+                  <p className="mt-1 line-clamp-2 opacity-80">{run.errorText || 'Run failed'}</p>
+                </article>
+              ))}
+              {triageItems.map((item) => (
+                <article key={item.id} className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-2 text-xs text-amber-200">
+                  <p className="font-semibold line-clamp-1">{item.title}</p>
+                  <div className="mt-2 flex gap-1.5">
+                    <button
+                      onClick={() => onResolveTriage(item.id, ParaType.TASK)}
+                      className="rounded-md border border-emerald-400/50 bg-emerald-500/10 px-1.5 py-1 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-500/20"
+                    >
+                      Task
+                    </button>
+                    <button
+                      onClick={() => onResolveTriage(item.id, ParaType.PROJECT)}
+                      className="rounded-md border border-blue-400/50 bg-blue-500/10 px-1.5 py-1 text-[10px] font-semibold text-blue-200 hover:bg-blue-500/20"
+                    >
+                      Project
+                    </button>
+                    <button
+                      onClick={() => onOpenTriageItem(item.id)}
+                      className="rounded-md border border-slate-500/60 bg-slate-800 px-1.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-700"
+                    >
+                      Open
+                    </button>
+                  </div>
+                </article>
+              ))}
+              {failedRuns.length === 0 && triageItems.length === 0 && (
+                <p className="text-xs text-slate-500">No blockers in queue.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 md:col-span-2 xl:col-span-1">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Recent Success</p>
+              <span className="text-xs text-slate-400">{successfulRuns.length}</span>
+            </div>
+            <div className="space-y-2">
+              {successfulRuns.length === 0 && <p className="text-xs text-slate-500">No success run yet.</p>}
+              {successfulRuns.map((run) => (
+                <article key={run.id} className="rounded-lg border border-emerald-400/50 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+                  <p className="font-semibold">{run.runType}</p>
+                  <p className="mt-1 opacity-80">Ended {run.completedAt ? new Date(run.completedAt).toLocaleString() : '-'}</p>
+                </article>
+              ))}
+            </div>
           </div>
         </div>
-      )}
+      </section>
+    </div>
+  );
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 md:p-6 min-h-[360px]">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="font-semibold text-slate-900">Latest Summary</h4>
-            {latestSummary && <span className="text-xs text-slate-500">{latestSummary.summaryDate}</span>}
+  const renderFeedPane = () => (
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-cyan-300/90">Live Feed</p>
+            <h4 className="mt-1 text-base font-semibold text-slate-100">Latest Summary</h4>
           </div>
+          <Sparkles className="h-4 w-4 text-cyan-300" />
+        </div>
+        <div className="mt-3 rounded-xl border border-slate-700 bg-slate-900/95 p-3">
           {isLoading ? (
-            <div className="h-48 flex items-center justify-center text-slate-400">
-              <Loader2 className="w-5 h-5 animate-spin" />
+            <div className="h-44 flex items-center justify-center text-slate-400">
+              <Loader2 className="h-5 w-5 animate-spin" />
             </div>
           ) : latestSummary ? (
-            <article className="prose prose-slate max-w-none prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2">
+            <article className="prose prose-invert prose-sm max-w-none prose-headings:mb-2 prose-headings:mt-4 prose-p:my-2">
               <ReactMarkdown>{latestSummary.contentMd}</ReactMarkdown>
             </article>
           ) : (
-            <p className="text-sm text-slate-500">No daily summary yet. Run the daily agent to generate one.</p>
+            <p className="text-sm text-slate-400">No daily summary yet. Trigger a run from Command pane.</p>
           )}
         </div>
+      </section>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-6">
-          <h4 className="font-semibold text-slate-900 mb-4">Recent Runs</h4>
-          <div className="space-y-3 max-h-[540px] overflow-y-auto pr-1">
-            {runs.length === 0 && <p className="text-sm text-slate-500">No runs found.</p>}
-            {runs.map((run) => (
-              <div key={run.id} className="border border-slate-200 rounded-xl p-3 space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-medium text-slate-600">{run.runType}</span>
-                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${statusClass[run.status]}`}>
-                    {run.status}
-                  </span>
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-[0.16em] text-cyan-300/90">Timeline</p>
+          <Clock3 className="h-4 w-4 text-cyan-300" />
+        </div>
+        <div className="mt-3 space-y-2">
+          {timeline.length === 0 && <p className="text-sm text-slate-400">No events yet.</p>}
+          {timeline.map((run) => (
+            <article key={run.id} className="rounded-xl border border-slate-700 bg-slate-900/95 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {run.status === 'FAILED' ? (
+                    <AlertTriangle className="h-4 w-4 text-rose-300" />
+                  ) : run.status === 'SUCCESS' ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                  ) : (
+                    <Activity className="h-4 w-4 text-amber-300" />
+                  )}
+                  <p className="text-sm font-medium text-slate-100">{run.runType}</p>
                 </div>
-                <p className="text-xs text-slate-500">Start: {new Date(run.startedAt).toLocaleString()}</p>
-                {run.completedAt && <p className="text-xs text-slate-500">End: {new Date(run.completedAt).toLocaleString()}</p>}
-                {run.errorText && <p className="text-xs text-rose-600 line-clamp-3">{run.errorText}</p>}
+                <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${statusClass[run.status]}`}>
+                  {run.status}
+                </span>
               </div>
-            ))}
+              <p className="mt-1 text-xs text-slate-400">Start {new Date(run.startedAt).toLocaleString()}</p>
+              {run.errorText && <p className="mt-1 text-xs text-rose-300 line-clamp-2">{run.errorText}</p>}
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-3 md:p-4">
+      <div className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-cyan-300/90">Mission Control</p>
+            <h2 className="mt-1 flex items-center gap-2 text-xl font-semibold text-slate-100">
+              <Bot className="h-5 w-5 text-cyan-300" />
+              Agent Operations
+            </h2>
+            <p className="mt-1 text-sm text-slate-400">Operational cockpit for run orchestration, incident triage, and summary feed.</p>
           </div>
+          <div className="flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300">
+            <Activity className="h-3.5 w-3.5 text-cyan-300" />
+            {isRunning ? 'Daily run in progress' : 'Realtime monitoring active'}
+          </div>
+        </div>
+
+        {lastError && (
+          <div className="mt-3 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+            {lastError}
+          </div>
+        )}
+
+        <div className="mt-4 grid grid-cols-3 gap-2 text-xs md:hidden">
+          <button
+            onClick={() => setMobilePane('command')}
+            className={`rounded-lg border px-2 py-2 font-semibold ${mobilePane === 'command' ? 'border-cyan-400/50 bg-cyan-500/10 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
+          >
+            Command
+          </button>
+          <button
+            onClick={() => setMobilePane('queue')}
+            className={`rounded-lg border px-2 py-2 font-semibold ${mobilePane === 'queue' ? 'border-cyan-400/50 bg-cyan-500/10 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
+          >
+            Queue
+          </button>
+          <button
+            onClick={() => setMobilePane('feed')}
+            className={`rounded-lg border px-2 py-2 font-semibold ${mobilePane === 'feed' ? 'border-cyan-400/50 bg-cyan-500/10 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
+          >
+            Feed
+          </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-6">
-        <h4 className="font-semibold text-slate-900 mb-4">Capture Triage</h4>
-        <div className="space-y-3">
-          {triageItems.length === 0 && (
-            <p className="text-sm text-slate-500">No pending triage items.</p>
-          )}
-          {triageItems.map((item) => (
-            <div key={item.id} className="border border-slate-200 rounded-xl p-3">
-              <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-              <p className="text-xs text-slate-500 line-clamp-2 mt-1">{item.content}</p>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <button
-                  onClick={() => onResolveTriage(item.id, ParaType.TASK)}
-                  className="text-xs px-2 py-1 rounded-md bg-emerald-100 text-emerald-700"
-                >
-                  Approve Task
-                </button>
-                <button
-                  onClick={() => onResolveTriage(item.id, ParaType.PROJECT)}
-                  className="text-xs px-2 py-1 rounded-md bg-blue-100 text-blue-700"
-                >
-                  Convert Project
-                </button>
-                <button
-                  onClick={() => onOpenTriageItem(item.id)}
-                  className="text-xs px-2 py-1 rounded-md bg-slate-100 text-slate-700"
-                >
-                  Open
-                </button>
-              </div>
-            </div>
-          ))}
+      <div className="hidden xl:grid xl:grid-cols-[320px_minmax(0,1fr)_360px] xl:gap-4">
+        {renderCommandPane()}
+        {renderQueuePane()}
+        {renderFeedPane()}
+      </div>
+
+      <div className="hidden md:grid md:gap-4 xl:hidden">
+        <div className="grid gap-4 lg:grid-cols-2">
+          {renderCommandPane()}
+          {renderQueuePane()}
         </div>
+        {renderFeedPane()}
+      </div>
+
+      <div className="space-y-4 md:hidden">
+        {mobilePane === 'command' && renderCommandPane()}
+        {mobilePane === 'queue' && renderQueuePane()}
+        {mobilePane === 'feed' && renderFeedPane()}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import { fetchWithTimeoutRetry, runWithRetry } from './_lib/externalPolicy';
 
 // Initialize Services
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -243,14 +244,14 @@ async function processSmartAgentRequest(
         3. Reply: Thai, Concise.
         `;
 
-        const result = await ai.models.generateContent({
+        const result = await runWithRetry(() => ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: responseSchema
             }
-        });
+        }));
 
         const rawJSON = JSON.parse(result.text || "{}");
         const { operation, chatResponse, title, category, type, content, amount, transactionType, accountId, targetModuleId, moduleDataRaw, relatedItemId, suggestedTags, dueDate } = rawJSON;
@@ -373,7 +374,7 @@ async function processSmartAgentRequest(
 
 async function replyToLine(replyToken: string, accessToken: string, text: string) {
     try {
-        await fetch("https://api.line.me/v2/bot/message/reply", {
+        await fetchWithTimeoutRetry("https://api.line.me/v2/bot/message/reply", {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

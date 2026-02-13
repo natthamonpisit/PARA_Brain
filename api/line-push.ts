@@ -1,4 +1,6 @@
 
+import { fetchWithTimeoutRetry } from './_lib/externalPolicy';
+
 export default async function handler(req: any, res: any) {
   // 1. Check Method
   if (req.method !== 'POST') {
@@ -30,7 +32,7 @@ export default async function handler(req: any, res: any) {
     // 3. Call LINE Messaging API
     console.log(`Attempting to send message to configured user.`);
     
-    const response = await fetch("https://api.line.me/v2/bot/message/push", {
+    const response = await fetchWithTimeoutRetry("https://api.line.me/v2/bot/message/push", {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

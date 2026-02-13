@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
+import { runWithRetry } from './network_policy.mjs';
 
 function dateInTimeZone(timeZone, date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -97,11 +98,11 @@ async function embedQuery(ai, text, preferredModel) {
 
   for (const model of [...new Set(candidates)]) {
     try {
-      const response = await ai.models.embedContent({
+      const response = await runWithRetry(() => ai.models.embedContent({
         model,
         contents: [text],
         config: { outputDimensionality: 1536 }
-      });
+      }));
       const values = response?.embeddings?.[0]?.values || response?.embeddings?.[0]?.embedding?.values;
       if (!Array.isArray(values) || values.length !== 1536) {
         throw new Error('Failed to generate retrieval embedding');
@@ -281,7 +282,7 @@ export async function runDailyBrief(options = {}) {
     ].join('\n');
 
     const llmStart = Date.now();
-    const response = await ai.models.generateContent({ model, contents: prompt });
+    const response = await runWithRetry(() => ai.models.generateContent({ model, contents: prompt }));
     const llmMs = Date.now() - llmStart;
     const rawMarkdown = (response.text || '').trim();
     const outputMarkdown = ensureHeadings(rawMarkdown, effectiveRunDate);

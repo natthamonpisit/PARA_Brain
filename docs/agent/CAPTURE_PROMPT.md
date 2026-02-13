@@ -30,7 +30,8 @@ For every inbound message from Web/Telegram:
 2. If duplicate hints are strong, prefer `operation=CHAT` with duplicate-safe response.
 3. For tasks, link to project whenever possible.
 4. Keep `chatResponse` short and direct.
-5. Return JSON only, no markdown.
+5. If confidence below threshold, prepare for confirmation-first flow (do not force uncertain write).
+6. Return JSON only, no markdown.
 
 ## Example JSON
 ```json

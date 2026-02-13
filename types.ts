@@ -148,6 +148,8 @@ export interface TelegramLogPayloadV1 {
   dedup?: {
     isDuplicate?: boolean;
     reason?: string;
+    method?: 'EXACT_MESSAGE' | 'URL_MATCH' | 'SEMANTIC_VECTOR' | 'NONE';
+    similarity?: number;
     matchedItemId?: string;
     matchedTable?: string;
     matchedTitle?: string;

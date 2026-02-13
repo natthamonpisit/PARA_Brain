@@ -18,6 +18,8 @@ export type CaptureItemType = 'PARA' | 'TRANSACTION' | 'MODULE';
 interface DedupHints {
   isDuplicate: boolean;
   reason: string;
+  method?: 'EXACT_MESSAGE' | 'URL_MATCH' | 'SEMANTIC_VECTOR' | 'NONE';
+  similarity?: number;
   matchedItemId?: string;
   matchedTable?: string;
   matchedTitle?: string;
@@ -58,6 +60,11 @@ interface CaptureModelOutput {
   dedupRecommendation?: 'NEW' | 'LIKELY_DUPLICATE' | 'DUPLICATE';
 }
 
+interface ConfirmCommand {
+  force: boolean;
+  message: string;
+}
+
 export interface CapturePipelineInput {
   supabase: any;
   userMessage: string;
@@ -95,6 +102,8 @@ const PARA_TYPE_TO_TABLE: Record<string, string> = {
 
 const DEFAULT_INTENT: CaptureIntent = 'CHITCHAT';
 const DEFAULT_OPERATION: CaptureOperation = 'CHAT';
+const CONFIDENCE_CONFIRM_THRESHOLD = Number(process.env.CAPTURE_CONFIRM_THRESHOLD || 0.72);
+const SEMANTIC_DEDUP_THRESHOLD = Number(process.env.CAPTURE_SEMANTIC_DEDUP_THRESHOLD || 0.9);
 
 const truncate = (value: string, max = 180): string => {
   if (!value) return '';
@@ -102,6 +111,24 @@ const truncate = (value: string, max = 180): string => {
 };
 
 const normalizeMessage = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+const parseConfirmCommand = (rawMessage: string): ConfirmCommand => {
+  const text = normalizeMessage(rawMessage);
+  if (!text) return { force: false, message: text };
+  const patterns = [
+    /^ยืนยัน\s*[:\-]\s*(.+)$/i,
+    /^confirm\s*[:\-]\s*(.+)$/i,
+    /^yes\s*[:\-]\s*(.+)$/i
+  ];
+  for (const pattern of patterns) {
+    const matched = text.match(pattern);
+    if (matched?.[1]) {
+      return { force: true, message: normalizeMessage(matched[1]) };
+    }
+  }
+  const quickForce = /^(ยืนยัน|confirm|yes|สร้างเลย|ทำเลย)\b/i.test(text);
+  return { force: quickForce, message: text };
+};
 
 const extractUrls = (text: string): string[] => {
   const urls = text.match(/https?:\/\/[^\s)]+/gi) || [];
@@ -167,6 +194,78 @@ const findByTitle = (rows: any[], title: string): any | null => {
   return partial || null;
 };
 
+async function embedForSemanticDedup(apiKey: string, text: string): Promise<number[] | null> {
+  const ai = new GoogleGenAI({ apiKey });
+  const candidates = [
+    process.env.AGENT_EMBEDDING_MODEL || 'gemini-embedding-001',
+    'text-embedding-004'
+  ].filter(Boolean);
+
+  let lastError: any = null;
+  for (const model of [...new Set(candidates)]) {
+    try {
+      const response = await runWithRetry(() =>
+        ai.models.embedContent({
+          model,
+          contents: [text],
+          config: { outputDimensionality: 1536 }
+        })
+      );
+      const values = response?.embeddings?.[0]?.values || response?.embeddings?.[0]?.embedding?.values;
+      if (Array.isArray(values) && values.length === 1536) {
+        return values;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    console.warn('[capturePipeline] semantic embedding unavailable:', lastError?.message || lastError);
+  }
+  return null;
+}
+
+async function semanticVectorDuplicateCheck(params: {
+  supabase: any;
+  apiKey: string;
+  message: string;
+}): Promise<DedupHints | null> {
+  const embedding = await embedForSemanticDedup(params.apiKey, params.message);
+  if (!embedding) return null;
+
+  try {
+    const queryEmbedding = `[${embedding.join(',')}]`;
+    const rpc = await params.supabase.rpc('match_memory_chunks', {
+      query_embedding: queryEmbedding,
+      match_count: 3,
+      source_tables: ['projects', 'tasks', 'resources']
+    });
+
+    if (rpc.error) {
+      console.warn('[capturePipeline] semantic dedup rpc failed:', rpc.error.message);
+      return null;
+    }
+
+    const top = Array.isArray(rpc.data) && rpc.data.length > 0 ? rpc.data[0] : null;
+    const similarity = Number(top?.similarity || 0);
+    if (top && Number.isFinite(similarity) && similarity >= SEMANTIC_DEDUP_THRESHOLD) {
+      return {
+        isDuplicate: true,
+        reason: `Semantic match ${similarity.toFixed(3)} from ${top.source_table || 'memory_chunks'}`,
+        method: 'SEMANTIC_VECTOR',
+        similarity,
+        matchedItemId: top.source_id ? String(top.source_id) : undefined,
+        matchedTable: top.source_table ? String(top.source_table) : undefined
+      };
+    }
+  } catch (error: any) {
+    console.warn('[capturePipeline] semantic dedup check failed:', error?.message || error);
+  }
+
+  return null;
+}
+
 async function loadCaptureContext(supabase: any): Promise<CaptureContext> {
   const [projectsRes, areasRes, tasksRes, resourcesRes, accountsRes, modulesRes] = await Promise.all([
     supabase
@@ -207,9 +306,10 @@ async function detectDuplicateHints(params: {
   supabase: any;
   message: string;
   urls: string[];
+  geminiApiKey: string;
   excludeLogId?: string;
 }): Promise<DedupHints> {
-  const { supabase, message, urls, excludeLogId } = params;
+  const { supabase, message, urls, excludeLogId, geminiApiKey } = params;
 
   const recentLogRes = await supabase
     .from('system_logs')
@@ -223,6 +323,7 @@ async function detectDuplicateHints(params: {
     return {
       isDuplicate: true,
       reason: 'Exact same message already captured in system_logs',
+      method: 'EXACT_MESSAGE',
       matchedLogId: recentLog.id
     };
   }
@@ -240,6 +341,7 @@ async function detectDuplicateHints(params: {
       return {
         isDuplicate: true,
         reason: 'Found matching URL in resources',
+        method: 'URL_MATCH',
         matchedItemId: resourceMatch.id,
         matchedTable: 'resources',
         matchedTitle: resourceMatch.title,
@@ -252,6 +354,7 @@ async function detectDuplicateHints(params: {
       return {
         isDuplicate: true,
         reason: 'Found matching URL in tasks',
+        method: 'URL_MATCH',
         matchedItemId: taskMatch.id,
         matchedTable: 'tasks',
         matchedTitle: taskMatch.title,
@@ -264,6 +367,7 @@ async function detectDuplicateHints(params: {
       return {
         isDuplicate: true,
         reason: 'Found matching URL in projects',
+        method: 'URL_MATCH',
         matchedItemId: projectMatch.id,
         matchedTable: 'projects',
         matchedTitle: projectMatch.title,
@@ -272,9 +376,17 @@ async function detectDuplicateHints(params: {
     }
   }
 
+  const semanticHint = await semanticVectorDuplicateCheck({
+    supabase,
+    apiKey: geminiApiKey,
+    message
+  });
+  if (semanticHint?.isDuplicate) return semanticHint;
+
   return {
     isDuplicate: false,
-    reason: 'No exact duplicate signal from logs or URLs'
+    reason: 'No duplicate signal from exact/url/semantic checks',
+    method: 'NONE'
   };
 }
 
@@ -312,6 +424,7 @@ Core behavior:
 5. If task has no matching project but user clearly implies a project, propose relatedProjectTitle and createProjectIfMissing=true.
 6. Use dedup hints: if likely duplicate, avoid new create unless user explicitly asks to create another.
 7. Keep assistant response concise in Thai.
+8. If confidence is low (< ${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}) for write operation, keep operation but provide data that can be confirmed.
 
 PARA constraints:
 - Task should belong to a project when possible.
@@ -440,7 +553,9 @@ async function analyzeCapture(params: {
 export async function runCapturePipeline(input: CapturePipelineInput): Promise<CapturePipelineResult> {
   const timezone = input.timezone || 'Asia/Bangkok';
   const approvalGatesEnabled = input.approvalGatesEnabled === true;
-  const message = normalizeMessage(input.userMessage);
+  const confirmCommand = parseConfirmCommand(input.userMessage);
+  const forceConfirmed = confirmCommand.force;
+  const message = normalizeMessage(confirmCommand.message);
 
   const [context, dedup] = await Promise.all([
     loadCaptureContext(input.supabase),
@@ -448,6 +563,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       supabase: input.supabase,
       message,
       urls: extractUrls(message),
+      geminiApiKey: input.geminiApiKey,
       excludeLogId: input.excludeLogId
     })
   ]);
@@ -473,7 +589,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     operation = 'CHAT';
   }
 
-  if (dedup.isDuplicate && operation !== 'CHAT') {
+  if (dedup.isDuplicate && operation !== 'CHAT' && !forceConfirmed) {
     operation = 'CHAT';
     chatResponse = `ข้อมูลนี้ดูเหมือนเคยมีแล้ว (${dedup.reason}) ผมยังไม่สร้างรายการซ้ำให้นะครับ`;
     return {
@@ -488,7 +604,40 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       status: 'SKIPPED_DUPLICATE',
       dedup,
       meta: {
-        dedupRecommendation: modelOutput.dedupRecommendation || 'DUPLICATE'
+        dedupRecommendation: modelOutput.dedupRecommendation || 'DUPLICATE',
+        requiresConfirmation: false
+      }
+    };
+  }
+
+  const requiresConfirmation =
+    !forceConfirmed &&
+    operation !== 'CHAT' &&
+    isActionable &&
+    confidence < CONFIDENCE_CONFIRM_THRESHOLD;
+  if (requiresConfirmation) {
+    const suggestedTitle = String(modelOutput.title || truncate(message, 80));
+    const pendingMsg = [
+      `${chatResponse}`,
+      '',
+      `ผมยังไม่บันทึกทันที เพราะความมั่นใจยังต่ำ (${Math.round(confidence * 100)}%).`,
+      `ถ้าต้องการให้สร้างตอนนี้ ให้พิมพ์: ยืนยัน: ${suggestedTitle}`
+    ].join('\n');
+    return {
+      success: true,
+      source: input.source,
+      intent,
+      confidence,
+      isActionable,
+      operation,
+      chatResponse: pendingMsg,
+      actionType: 'NEEDS_CONFIRMATION',
+      status: 'PENDING',
+      dedup,
+      meta: {
+        requiresConfirmation: true,
+        suggestedTitle,
+        confirmThreshold: CONFIDENCE_CONFIRM_THRESHOLD
       }
     };
   }
@@ -617,7 +766,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
           meta: {
             table,
             paraType,
-            autoProjectCreated: createdItems.length > 1
+            autoProjectCreated: createdItems.length > 1,
+            forceConfirmed
           }
         };
       }
@@ -657,7 +807,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         dedup,
         meta: {
           table,
-          paraType
+          paraType,
+          forceConfirmed
         }
       };
     }
@@ -707,7 +858,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         status: 'SUCCESS',
         dedup,
         meta: {
-          table: 'transactions'
+          table: 'transactions',
+          forceConfirmed
         }
       };
     }
@@ -767,7 +919,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         status: 'SUCCESS',
         dedup,
         meta: {
-          table: 'module_items'
+          table: 'module_items',
+          forceConfirmed
         }
       };
     }
@@ -821,7 +974,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         status: 'SUCCESS',
         dedup,
         meta: {
-          table: 'tasks'
+          table: 'tasks',
+          forceConfirmed
         }
       };
     }

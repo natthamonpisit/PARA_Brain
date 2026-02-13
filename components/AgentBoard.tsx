@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { AgentRun, MemorySummary, ParaItem, ParaType } from '../types';
+import type { CaptureKpis } from '../hooks/useAgentData';
 import {
   Activity,
   AlertTriangle,
@@ -33,6 +34,7 @@ interface AgentBoardProps {
     net30d: number;
     automationSuccessRate7d: number;
   };
+  captureKpis?: CaptureKpis;
 }
 
 const statusClass: Record<AgentRun['status'], string> = {
@@ -58,7 +60,8 @@ export const AgentBoard: React.FC<AgentBoardProps> = ({
   onRunDaily,
   onResolveTriage,
   onOpenTriageItem,
-  opsKpis
+  opsKpis,
+  captureKpis
 }) => {
   const [mobilePane, setMobilePane] = useState<'command' | 'queue' | 'feed'>('command');
 
@@ -159,6 +162,38 @@ export const AgentBoard: React.FC<AgentBoardProps> = ({
             <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
               <p className="text-[11px] text-slate-500">Run Success 7d</p>
               <p className="mt-1 text-lg font-semibold text-slate-100">{opsKpis.automationSuccessRate7d.toFixed(1)}%</p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {captureKpis && (
+        <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-cyan-300/90">Capture Intelligence</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Captured Today</p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">{captureKpis.totalToday}</p>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Actionable Today</p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">{captureKpis.actionableToday}</p>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Intent Accuracy (Proxy)</p>
+              <p className="mt-1 text-lg font-semibold text-cyan-200">{captureKpis.intentAccuracyProxy.toFixed(1)}%</p>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Duplicate Skip Rate</p>
+              <p className="mt-1 text-lg font-semibold text-amber-200">{captureKpis.duplicateSkipRate.toFixed(1)}%</p>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Pending Confirm</p>
+              <p className="mt-1 text-lg font-semibold text-rose-200">{captureKpis.pendingConfirmations}</p>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+              <p className="text-[11px] text-slate-500">Avg Confidence</p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">{captureKpis.avgConfidence.toFixed(1)}%</p>
             </div>
           </div>
         </section>

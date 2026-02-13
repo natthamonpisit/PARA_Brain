@@ -25,6 +25,8 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vRVh2cBTUcaOIZ9-0Hlasb
    - `TELEGRAM_WEBHOOK_SECRET` (optional but recommended)
    - `CRON_SECRET`
    - `CAPTURE_API_SECRET` (optional)
+   - `CAPTURE_CONFIRM_THRESHOLD` (optional, default `0.72`)
+   - `CAPTURE_SEMANTIC_DEDUP_THRESHOLD` (optional, default `0.9`)
 5. Run the app:
    `npm run dev`
 
@@ -56,6 +58,7 @@ Generate a mock daily brief:
 - Unified capture endpoint (web + telegram behavior parity):
   - `POST /api/capture-intake` (`{ source, message, eventId? }`)
   - Optional auth with `x-capture-key` when `CAPTURE_API_SECRET` is set
+  - Supports semantic dedup (vector retrieval) and low-confidence confirmation gate before DB create
 - Telegram endpoints:
   - `POST /api/telegram-webhook` (set as bot webhook URL)
   - `POST /api/telegram-push` (manual push helper)

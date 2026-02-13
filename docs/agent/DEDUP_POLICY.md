@@ -6,7 +6,7 @@ Prevent duplicate tasks/projects/resources when the same idea is captured from d
 ## Signals
 1. Exact message duplicate (same normalized `user_message` in `system_logs`)
 2. Link duplicate (same URL already appears in `resources/tasks/projects` content)
-3. Optional semantic duplicate (future extension via vector similarity)
+3. Semantic duplicate via vector retrieval (`match_memory_chunks` with message embedding)
 
 ## Decision Thresholds
 - High confidence duplicate:
@@ -18,6 +18,10 @@ Prevent duplicate tasks/projects/resources when the same idea is captured from d
   - => ask short confirmation or create as sub-task
 - Low confidence:
   - create normally
+
+## Semantic Threshold
+- Default semantic duplicate threshold: `0.90`
+- Configurable by env: `CAPTURE_SEMANTIC_DEDUP_THRESHOLD`
 
 ## Idempotency
 - Telegram: use `update_id` as `event_id`

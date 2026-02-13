@@ -46,6 +46,7 @@ export default function App() {
       isRunning: isRunningAgent,
       lastError: agentError,
       runs: agentRuns,
+      captureKpis,
       latestSummary,
       refresh: refreshAgentData,
       triggerDailyRun
@@ -622,6 +623,7 @@ export default function App() {
                                 runs={agentRuns}
                                 triageItems={triageItems}
                                 opsKpis={opsKpis}
+                                captureKpis={captureKpis}
                                 onRefresh={refreshAgentData}
                                 onRunDaily={async (opts) => {
                                     try {

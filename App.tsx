@@ -469,10 +469,13 @@ export default function App() {
     }
 
     const now = new Date().toISOString();
+    const citationLines = (article.citations || [])
+      .slice(0, 3)
+      .map((citation, index) => `${index + 1}. ${citation.label}: ${citation.url}`);
     const nextItem: ParaItem = {
       id: generateId(),
       title: article.title,
-      content: `${article.summary || ''}\n\nSource: ${article.source}\nPublished: ${article.publishedAt}\nLink: ${article.url}`.trim(),
+      content: `${article.summary || ''}\n\nSource: ${article.source}\nPublished: ${article.publishedAt}\nProvider: ${article.provider || 'RSS'}\nLink: ${article.url}${citationLines.length ? `\n\nCitations:\n${citationLines.join('\n')}` : ''}`.trim(),
       type: ParaType.RESOURCE,
       category: article.category || 'News',
       tags: Array.from(

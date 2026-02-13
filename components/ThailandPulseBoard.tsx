@@ -77,6 +77,14 @@ const tierTone: Record<string, string> = {
   UNKNOWN: 'border-slate-500/50 bg-slate-700/40 text-slate-100'
 };
 
+const providerTone: Record<string, string> = {
+  RSS: 'border-slate-600 bg-slate-800/80 text-slate-200',
+  EXA: 'border-cyan-400/35 bg-cyan-500/10 text-cyan-100',
+  'EXA+FIRECRAWL': 'border-emerald-400/35 bg-emerald-500/10 text-emerald-100',
+  MIXED: 'border-violet-400/35 bg-violet-500/10 text-violet-100',
+  FALLBACK: 'border-amber-400/35 bg-amber-500/10 text-amber-100'
+};
+
 const limitArticlesForPhaseOne = 4;
 
 export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveArticle }) => {
@@ -242,13 +250,15 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
           </div>
           <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Trend Signals</p>
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">Provider</p>
               <HelpTip
-                th="คีย์เวิร์ดที่ถูกพูดถึงบ่อยที่สุดในชุดข่าวรอบนี้"
-                en="Most repeated keywords detected across this pulse batch."
+                th="แหล่งค้นหา/ดึงข้อมูลหลักของ snapshot นี้ เช่น RSS หรือ EXA+FIRECRAWL"
+                en="Primary ingestion provider used for this snapshot, such as RSS or EXA+FIRECRAWL."
               />
             </div>
-            <p className="mt-1 text-xl font-semibold text-cyan-100">{currentSnapshot.trends.length}</p>
+            <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${providerTone[currentSnapshot.provider || 'RSS'] || providerTone.RSS}`}>
+              {currentSnapshot.provider || 'RSS'}
+            </span>
           </div>
         </div>
 
@@ -351,8 +361,41 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
                         <span className={`rounded-full border px-2 py-0.5 ${tierTone[article.trustTier] || tierTone.UNKNOWN}`}>
                           Tier {article.trustTier}
                         </span>
+                        {article.provider && (
+                          <span className={`rounded-full border px-2 py-0.5 ${providerTone[article.provider] || providerTone.RSS}`}>
+                            {article.provider}
+                          </span>
+                        )}
                         <span className="text-slate-500">{formatRelativeTime(article.publishedAt)}</span>
                       </div>
+                      {article.citations && article.citations.length > 0 && (
+                        <details className="mt-2 rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-2">
+                          <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-200">
+                            Sources ({article.citations.length})
+                          </summary>
+                          <div className="mt-2 space-y-2">
+                            {article.citations.slice(0, 3).map((citation, idx) => (
+                              <div key={`${citation.url}-${idx}`} className="rounded-md border border-slate-700 bg-slate-900/90 px-2 py-1.5">
+                                <a
+                                  href={citation.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-xs font-semibold text-cyan-100 hover:text-cyan-200"
+                                >
+                                  {citation.label || 'Source'}
+                                </a>
+                                <p className="mt-1 text-[11px] text-slate-400">
+                                  {citation.publisher || article.source}
+                                  {citation.publishedAt ? ` • ${new Date(citation.publishedAt).toLocaleString()}` : ''}
+                                </p>
+                                {citation.evidence && (
+                                  <p className="mt-1 line-clamp-2 text-[11px] text-slate-500">{citation.evidence}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
                       <div className="mt-3 flex flex-wrap gap-2">
                         <a
                           href={article.url}

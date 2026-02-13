@@ -1,4 +1,15 @@
 export type PulseTrustTier = 'A' | 'B' | 'C' | 'UNKNOWN';
+export type PulseProvider = 'RSS' | 'EXA' | 'EXA+FIRECRAWL' | 'MIXED' | 'FALLBACK';
+
+export interface PulseCitation {
+  label: string;
+  url: string;
+  publisher?: string;
+  publishedAt?: string;
+  retrievedAt?: string;
+  provider?: PulseProvider;
+  evidence?: string;
+}
 
 export interface PulseArticle {
   id: string;
@@ -11,6 +22,8 @@ export interface PulseArticle {
   trustTier: PulseTrustTier;
   category: string;
   keywords: string[];
+  provider?: PulseProvider;
+  citations?: PulseCitation[];
 }
 
 export interface PulseCategorySnapshot {
@@ -41,6 +54,7 @@ export interface ThailandPulseSnapshot {
   sourceCoverage: PulseSourceCoverage[];
   notes: string[];
   isFallback?: boolean;
+  provider?: PulseProvider;
 }
 
 const SNAPSHOT_STORAGE_KEY = 'para-thailand-pulse-snapshots-v1';
@@ -145,6 +159,7 @@ const buildFallbackSnapshot = (interests: string[]): ThailandPulseSnapshot => {
     generatedAt,
     interests,
     isFallback: true,
+    provider: 'FALLBACK',
     notes: [
       'Live feed unavailable. Showing fallback snapshot.',
       'Try refresh again when the feed endpoint is reachable.'
@@ -169,7 +184,16 @@ const buildFallbackSnapshot = (interests: string[]): ThailandPulseSnapshot => {
           publishedAt: generatedAt,
           trustTier: 'B',
           category: interest,
-          keywords: [interest]
+          keywords: [interest],
+          provider: 'FALLBACK',
+          citations: [
+            {
+              label: 'Google News Search',
+              url: `https://news.google.com/search?q=${encodeURIComponent(`${interest} Thailand`)}`,
+              provider: 'FALLBACK',
+              retrievedAt: generatedAt
+            }
+          ]
         }
       ]
     }))

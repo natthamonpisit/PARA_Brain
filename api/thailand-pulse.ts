@@ -1,26 +1,37 @@
 type TrustTier = 'A' | 'B' | 'C' | 'UNKNOWN';
+type PulseProvider = 'RSS' | 'EXA' | 'EXA+FIRECRAWL' | 'MIXED' | 'FALLBACK';
 
-interface ParsedFeedItem {
+interface ParsedItem {
   title: string;
   summary: string;
   link: string;
   publishedAt: string;
   source: string;
   sourceUrl?: string;
+  provider: PulseProvider;
+  citations?: Array<{
+    label: string;
+    url: string;
+    publisher?: string;
+    publishedAt?: string;
+    retrievedAt?: string;
+    provider?: PulseProvider;
+    evidence?: string;
+  }>;
 }
 
 const MAX_ITEMS_PER_CATEGORY = 8;
-const REQUEST_TIMEOUT_MS = 9000;
+const FIRECRAWL_ENRICH_PER_CATEGORY = 2;
+const REQUEST_TIMEOUT_MS = 10000;
 const DEFAULT_INTERESTS = ['Technology', 'AI', 'Economic', 'Political', 'Business'];
 
 const GOOGLE_NEWS_BASE = 'https://news.google.com/rss/search';
+const EXA_SEARCH_ENDPOINT = 'https://api.exa.ai/search';
+const FIRECRAWL_SCRAPE_ENDPOINT = 'https://api.firecrawl.dev/v1/scrape';
 
-const TRUST_PATTERNS: Array<{
-  pattern: RegExp;
-  tier: TrustTier;
-}> = [
+const TRUST_PATTERNS: Array<{ pattern: RegExp; tier: TrustTier }> = [
   { pattern: /reuters|associated press|ap news|bbc|financial times|bloomberg|nikkei|the economist/i, tier: 'A' },
-  { pattern: /thai pbs|bangkok post|the nation thailand|prachatai|thairath|matichon|the standard/i, tier: 'B' },
+  { pattern: /thai pbs|bangkok post|the nation thailand|nationthailand|prachatai|thairath|matichon|the standard/i, tier: 'B' },
   { pattern: /blog|forum|opinion/i, tier: 'C' }
 ];
 
@@ -73,6 +84,15 @@ const decodeEntities = (value: string) =>
     .replace(/&#39;/g, "'")
     .trim();
 
+const stripHtml = (value: string) =>
+  decodeEntities(value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+
+const excerpt = (value: string, max = 280) => {
+  const normalized = stripHtml(value);
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max - 3)}...`;
+};
+
 const extractTag = (block: string, tag: string) => {
   const regex = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i');
   const match = block.match(regex);
@@ -112,11 +132,20 @@ const trustTierFromSource = (source: string): TrustTier => {
   return matched ? matched.tier : 'UNKNOWN';
 };
 
-const parseRss = (xml: string): ParsedFeedItem[] => {
+const domainFromUrl = (link: string) => {
+  try {
+    const url = new URL(link);
+    return url.hostname.replace(/^www\./, '');
+  } catch {
+    return 'unknown-source';
+  }
+};
+
+const parseRss = (xml: string): ParsedItem[] => {
   const matches = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
   return matches.map((block) => {
     const title = extractTag(block, 'title');
-    const summary = extractTag(block, 'description');
+    const summary = excerpt(extractTag(block, 'description'));
     const link = normalizeLink(extractTag(block, 'link'));
     const publishedAt = toIsoTime(extractTag(block, 'pubDate'));
     const sourceMeta = extractSource(block);
@@ -126,31 +155,177 @@ const parseRss = (xml: string): ParsedFeedItem[] => {
       link,
       publishedAt,
       source: sourceMeta.source,
-      sourceUrl: sourceMeta.sourceUrl
+      sourceUrl: sourceMeta.sourceUrl,
+      provider: 'RSS',
+      citations: [
+        {
+          label: 'RSS source',
+          url: sourceMeta.sourceUrl || link,
+          publisher: sourceMeta.source,
+          publishedAt,
+          retrievedAt: new Date().toISOString(),
+          provider: 'RSS'
+        }
+      ]
     };
   });
 };
 
-const fetchRss = async (query: string): Promise<ParsedFeedItem[]> => {
-  const url = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=th&gl=TH&ceid=TH:th`;
+const fetchWithTimeout = async (url: string, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS) => {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'user-agent': 'Mozilla/5.0 PARA-Brain-Pulse/1.0'
-      }
-    });
-    if (!response.ok) {
-      throw new Error(`Feed request failed (${response.status})`);
-    }
-    const text = await response.text();
-    return parseRss(text);
+    return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
+};
+
+const fetchRss = async (query: string): Promise<ParsedItem[]> => {
+  const url = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=th&gl=TH&ceid=TH:th`;
+  const response = await fetchWithTimeout(url, {
+    headers: { 'user-agent': 'Mozilla/5.0 PARA-Brain-Pulse/1.1' }
+  });
+  if (!response.ok) {
+    throw new Error(`Feed request failed (${response.status})`);
+  }
+  const text = await response.text();
+  return parseRss(text);
+};
+
+const fetchExa = async (query: string, apiKey: string): Promise<ParsedItem[]> => {
+  const response = await fetchWithTimeout(EXA_SEARCH_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey
+    },
+    body: JSON.stringify({
+      query,
+      type: 'auto',
+      numResults: 12,
+      text: true,
+      useAutoprompt: false
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Exa search failed (${response.status})`);
+  }
+
+  const payload = await response.json();
+  const rows = payload?.results || payload?.data?.results || [];
+  return rows
+    .map((row: any) => {
+      const link = normalizeLink(String(row?.url || ''));
+      const title = String(row?.title || '').trim();
+      if (!title || !link) return null;
+      const summary = excerpt(String(row?.summary || row?.text || ''), 320);
+      const publishedAt = toIsoTime(String(row?.publishedDate || row?.published_date || row?.crawlDate || ''));
+      const source = domainFromUrl(link);
+      const sourceUrl = (() => {
+        try {
+          const url = new URL(link);
+          return `${url.protocol}//${url.host}`;
+        } catch {
+          return undefined;
+        }
+      })();
+
+      return {
+        title,
+        summary,
+        link,
+        publishedAt,
+        source,
+        sourceUrl,
+        provider: 'EXA' as PulseProvider,
+        citations: [
+          {
+            label: 'Exa discovery',
+            url: link,
+            publisher: source,
+            publishedAt,
+            retrievedAt: new Date().toISOString(),
+            provider: 'EXA'
+          }
+        ]
+      };
+    })
+    .filter(Boolean) as ParsedItem[];
+};
+
+const enrichWithFirecrawl = async (item: ParsedItem, apiKey: string): Promise<ParsedItem> => {
+  try {
+    const response = await fetchWithTimeout(FIRECRAWL_SCRAPE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        url: item.link,
+        formats: ['markdown'],
+        onlyMainContent: true
+      })
+    });
+    if (!response.ok) return item;
+
+    const payload = await response.json();
+    const data = payload?.data;
+    if (!data) return item;
+
+    const markdown = String(data?.markdown || '');
+    const metadata = data?.metadata || {};
+    const evidence = excerpt(markdown, 260);
+    const nextSummary =
+      excerpt(String(metadata?.description || ''), 260) ||
+      (evidence.length > 0 ? evidence : item.summary);
+    const nextTitle = String(metadata?.title || '').trim() || item.title;
+    const retrievedAt = new Date().toISOString();
+
+    return {
+      ...item,
+      title: nextTitle,
+      summary: nextSummary,
+      provider: item.provider === 'EXA' ? 'EXA+FIRECRAWL' : 'MIXED',
+      citations: [
+        ...(item.citations || []),
+        {
+          label: 'Firecrawl extraction',
+          url: item.link,
+          publisher: item.source,
+          publishedAt: item.publishedAt,
+          retrievedAt,
+          provider: item.provider === 'EXA' ? 'EXA+FIRECRAWL' : 'MIXED',
+          evidence
+        }
+      ]
+    };
+  } catch {
+    return item;
+  }
+};
+
+const mergeByLink = (rows: ParsedItem[]) => {
+  const unique = new Map<string, ParsedItem>();
+  rows.forEach((row) => {
+    if (!row.title || !row.link) return;
+    const key = normalizeLink(row.link);
+    if (!unique.has(key)) {
+      unique.set(key, row);
+      return;
+    }
+    const current = unique.get(key)!;
+    const mergedCitations = [...(current.citations || []), ...(row.citations || [])];
+    unique.set(key, {
+      ...current,
+      summary: current.summary.length >= row.summary.length ? current.summary : row.summary,
+      provider: current.provider === row.provider ? current.provider : 'MIXED',
+      citations: mergedCitations
+    });
+  });
+  return Array.from(unique.values());
 };
 
 const buildQuery = (interest: string) => {
@@ -227,6 +402,13 @@ const normalizeInterests = (input: unknown) => {
 const stableId = (prefix: string, link: string, index: number) =>
   `${prefix.toLowerCase().replace(/\s+/g, '-')}-${Buffer.from(`${link}-${index}`).toString('base64').slice(0, 12)}`;
 
+const detectSnapshotProvider = (providers: PulseProvider[]): PulseProvider => {
+  if (providers.length === 0) return 'FALLBACK';
+  const unique = Array.from(new Set(providers));
+  if (unique.length === 1) return unique[0];
+  return unique.includes('EXA+FIRECRAWL') ? 'EXA+FIRECRAWL' : 'MIXED';
+};
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -234,22 +416,32 @@ export default async function handler(req: any, res: any) {
 
   const startedAt = Date.now();
   const notes: string[] = [];
+  const exaApiKey = process.env.EXA_API_KEY;
+  const firecrawlApiKey = process.env.FIRECRAWL_API_KEY;
 
   try {
     const interests = normalizeInterests(req.query?.interests);
+
     const categories = await Promise.all(
       interests.map(async (interest) => {
         const query = buildQuery(interest);
-        try {
-          const rows = await fetchRss(query);
-          const unique = new Map<string, ParsedFeedItem>();
-          rows.forEach((row) => {
-            if (!row.title || !row.link) return;
-            const key = normalizeLink(row.link);
-            if (!unique.has(key)) unique.set(key, row);
-          });
 
-          const articles = Array.from(unique.values())
+        try {
+          const exaRows = exaApiKey ? await fetchExa(query, exaApiKey) : [];
+          const rssRows = exaRows.length < 5 ? await fetchRss(query) : [];
+          const merged = mergeByLink([...exaRows, ...rssRows]).slice(0, MAX_ITEMS_PER_CATEGORY);
+
+          const shouldEnrich = Boolean(firecrawlApiKey) && merged.length > 0;
+          const enrichTargets = shouldEnrich ? merged.slice(0, FIRECRAWL_ENRICH_PER_CATEGORY) : [];
+          const enrichedTop = shouldEnrich
+            ? await Promise.all(enrichTargets.map((row) => enrichWithFirecrawl(row, firecrawlApiKey!)))
+            : enrichTargets;
+
+          const byLink = new Map<string, ParsedItem>();
+          merged.forEach((row) => byLink.set(normalizeLink(row.link), row));
+          enrichedTop.forEach((row) => byLink.set(normalizeLink(row.link), row));
+
+          const articles = Array.from(byLink.values())
             .slice(0, MAX_ITEMS_PER_CATEGORY)
             .map((row, index) => {
               const trustTier = trustTierFromSource(row.source);
@@ -264,6 +456,8 @@ export default async function handler(req: any, res: any) {
                 publishedAt: row.publishedAt,
                 trustTier,
                 category: interest,
+                provider: row.provider,
+                citations: row.citations || [],
                 keywords: Array.from(new Set(words.map((word) => word.toLowerCase()))).slice(0, 8)
               };
             });
@@ -272,24 +466,18 @@ export default async function handler(req: any, res: any) {
             notes.push(`No results for ${interest}.`);
           }
 
-          return {
-            name: interest,
-            query,
-            articles
-          };
+          return { name: interest, query, articles };
         } catch (error: any) {
           notes.push(`Failed ${interest}: ${error?.message || 'unknown error'}`);
-          return {
-            name: interest,
-            query,
-            articles: []
-          };
+          return { name: interest, query, articles: [] };
         }
       })
     );
 
     const allArticles = categories.flatMap((category) => category.articles);
-    const trends = trendFromTitles(allArticles.map((article) => ({ title: article.title, category: article.category })));
+    const trends = trendFromTitles(
+      allArticles.map((article) => ({ title: article.title, category: article.category }))
+    );
     const coverage = sourceCoverage(
       allArticles.map((article) => ({
         source: article.source || 'Unknown source',
@@ -297,8 +485,14 @@ export default async function handler(req: any, res: any) {
       }))
     );
 
+    if (!exaApiKey) notes.push('EXA_API_KEY not set: using RSS-only discovery.');
+    if (!firecrawlApiKey) notes.push('FIRECRAWL_API_KEY not set: citation enrichment disabled.');
+
     const generatedAt = new Date().toISOString();
     const dateKey = generatedAt.slice(0, 10);
+    const snapshotProviders = allArticles.map((article) => article.provider || 'RSS');
+    const provider = detectSnapshotProvider(snapshotProviders);
+
     const snapshot = {
       id: `pulse-${dateKey}-${Date.now().toString(36)}`,
       dateKey,
@@ -307,7 +501,8 @@ export default async function handler(req: any, res: any) {
       categories,
       trends,
       sourceCoverage: coverage,
-      notes
+      notes,
+      provider
     };
 
     return res.status(200).json({

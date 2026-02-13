@@ -934,8 +934,20 @@ export const generateThailandPulseSnapshot = async (opts: {
           try {
             const exaRows = opts.exaApiKey ? await fetchExa(query, opts.exaApiKey) : [];
             const rssRows = exaRows.length < 5 ? await fetchRss(query, region.id) : [];
-            const merged = mergeByLink([...exaRows, ...rssRows]).slice(0, MAX_ITEMS_PER_CATEGORY);
-            const sourceFiltered = merged.filter((row) => {
+            let merged = mergeByLink([...exaRows, ...rssRows]).slice(0, MAX_ITEMS_PER_CATEGORY);
+
+            // Global feeds can occasionally be sparse for narrow keywords.
+            // If empty, retry with a broader query before final scoring.
+            if (region.id === 'GLOBAL' && merged.length === 0) {
+              const fallbackQuery = `${interest} latest news`;
+              const fallbackRssRows = await fetchRss(fallbackQuery, region.id);
+              merged = mergeByLink([...exaRows, ...rssRows, ...fallbackRssRows]).slice(0, MAX_ITEMS_PER_CATEGORY);
+              if (merged.length > 0) {
+                notes.push(`${region.label}/${interest}: fallback query used (${fallbackQuery}).`);
+              }
+            }
+
+            const policyFiltered = merged.filter((row) => {
               const domain = normalizeDomain(domainFromUrl(row.link));
               if (effectiveSourcePolicy.denyDomains.length > 0 && isDomainMatch(domain, effectiveSourcePolicy.denyDomains)) {
                 return false;
@@ -945,18 +957,41 @@ export const generateThailandPulseSnapshot = async (opts: {
               }
               return true;
             });
-            if (merged.length > sourceFiltered.length) {
-              notes.push(`${region.label}/${interest}: filtered ${merged.length - sourceFiltered.length} article(s) by source policy.`);
+
+            if (merged.length > policyFiltered.length) {
+              notes.push(`${region.label}/${interest}: filtered ${merged.length - policyFiltered.length} article(s) by source policy.`);
             }
 
-            const shouldEnrich = Boolean(opts.firecrawlApiKey) && sourceFiltered.length > 0;
-            const enrichTargets = shouldEnrich ? sourceFiltered.slice(0, FIRECRAWL_ENRICH_PER_CATEGORY) : [];
+            // If GLOBAL becomes empty because allow-domain is too strict, relax allow list
+            // (deny list still enforced) to avoid blank Global section.
+            let effectiveRows = policyFiltered;
+            if (
+              region.id === 'GLOBAL' &&
+              merged.length > 0 &&
+              policyFiltered.length === 0 &&
+              effectiveSourcePolicy.allowDomains.length > 0
+            ) {
+              const denyOnlyRows = merged.filter((row) => {
+                const domain = normalizeDomain(domainFromUrl(row.link));
+                if (effectiveSourcePolicy.denyDomains.length > 0 && isDomainMatch(domain, effectiveSourcePolicy.denyDomains)) {
+                  return false;
+                }
+                return true;
+              });
+              if (denyOnlyRows.length > 0) {
+                effectiveRows = denyOnlyRows;
+                notes.push(`${region.label}/${interest}: allow-domain policy was relaxed to keep Global section populated.`);
+              }
+            }
+
+            const shouldEnrich = Boolean(opts.firecrawlApiKey) && effectiveRows.length > 0;
+            const enrichTargets = shouldEnrich ? effectiveRows.slice(0, FIRECRAWL_ENRICH_PER_CATEGORY) : [];
             const enrichedTop = shouldEnrich
               ? await Promise.all(enrichTargets.map((row) => enrichWithFirecrawl(row, opts.firecrawlApiKey!)))
               : enrichTargets;
 
             const byLink = new Map<string, ParsedItem>();
-            sourceFiltered.forEach((row) => byLink.set(normalizeLink(row.link), row));
+            effectiveRows.forEach((row) => byLink.set(normalizeLink(row.link), row));
             enrichedTop.forEach((row) => byLink.set(normalizeLink(row.link), row));
 
             const scoredArticles = Array.from(byLink.values())

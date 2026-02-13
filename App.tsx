@@ -481,6 +481,7 @@ export default function App() {
       tags: Array.from(
         new Set([
           'news',
+          'world-pulse',
           'thailand-pulse',
           `tier-${article.trustTier.toLowerCase()}`,
           ...(article.keywords || []).slice(0, 5)
@@ -581,7 +582,7 @@ export default function App() {
       : activeType === 'LifeOverview'
         ? 'Life Overview'
         : activeType === 'ThailandPulse'
-          ? 'Thailand Pulse'
+          ? 'World Pulse'
         : activeType
   );
   const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse';
@@ -757,7 +758,13 @@ export default function App() {
                     ) : activeType === 'Finance' ? (
                         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
                           <Suspense fallback={boardFallback}>
-                              <FinanceBoard accounts={accounts} transactions={filteredTransactions} projects={items.filter(i => i.type === ParaType.PROJECT)} />
+                              <FinanceBoard
+                                accounts={accounts}
+                                transactions={filteredTransactions}
+                                projects={items.filter(i => i.type === ParaType.PROJECT)}
+                                onAddTransaction={addTransaction}
+                                onAddAccount={addAccount}
+                              />
                           </Suspense>
                         </div>
                     ) : activeType === 'Review' ? (

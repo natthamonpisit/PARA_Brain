@@ -18,14 +18,16 @@
     "agent:weekly-review": "node scripts/run_weekly_ops_review.mjs"
   },
   "dependencies": {
-    "lucide-react": "^0.562.0",
-    "react-markdown": "^10.1.0",
-    "react": "^19.2.3",
     "@google/genai": "^1.38.0",
-    "react-dom": "^19.2.3",
-    "uuid": "10.0.0",
     "@supabase/supabase-js": "2.39.0",
-    "date-fns": "2.30.0"
+    "date-fns": "2.30.0",
+    "jsqr": "^1.4.0",
+    "lucide-react": "^0.562.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-markdown": "^10.1.0",
+    "tesseract.js": "^7.0.0",
+    "uuid": "10.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

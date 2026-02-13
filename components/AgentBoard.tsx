@@ -6,6 +6,8 @@ import {
   Activity,
   AlertTriangle,
   Bot,
+  ChevronDown,
+  ChevronUp,
   Loader2,
   Play,
   RefreshCw,
@@ -91,6 +93,7 @@ export const AgentBoard: React.FC<AgentBoardProps> = ({
 }) => {
   const [mobilePane, setMobilePane] = useState<'command' | 'queue' | 'feed'>('command');
   const [timelineFilter, setTimelineFilter] = useState<'issues' | 'all' | 'success'>('issues');
+  const [showCaptureDeepDive, setShowCaptureDeepDive] = useState(false);
 
   const runningRuns = useMemo(() => runs.filter((r) => r.status === 'STARTED'), [runs]);
   const failedRuns = useMemo(() => runs.filter((r) => r.status === 'FAILED').slice(0, 6), [runs]);
@@ -191,7 +194,7 @@ export const AgentBoard: React.FC<AgentBoardProps> = ({
   }, [latestRun, opsKpis?.automationSuccessRate7d, queueSummary.pendingAttention, queueSummary.running]);
 
   const renderCommandPane = () => (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -263,79 +266,82 @@ export const AgentBoard: React.FC<AgentBoardProps> = ({
         </div>
       </section>
 
-      {opsKpis && (
+      {(opsKpis || captureKpis) && (
         <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-cyan-200">Operational Pulse</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-cyan-200">Operational Snapshot</p>
           <HelpText
-            th="ตัวชี้วัดสุขภาพระบบและภาระงานที่ต้องดูทันที"
-            en="Health KPIs showing current operational load and risk."
+            th="สรุป KPI สำคัญแบบย่อให้อ่านจบในจอแรก"
+            en="Condensed KPI snapshot to keep core signals in first viewport."
           />
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Overdue Tasks</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">{opsKpis.overdueTasks}</p>
-              <HelpText th="งานที่เลยกำหนดและยังไม่ปิด" en="Tasks past due date that are still open." />
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Triage Pending</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">{opsKpis.triagePending}</p>
-              <HelpText th="รายการที่ยังรอจัดประเภท" en="Items waiting to be classified and routed." />
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Net 30d</p>
-              <p className={`mt-1 text-lg font-semibold ${opsKpis.net30d >= 0 ? 'text-emerald-100' : 'text-rose-100'}`}>
-                {opsKpis.net30d.toLocaleString('en-US', { maximumFractionDigits: 2 })}
-              </p>
-              <HelpText th="ผลรวมรายรับ-รายจ่ายย้อนหลัง 30 วัน" en="30-day net amount from income and expense flow." />
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Run Success 7d</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">{opsKpis.automationSuccessRate7d.toFixed(1)}%</p>
-              <HelpText th="ความน่าเชื่อถือของระบบรันอัตโนมัติ" en="Reliability percentage of automation executions." />
-            </div>
+            {opsKpis && (
+              <>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Overdue</p>
+                  <p className="mt-1 text-base font-semibold text-slate-100">{opsKpis.overdueTasks}</p>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Triage</p>
+                  <p className="mt-1 text-base font-semibold text-slate-100">{opsKpis.triagePending}</p>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Net 30d</p>
+                  <p className={`mt-1 text-base font-semibold ${opsKpis.net30d >= 0 ? 'text-emerald-100' : 'text-rose-100'}`}>
+                    {opsKpis.net30d.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Success 7d</p>
+                  <p className="mt-1 text-base font-semibold text-slate-100">{opsKpis.automationSuccessRate7d.toFixed(1)}%</p>
+                </div>
+              </>
+            )}
+            {captureKpis && (
+              <>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Captured</p>
+                  <p className="mt-1 text-base font-semibold text-slate-100">{captureKpis.totalToday}</p>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Actionable</p>
+                  <p className="mt-1 text-base font-semibold text-slate-100">{captureKpis.actionableToday}</p>
+                </div>
+              </>
+            )}
           </div>
-        </section>
-      )}
 
-      {captureKpis && (
-        <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-cyan-200">Capture Intelligence</p>
-          <HelpText
-            th="วัดคุณภาพการจับข้อความและการตีความ intent ของ AI"
-            en="KPIs for capture quality, intent parsing, and confidence."
-          />
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Captured Today</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">{captureKpis.totalToday}</p>
-              <HelpText th="ข้อความที่ถูกบันทึกเข้าระบบวันนี้" en="Total captured inputs stored today." />
+          {captureKpis && (
+            <div className="mt-3">
+              <button
+                onClick={() => setShowCaptureDeepDive((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 hover:border-cyan-400/40 hover:text-cyan-100"
+              >
+                {showCaptureDeepDive ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                {showCaptureDeepDive ? 'Hide capture deep metrics' : 'Show capture deep metrics'}
+              </button>
+
+              {showCaptureDeepDive && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Intent Accuracy</p>
+                    <p className="mt-1 text-sm font-semibold text-cyan-100">{captureKpis.intentAccuracyProxy.toFixed(1)}%</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Duplicate Skip</p>
+                    <p className="mt-1 text-sm font-semibold text-amber-100">{captureKpis.duplicateSkipRate.toFixed(1)}%</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Pending Confirm</p>
+                    <p className="mt-1 text-sm font-semibold text-rose-100">{captureKpis.pendingConfirmations}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Avg Confidence</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-100">{captureKpis.avgConfidence.toFixed(1)}%</p>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Actionable Today</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">{captureKpis.actionableToday}</p>
-              <HelpText th="รายการที่แปลงเป็นงานได้จริงวันนี้" en="Captured inputs that became actionable items today." />
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Intent Accuracy (Proxy)</p>
-              <p className="mt-1 text-lg font-semibold text-cyan-100">{captureKpis.intentAccuracyProxy.toFixed(1)}%</p>
-              <HelpText th="ค่าประมาณความแม่นยำการเข้าใจเจตนา" en="Proxy estimate of AI intent classification accuracy." />
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Duplicate Skip Rate</p>
-              <p className="mt-1 text-lg font-semibold text-amber-100">{captureKpis.duplicateSkipRate.toFixed(1)}%</p>
-              <HelpText th="สัดส่วนที่ระบบข้ามรายการซ้ำได้สำเร็จ" en="Rate at which duplicate captures were skipped." />
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Pending Confirm</p>
-              <p className="mt-1 text-lg font-semibold text-rose-100">{captureKpis.pendingConfirmations}</p>
-              <HelpText th="รายการที่รอผู้ใช้ยืนยันก่อนสร้างจริง" en="Items waiting user confirmation before creation." />
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
-              <p className="text-[11px] text-slate-400">Avg Confidence</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">{captureKpis.avgConfidence.toFixed(1)}%</p>
-              <HelpText th="ค่าเฉลี่ยความมั่นใจของ AI ในการวิเคราะห์" en="Average AI confidence across captured analyses." />
-            </div>
-          </div>
+          )}
         </section>
       )}
     </div>
@@ -765,10 +771,16 @@ export const AgentBoard: React.FC<AgentBoardProps> = ({
         </div>
       </div>
 
-      <div className="hidden xl:grid xl:grid-cols-[300px_minmax(0,1fr)_420px] xl:gap-4">
-        {renderCommandPane()}
-        {renderQueuePane()}
-        {renderFeedPane()}
+      <div className="hidden xl:grid xl:h-[74vh] xl:grid-cols-[280px_minmax(0,1fr)_390px] xl:gap-4">
+        <div className="min-h-0 overflow-y-auto pr-1">
+          {renderCommandPane()}
+        </div>
+        <div className="min-h-0 overflow-y-auto pr-1">
+          {renderQueuePane()}
+        </div>
+        <div className="min-h-0 overflow-y-auto pr-1">
+          {renderFeedPane()}
+        </div>
       </div>
 
       <div className="hidden md:grid md:gap-4 xl:hidden">

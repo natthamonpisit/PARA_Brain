@@ -92,6 +92,7 @@ const FEEDBACK_STORAGE_KEY = 'para-thailand-pulse-feedback-v1';
 
 const MAX_HISTORY_DAYS = 7;
 const MAX_INTERESTS = 12;
+const PULSE_API_BASE = '/api/world-pulse';
 const REGION_LABEL: Record<PulseRegion, string> = {
   TH: 'Thailand',
   GLOBAL: 'Global'
@@ -303,7 +304,7 @@ export const persistPulseSnapshot = (snapshot: ThailandPulseSnapshot) => {
 
 export const fetchPulseSnapshotHistoryFromServer = async (days = 7): Promise<ThailandPulseSnapshot[]> => {
   const safeDays = Math.max(1, Math.min(30, Math.floor(Number(days) || 7)));
-  const response = await fetch(`/api/thailand-pulse?mode=history&days=${safeDays}`);
+  const response = await fetch(`${PULSE_API_BASE}?mode=history&days=${safeDays}`);
   if (!response.ok) {
     throw new Error(`History request failed (${response.status})`);
   }
@@ -405,7 +406,7 @@ interface PulseFetchOptions {
 export const fetchPulseSourcePolicyFromServer = async (ownerKey?: string): Promise<PulseSourcePolicy | null> => {
   const params = new URLSearchParams({ mode: 'policy' });
   if (ownerKey) params.set('ownerKey', ownerKey);
-  const response = await fetch(`/api/thailand-pulse?${params.toString()}`);
+  const response = await fetch(`${PULSE_API_BASE}?${params.toString()}`);
   if (!response.ok) return null;
   const payload = await response.json().catch(() => ({}));
   const policy = payload?.policy;
@@ -420,7 +421,7 @@ export const savePulseSourcePolicyToServer = async (
   policy: PulseSourcePolicy,
   ownerKey?: string
 ): Promise<boolean> => {
-  const response = await fetch('/api/thailand-pulse', {
+  const response = await fetch(PULSE_API_BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -443,7 +444,7 @@ export const submitPulseFeedback = async (payload: {
   feedbackMap[payload.article.id] = payload.relevant;
   persistPulseFeedbackMap(feedbackMap);
 
-  const response = await fetch('/api/thailand-pulse', {
+  const response = await fetch(PULSE_API_BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -482,7 +483,7 @@ export const fetchThailandPulseSnapshot = async (
     params.set('allowDomains', sanitizeDomains(options.sourcePolicy.allowDomains || []).join(','));
     params.set('denyDomains', sanitizeDomains(options.sourcePolicy.denyDomains || []).join(','));
   }
-  const response = await fetch(`/api/thailand-pulse?${params.toString()}`);
+  const response = await fetch(`${PULSE_API_BASE}?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error(`Feed request failed (${response.status})`);

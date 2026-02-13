@@ -42,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const menuItems = [
     { type: 'All', label: 'Mission', icon: Box, color: 'text-cyan-300' },
     { type: 'LifeOverview', label: 'Life Overview', icon: Target, color: 'text-cyan-200' },
-    { type: 'ThailandPulse', label: 'Thailand Pulse', icon: Newspaper, color: 'text-sky-300' },
+    { type: 'ThailandPulse', label: 'World Pulse', icon: Newspaper, color: 'text-sky-300' },
     { type: 'Agent', label: 'Agent', icon: BrainCircuit, color: 'text-indigo-600' },
     { type: 'Review', label: 'Review', icon: ClipboardCheck, color: 'text-violet-500' },
     { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },

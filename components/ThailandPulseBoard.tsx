@@ -244,6 +244,11 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
     });
     return (['TH', 'GLOBAL'] as PulseRegion[]).map((id) => map.get(id)!);
   }, [currentSnapshot]);
+  const globalStoryCount = useMemo(() => {
+    const globalSection = sectionedCategories.find((section) => section.id === 'GLOBAL');
+    if (!globalSection) return 0;
+    return globalSection.categories.reduce((sum, category) => sum + category.articles.length, 0);
+  }, [sectionedCategories]);
   const activeCategory = useMemo(() => {
     if (!activeCategoryKey) return null;
     for (const section of sectionedCategories) {
@@ -414,7 +419,7 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-cyan-300/90">Daily Intel</p>
-            <h1 className="mt-1 text-2xl font-semibold text-slate-100">Thailand Pulse</h1>
+            <h1 className="mt-1 text-2xl font-semibold text-slate-100">World Pulse</h1>
             <p className="mt-1 text-sm text-slate-400">
               One-page digest. Click a topic to drill down into article lists, then open story details.
             </p>
@@ -470,6 +475,32 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
           <p className="mt-2 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
             Live feeds unavailable. This snapshot is fallback mode.
           </p>
+        )}
+        {globalStoryCount === 0 && (
+          <div className="mt-2 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            <p>
+              Global section has no stories in this snapshot.
+              {sourcePolicy.allowDomains.length > 0
+                ? ' Your allow-domain policy may be too strict for international sources.'
+                : ' Try refresh to fetch the newest sources.'}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {sourcePolicy.allowDomains.length > 0 && (
+                <button
+                  onClick={() => applySourcePolicy({ ...sourcePolicy, allowDomains: [] })}
+                  className="rounded-md border border-amber-300/45 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/25"
+                >
+                  Clear allow list
+                </button>
+              )}
+              <button
+                onClick={() => void fetchLive('refresh')}
+                className="rounded-md border border-cyan-400/40 bg-cyan-500/10 px-2 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/20"
+              >
+                Refresh now
+              </button>
+            </div>
+          </div>
         )}
         {currentSnapshot.notes.length > 0 && (
           <details className="mt-3 rounded-xl border border-slate-700 bg-slate-900/85 p-3">
@@ -608,6 +639,9 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
                     </button>
                   ))}
                 </div>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Tip: If Global looks empty, clear allow list or include domains like reuters.com, bbc.com, bloomberg.com.
+                </p>
                 <div className="mt-2 flex gap-2">
                   <input
                     type="text"

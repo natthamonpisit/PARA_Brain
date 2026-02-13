@@ -172,3 +172,79 @@ export const performLifeAnalysis = async (
 
     return response.text || "Analysis failed.";
 }
+
+export const classifyQuickCapture = async (
+    text: string,
+    paraItems: ParaItem[]
+): Promise<{
+    title: string;
+    type: ParaType;
+    category: string;
+    summary: string;
+    confidence: number;
+    suggestedTags: string[];
+}> => {
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error("API Key not found.");
+
+    const ai = new GoogleGenAI({ apiKey });
+    const now = new Date();
+    const context = paraItems
+        .slice(0, 80)
+        .map(i => `ID:${i.id} | ${i.type} | "${i.title}" | Cat:${i.category}`)
+        .join('\n');
+
+    const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+            title: { type: Type.STRING },
+            type: { type: Type.STRING, enum: [ParaType.PROJECT, ParaType.AREA, ParaType.RESOURCE, ParaType.ARCHIVE, ParaType.TASK] },
+            category: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            confidence: { type: Type.NUMBER },
+            suggestedTags: { type: Type.ARRAY, items: { type: Type.STRING } }
+        },
+        required: ["title", "type", "category", "summary", "confidence", "suggestedTags"]
+    };
+
+    const prompt = `
+Quick Capture Classifier for PARA.
+Current Date/Time: ${now.toISOString()}
+
+Input:
+"${text}"
+
+Existing PARA context:
+${context}
+
+Rules:
+1) Return the best PARA type for this capture.
+2) confidence must be 0..1 (high confidence only when clear intent).
+3) Keep title concise and actionable.
+4) category should be realistic from user's current structure.
+5) summary should preserve original intent.
+Output JSON only.
+`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema
+        }
+    });
+
+    const out = JSON.parse(response.text || '{}');
+    const safeType = (Object.values(ParaType) as string[]).includes(out.type) ? out.type : ParaType.TASK;
+    const conf = typeof out.confidence === 'number' ? Math.max(0, Math.min(1, out.confidence)) : 0.5;
+
+    return {
+        title: out.title || text.slice(0, 60),
+        type: safeType as ParaType,
+        category: out.category || 'Inbox',
+        summary: out.summary || text,
+        confidence: conf,
+        suggestedTags: Array.isArray(out.suggestedTags) ? out.suggestedTags : []
+    };
+};

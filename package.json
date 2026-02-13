@@ -6,7 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "agent:mock-daily": "node scripts/generate_mock_daily.mjs",
+    "agent:ingest": "node scripts/ingest_memory_chunks.mjs",
+    "agent:ingest:no-embed": "node scripts/ingest_memory_chunks.mjs --no-embed",
+    "agent:daily": "node scripts/run_daily_brief.mjs",
+    "agent:daily:dry": "node scripts/run_daily_brief.mjs --dry-run",
+    "agent:benchmark:indexes": "node scripts/benchmark_retrieval_indexes.mjs --samples=12",
+    "agent:heartbeat": "node scripts/run_heartbeat.mjs",
+    "agent:weekly-review": "node scripts/run_weekly_ops_review.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.562.0",

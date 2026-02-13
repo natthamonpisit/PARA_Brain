@@ -6,6 +6,7 @@ import { ParaBoard } from './components/ParaBoard';
 import { FinanceBoard } from './components/FinanceBoard'; 
 import { DynamicModuleBoard } from './components/DynamicModuleBoard'; 
 import { ReviewBoard } from './components/ReviewBoard';
+import { AgentBoard } from './components/AgentBoard';
 import { ModuleBuilderModal } from './components/ModuleBuilderModal'; 
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
@@ -20,6 +21,9 @@ import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
 import { useModuleData } from './hooks/useModuleData'; 
 import { useAIChat } from './hooks/useAIChat';
+import { useAgentData } from './hooks/useAgentData';
+import { classifyQuickCapture } from './services/geminiService';
+import { generateId } from './utils/helpers';
 
 type MobileTab = 'board' | 'chat';
 
@@ -36,13 +40,24 @@ export default function App() {
   const {
       modules, moduleItems, loadModules, loadModuleItems, createModule, addModuleItem, deleteModuleItem
   } = useModuleData();
+  const {
+      isLoading: isLoadingAgentData,
+      isRunning: isRunningAgent,
+      lastError: agentError,
+      runs: agentRuns,
+      latestSummary,
+      refresh: refreshAgentData,
+      triggerDailyRun
+  } = useAgentData();
 
   // --- UI STATE ---
-  const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | 'Review' | string>('All');
+  const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | 'Review' | 'Agent' | string>('All');
   const [viewMode, setViewMode] = useState<ViewMode>('GRID');
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState(''); 
+  const [quickCaptureText, setQuickCaptureText] = useState('');
+  const [isCapturing, setIsCapturing] = useState(false);
   const [calendarDate, setCalendarDate] = useState(new Date()); 
 
   // Modals
@@ -70,7 +85,7 @@ export default function App() {
   // --- VIEW LOGIC ---
   useEffect(() => {
       // Load modules when selected
-      if (typeof activeType === 'string' && !['All', 'Finance', 'Review', ...Object.values(ParaType)].includes(activeType as any)) {
+      if (typeof activeType === 'string' && !['All', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
           loadModuleItems(activeType);
       }
       // Clear selection when changing tabs
@@ -102,6 +117,28 @@ export default function App() {
       tx.category.toLowerCase().includes(q)
     );
   }, [transactions, searchQuery]);
+
+  const triageItems = useMemo(() => {
+    return items.filter(i => (i.tags || []).includes('triage-pending'));
+  }, [items]);
+
+  const opsKpis = useMemo(() => {
+    const nowIso = new Date().toISOString();
+    const since30 = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const since7 = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    const overdueTasks = items.filter(i => i.type === ParaType.TASK && !i.isCompleted && !!i.dueDate && i.dueDate < nowIso).length;
+    const triagePending = triageItems.length;
+    const net30d = transactions
+      .filter(t => new Date(t.transactionDate).getTime() >= since30)
+      .reduce((acc, t) => acc + (t.type === 'INCOME' ? t.amount : (t.type === 'EXPENSE' ? -t.amount : 0)), 0);
+    const recentRuns = agentRuns.filter(r => new Date(r.startedAt).getTime() >= since7);
+    const automationSuccessRate7d = recentRuns.length
+      ? (recentRuns.filter(r => r.status === 'SUCCESS').length / recentRuns.length) * 100
+      : 0;
+
+    return { overdueTasks, triagePending, net30d, automationSuccessRate7d };
+  }, [items, triageItems, transactions, agentRuns]);
 
   // For active module
   const activeModule = modules.find(m => m.id === activeType);
@@ -157,7 +194,7 @@ export default function App() {
       const ids = Array.from(selectedIds) as string[];
       for (const id of ids) {
           try {
-             if (typeof activeType === 'string' && !['All', 'Finance', 'Review', ...Object.values(ParaType)].includes(activeType as any)) {
+             if (typeof activeType === 'string' && !['All', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
                  await deleteModuleItem(id, activeType as string);
              } else {
                  await deleteItem(id);
@@ -203,11 +240,75 @@ export default function App() {
       }
   };
 
+  const handleQuickCapture = async () => {
+      const input = quickCaptureText.trim();
+      if (!input || isCapturing) return;
+      setIsCapturing(true);
+      try {
+          const result = await classifyQuickCapture(input, items);
+          const baseTags = Array.from(new Set([...(result.suggestedTags || []), 'capture']));
+          const now = new Date().toISOString();
+
+          if (result.confidence >= 0.75) {
+              const newItem: ParaItem = {
+                  id: generateId(),
+                  title: result.title,
+                  content: result.summary,
+                  type: result.type,
+                  category: result.category || 'Inbox',
+                  tags: baseTags,
+                  relatedItemIds: [],
+                  isAiGenerated: true,
+                  isCompleted: false,
+                  createdAt: now,
+                  updatedAt: now
+              };
+              await addItem(newItem);
+              showNotification(`Captured as ${result.type}`, 'success');
+          } else {
+              const triageItem: ParaItem = {
+                  id: generateId(),
+                  title: result.title || input.slice(0, 60),
+                  content: `[Quick Capture]\nOriginal: ${input}\nSuggested: ${result.type} / ${result.category}\nConfidence: ${Math.round(result.confidence * 100)}%`,
+                  type: ParaType.TASK,
+                  category: result.category || 'Inbox',
+                  tags: [...baseTags, 'triage-pending'],
+                  relatedItemIds: [],
+                  isAiGenerated: true,
+                  isCompleted: false,
+                  createdAt: now,
+                  updatedAt: now
+              };
+              await addItem(triageItem);
+              setActiveType('Agent');
+              showNotification(`Needs triage (${Math.round(result.confidence * 100)}%)`, 'error');
+          }
+          setQuickCaptureText('');
+      } catch (e: any) {
+          showNotification(`Capture failed: ${e.message || 'unknown error'}`, 'error');
+      } finally {
+          setIsCapturing(false);
+      }
+  };
+
+  const handleResolveTriage = async (itemId: string, type: ParaType) => {
+      const item = items.find(i => i.id === itemId);
+      if (!item) return;
+      const next: ParaItem = {
+          ...item,
+          type,
+          tags: (item.tags || []).filter(t => t !== 'triage-pending'),
+          updatedAt: new Date().toISOString()
+      };
+      await updateItem(next);
+      showNotification(`Triage resolved as ${type}`, 'success');
+  };
+
   // Wrapper Functions
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
     try {
-        if (typeof activeType === 'string' && !['All', 'Finance', 'Review', ...Object.values(ParaType)].includes(activeType as any)) {
+        if (typeof activeType === 'string' && !['All', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
             await deleteModuleItem(id, activeType as string);
         } else {
             await deleteItem(id);
@@ -329,8 +430,26 @@ export default function App() {
              </div>
           </div>
 
+          <div className="hidden lg:flex items-center gap-2 min-w-[320px] max-w-[440px] w-full">
+            <input
+              type="text"
+              value={quickCaptureText}
+              onChange={(e) => setQuickCaptureText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleQuickCapture(); }}
+              placeholder="Quick Capture: idea, task, project..."
+              className="w-full bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-200"
+            />
+            <button
+              onClick={handleQuickCapture}
+              disabled={isCapturing || !quickCaptureText.trim()}
+              className="px-3 py-2 text-xs font-semibold rounded-lg bg-amber-500 text-white disabled:opacity-50"
+            >
+              {isCapturing ? 'Saving...' : 'Capture'}
+            </button>
+          </div>
+
           <div className="flex items-center gap-3 shrink-0">
-            {activeType !== 'Finance' && activeType !== 'Review' && !activeModule && activeType !== 'All' && (
+            {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && !activeModule && activeType !== 'All' && (
                 <div className="hidden md:flex bg-slate-100 p-1 rounded-lg border border-slate-200">
                     <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List"><List className="w-4 h-4" /></button>
@@ -361,13 +480,32 @@ export default function App() {
 
         {/* Mobile Search Bar */}
         <div className="md:hidden px-4 py-2 bg-white border-b border-slate-100 sticky top-[60px] z-10">
-            <input 
-                type="text" 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search..."
-                className="w-full bg-slate-100 border-none rounded-lg py-2 pl-4 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none"
-            />
+            <div className="space-y-2">
+              <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search..."
+                  className="w-full bg-slate-100 border-none rounded-lg py-2 pl-4 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={quickCaptureText}
+                  onChange={(e) => setQuickCaptureText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleQuickCapture(); }}
+                  placeholder="Quick Capture..."
+                  className="flex-1 bg-amber-50 border border-amber-200 rounded-lg py-2 px-3 text-sm outline-none"
+                />
+                <button
+                  onClick={handleQuickCapture}
+                  disabled={isCapturing || !quickCaptureText.trim()}
+                  className="px-3 py-2 text-xs font-semibold rounded-lg bg-amber-500 text-white disabled:opacity-50"
+                >
+                  {isCapturing ? '...' : 'Go'}
+                </button>
+              </div>
+            </div>
         </div>
 
         {/* Notification Toast */}
@@ -394,6 +532,27 @@ export default function App() {
                         <FinanceBoard accounts={accounts} transactions={filteredTransactions} projects={items.filter(i => i.type === ParaType.PROJECT)} />
                     ) : activeType === 'Review' ? (
                         <ReviewBoard items={items} onOpenItem={handleViewDetail} />
+                    ) : activeType === 'Agent' ? (
+                        <AgentBoard
+                            isLoading={isLoadingAgentData}
+                            isRunning={isRunningAgent}
+                            lastError={agentError}
+                            latestSummary={latestSummary}
+                            runs={agentRuns}
+                            triageItems={triageItems}
+                            opsKpis={opsKpis}
+                            onRefresh={refreshAgentData}
+                            onRunDaily={async (opts) => {
+                                try {
+                                    await triggerDailyRun({ force: !!opts?.force });
+                                    showNotification('Daily agent run completed', 'success');
+                                } catch {
+                                    showNotification('Daily agent run failed', 'error');
+                                }
+                            }}
+                            onResolveTriage={handleResolveTriage}
+                            onOpenTriageItem={handleViewDetail}
+                        />
                     ) : viewMode === 'CALENDAR' ? (
                         <CalendarBoard 
                             items={items} 

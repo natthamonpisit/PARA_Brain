@@ -5,8 +5,8 @@ import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquar
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
-  activeType: ParaType | 'All' | 'Finance' | 'Review' | string;
-  onSelectType: (type: ParaType | 'All' | 'Finance' | 'Review' | string) => void;
+  activeType: ParaType | 'All' | 'Finance' | 'Review' | 'Agent' | string;
+  onSelectType: (type: ParaType | 'All' | 'Finance' | 'Review' | 'Agent' | string) => void;
   stats: Record<string, number>;
   onExport?: () => void;
   onImport?: (file: File) => void;
@@ -41,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = [
     { type: 'All', label: 'Dashboard', icon: Box, color: 'text-slate-500' },
+    { type: 'Agent', label: 'Agent', icon: BrainCircuit, color: 'text-indigo-600' },
     { type: 'Review', label: 'Review', icon: ClipboardCheck, color: 'text-violet-500' },
     { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },
     { type: ParaType.PROJECT, label: 'Projects', icon: FolderKanban, color: 'text-red-500' },

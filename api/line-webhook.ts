@@ -137,6 +137,7 @@ async function processSmartAgentRequest(
     supabase: any
 ) {
     const apiKey = process.env.GEMINI_API_KEY;
+    const approvalGatesEnabled = process.env.ENABLE_APPROVAL_GATES === 'true';
 
     const updateLog = async (action: string, status: string, response: string) => {
         supabase.from('system_logs').update({
@@ -254,6 +255,13 @@ async function processSmartAgentRequest(
         const rawJSON = JSON.parse(result.text || "{}");
         const { operation, chatResponse, title, category, type, content, amount, transactionType, accountId, targetModuleId, moduleDataRaw, relatedItemId, suggestedTags, dueDate } = rawJSON;
 
+        if (approvalGatesEnabled && ['TRANSACTION', 'MODULE_ITEM', 'COMPLETE'].includes(operation)) {
+            const pendingMsg = `${chatResponse}\n\n⚠️ Action requires approval and was not executed automatically.`;
+            await replyToLine(replyToken, accessToken, pendingMsg);
+            await updateLog('PENDING_APPROVAL', 'PENDING', pendingMsg);
+            return;
+        }
+
         // --- 3. EXECUTE ACTION ---
         let dbPromise = Promise.resolve<{error: any, data?: any} | null>(null);
         let logAction = 'CHAT';
@@ -354,7 +362,7 @@ async function processSmartAgentRequest(
 
         // --- 4. REPLY ---
         await replyToLine(replyToken, accessToken, chatResponse);
-        updateLog(logAction, 'SUCCESS', chatResponse);
+        await updateLog(logAction, 'SUCCESS', chatResponse);
 
     } catch (error: any) {
         console.error("AI Logic Error:", error);

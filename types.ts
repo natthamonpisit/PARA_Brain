@@ -95,6 +95,30 @@ export interface DailySummary {
   completedTasksCount: number;
 }
 
+export interface AgentRun {
+  id: string;
+  runType: 'DAILY_BRIEF' | 'WEEKLY_REVIEW' | 'ACTION_PLAN';
+  status: 'STARTED' | 'SUCCESS' | 'FAILED';
+  promptVersion: string;
+  model?: string;
+  outputFile?: string;
+  errorText?: string;
+  metrics?: Record<string, any>;
+  startedAt: string;
+  completedAt?: string;
+}
+
+export interface MemorySummary {
+  id: string;
+  summaryType: 'DAILY' | 'WEEKLY' | 'MONTHLY';
+  summaryDate: string;
+  title: string;
+  contentMd: string;
+  inputRefs: any[];
+  createdBy: string;
+  createdAt: string;
+}
+
 export interface SystemLog {
   id: string;
   event_source: string;

@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-02-12T09:16:13.305Z",
+  "samples": 12,
+  "source_rows": 105,
+  "ivfflat": {
+    "name": "ivfflat",
+    "samples": 12,
+    "avg_ms": 0.933,
+    "p50_ms": 0.93,
+    "p95_ms": 0.983,
+    "min_ms": 0.905,
+    "max_ms": 0.983
+  },
+  "hnsw": {
+    "name": "hnsw",
+    "samples": 12,
+    "avg_ms": 0.926,
+    "p50_ms": 0.925,
+    "p95_ms": 0.953,
+    "min_ms": 0.891,
+    "max_ms": 0.953
+  },
+  "winner_by_avg_latency": "hnsw"
+}

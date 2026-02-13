@@ -6,7 +6,7 @@ import { DynamicModuleBoard } from './components/DynamicModuleBoard';
 import { ModuleBuilderModal } from './components/ModuleBuilderModal'; 
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
-import { LineConnectModal } from './components/LineConnectModal';
+import { TelegramConnectModal } from './components/TelegramConnectModal';
 import { LifeAnalysisModal } from './components/LifeAnalysisModal'; 
 import { CalendarBoard } from './components/CalendarBoard'; 
 import { HabitBoard } from './components/HabitBoard'; 
@@ -74,7 +74,7 @@ export default function App() {
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ParaItem | null>(null); 
   const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
-  const [isLineModalOpen, setIsLineModalOpen] = useState(false);
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState('');
   
@@ -456,7 +456,7 @@ export default function App() {
         onShowHistory={() => setIsHistoryOpen(true)}
         isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)}
         modules={modules} onCreateModule={() => setIsModuleBuilderOpen(true)}
-        onOpenLine={() => setIsLineModalOpen(true)}
+        onOpenTelegram={() => setIsTelegramModalOpen(true)}
         onAnalyzeLife={handleAnalyzeLife}
       />
 
@@ -773,7 +773,7 @@ export default function App() {
       />
 
       <ModuleBuilderModal isOpen={isModuleBuilderOpen} onClose={() => setIsModuleBuilderOpen(false)} onSave={handleCreateModule} />
-      <LineConnectModal isOpen={isLineModalOpen} onClose={() => setIsLineModalOpen(false)} />
+      <TelegramConnectModal isOpen={isTelegramModalOpen} onClose={() => setIsTelegramModalOpen(false)} />
     </div>
   );
 }

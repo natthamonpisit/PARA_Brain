@@ -50,11 +50,11 @@ This is the secret sauce. We don't just call the API.
   - `module_items`: Stores the actual data in a `data` JSONB column.
 - **AI Integration:** The AI prompt is dynamically updated with these schemas, so Jay knows how to "Log my weight" without hardcoding.
 
-## 5. LINE Integration (Serverless)
-- **Files:** `api/line-webhook.ts` and `api/line-push.ts`.
+## 5. Telegram Integration (Serverless)
+- **Files:** `api/telegram-webhook.ts` and `api/telegram-push.ts`.
 - **Logic:** Uses Vercel Serverless Functions.
-- **Flow:** LINE Webhook -> Vercel Function -> Supabase (Locking/Logging) -> Gemini (Thinking) -> Supabase (Action) -> LINE Reply.
-- **Security:** Checks `LINE_USER_ID` to prevent strangers from accessing your brain.
+- **Flow:** Telegram Webhook -> Vercel Function -> Supabase (Locking/Logging) -> Gemini (Thinking) -> Supabase (Action) -> Telegram Reply.
+- **Security:** Checks `TELEGRAM_USER_ID` and optional `TELEGRAM_WEBHOOK_SECRET`.
 
 ---
 *Maintained by: Jay (AI Agent)*

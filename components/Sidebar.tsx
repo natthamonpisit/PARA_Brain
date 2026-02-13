@@ -16,8 +16,8 @@ interface SidebarProps {
   // Dynamic Modules
   modules: AppModule[];
   onCreateModule: () => void;
-  // LINE Integration
-  onOpenLine: () => void;
+  // Messaging Integration
+  onOpenTelegram: () => void;
   // NEW: Analysis
   onAnalyzeLife: () => void;
 }
@@ -33,7 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   modules,
   onCreateModule,
-  onOpenLine,
+  onOpenTelegram,
   onAnalyzeLife
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -222,12 +222,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={onOpenLine}
-            title={isCollapsed ? "Connect LINE" : ''}
-            className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-900 hover:text-[#06C755] transition-colors`}
+            onClick={onOpenTelegram}
+            title={isCollapsed ? "Connect Telegram" : ''}
+            className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-900 hover:text-[#229ED9] transition-colors`}
           >
              <MessageCircle className="w-5 h-5" />
-             {!isCollapsed && <span>Connect LINE</span>}
+             {!isCollapsed && <span>Connect Telegram</span>}
           </button>
 
           <button

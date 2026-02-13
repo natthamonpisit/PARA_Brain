@@ -96,7 +96,7 @@
 3. Trigger cron daily run: `POST /api/cron-agent-daily` with `x-cron-key`
 4. Trigger cron heartbeat: `POST /api/cron-heartbeat` with `x-cron-key`
 5. Optional safety:
-   - `ENABLE_APPROVAL_GATES=true` to block risky LINE actions pending approval
+   - `ENABLE_APPROVAL_GATES=true` to block risky messaging actions pending approval
    - `APPROVAL_SECRET` to require `x-approval-key` for force runs
 
 ## Phase F Deliverables
@@ -123,7 +123,7 @@
 - [x] Frontend lazy split for `AgentBoard`, `ReviewBoard`, `FinanceBoard`, `ChatPanel`
 - [x] Vendor manual chunks in Vite build for `react`, `@google/genai`, `@supabase/supabase-js`
 - [x] Agent query slimming in `hooks/useAgentData.ts` (explicit select fields + tighter limits)
-- [x] Shared timeout/retry policy for external API calls (LINE + Gemini) in server endpoint paths
+- [x] Shared timeout/retry policy for external API calls (messaging + Gemini) in server endpoint paths
 
 ## How To Verify Tuning Sprint P0
 1. Build: `npm run build` and review chunk output for split vendor/main improvements

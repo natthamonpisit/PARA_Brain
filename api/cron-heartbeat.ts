@@ -1,4 +1,4 @@
-import { fetchWithTimeoutRetry } from './_lib/externalPolicy';
+import { sendTelegramText } from './_lib/telegram';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -19,23 +19,20 @@ export default async function handler(req: any, res: any) {
       timezone: process.env.AGENT_DEFAULT_TIMEZONE || 'Asia/Bangkok'
     });
 
-    const shouldPushLine = process.env.HEARTBEAT_PUSH_LINE === 'true';
-    const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const targetUserId = process.env.LINE_USER_ID;
-    if (shouldPushLine && channelAccessToken && targetUserId) {
+    const shouldPushTelegram = process.env.HEARTBEAT_PUSH_TELEGRAM === 'true';
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (shouldPushTelegram && botToken && chatId) {
       const warnCount = result.checks.filter((c: any) => c.status === 'WARN').length;
       const msg = [
         `Heartbeat ${result.today} (${result.overall})`,
         `Warn checks: ${warnCount}`,
         ...result.checks.map((c: any) => `- [${c.status}] ${c.key}: ${c.detail}`)
       ].join('\n');
-      await fetchWithTimeoutRetry('https://api.line.me/v2/bot/message/push', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${channelAccessToken}`
-        },
-        body: JSON.stringify({ to: targetUserId, messages: [{ type: 'text', text: msg.slice(0, 4500) }] })
+      await sendTelegramText({
+        botToken,
+        chatId,
+        text: msg
       });
     }
 

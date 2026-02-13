@@ -35,8 +35,8 @@ Heartbeat คือการตรวจสุขภาพระบบประ�
 Both endpoints require `CRON_SECRET` via `x-cron-key` header or `?key=...`.
 
 ## Optional Notifications
-- If `HEARTBEAT_PUSH_LINE=true` and LINE secrets are configured, push heartbeat summary to LINE.
+- If `HEARTBEAT_PUSH_TELEGRAM=true` and Telegram secrets are configured, push heartbeat summary to Telegram.
 
 ## Approval Gates
-- If `ENABLE_APPROVAL_GATES=true`, risky LINE automation actions are blocked and marked `PENDING_APPROVAL`.
+- If `ENABLE_APPROVAL_GATES=true`, risky messaging automation actions are blocked and marked `PENDING_APPROVAL`.
 - If `APPROVAL_SECRET` is set, force run (`/api/agent-daily` with `force=true`) requires `x-approval-key`.

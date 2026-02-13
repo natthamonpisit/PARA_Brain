@@ -19,9 +19,10 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vRVh2cBTUcaOIZ9-0Hlasb
 3. For local AI chat in the browser, set `VITE_GEMINI_API_KEY`.
 4. For serverless APIs (`/api/*`), set secrets in Vercel env:
    - `GEMINI_API_KEY`
-   - `LINE_CHANNEL_ACCESS_TOKEN`
-   - `LINE_CHANNEL_SECRET`
-   - `LINE_USER_ID`
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_CHAT_ID`
+   - `TELEGRAM_USER_ID` (optional but recommended)
+   - `TELEGRAM_WEBHOOK_SECRET` (optional but recommended)
    - `CRON_SECRET`
 5. Run the app:
    `npm run dev`
@@ -51,6 +52,9 @@ Generate a mock daily brief:
   - `POST /api/cron-agent-daily` (requires `x-cron-key`)
   - `POST /api/cron-heartbeat` (requires `x-cron-key`)
   - `POST /api/cron-weekly-review` (requires `x-cron-key`)
+- Telegram endpoints:
+  - `POST /api/telegram-webhook` (set as bot webhook URL)
+  - `POST /api/telegram-push` (manual push helper)
 - External agent queue APIs (OpenClaw integration):
   - `POST /api/agent-jobs` create job (`requestText`, optional `payload`, `priority`, `dedupeKey`)
   - `GET /api/agent-jobs?status=REQUESTED|APPROVED|RUNNING|DONE|FAILED|CANCELLED`

@@ -1,12 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
-import { fetchWithTimeoutRetry } from './_lib/externalPolicy';
+import { sendTelegramText } from './_lib/telegram';
 
 // Initialize Services
 // Note: In Vercel Serverless, process.env works automatically.
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
-const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const targetUserId = process.env.LINE_USER_ID;
+const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
+const telegramChatId = process.env.TELEGRAM_CHAT_ID;
 
 export default async function handler(req: any, res: any) {
   const cronSecret = process.env.CRON_SECRET;
@@ -16,7 +16,7 @@ export default async function handler(req: any, res: any) {
   }
   
   try {
-    if (!supabaseUrl || !supabaseKey || !channelAccessToken || !targetUserId) {
+    if (!supabaseUrl || !supabaseKey || !telegramBotToken || !telegramChatId) {
       return res.status(500).json({ error: "Missing server configuration" });
     }
     const supabase = createClient(supabaseUrl!, supabaseKey!);
@@ -54,20 +54,12 @@ ${task.category ? `📂 ${task.category}` : ''}
 
 Don't forget to complete it!`;
 
-        // Send to LINE
-        const lineRes = await fetchWithTimeoutRetry("https://api.line.me/v2/bot/message/push", {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${channelAccessToken}`,
-            },
-            body: JSON.stringify({
-                to: targetUserId,
-                messages: [{ type: 'text', text: message }],
-            }),
-        });
-
-        if (lineRes.ok) {
+        try {
+            await sendTelegramText({
+                botToken: telegramBotToken,
+                chatId: telegramChatId,
+                text: message
+            });
             // 3. Mark as Notified (To prevent double spam)
             await supabase
                 .from('tasks')
@@ -75,8 +67,8 @@ Don't forget to complete it!`;
                 .eq('id', task.id);
             
             notifiedTasks.push(task.title);
-        } else {
-            console.error(`Failed to send LINE for task ${task.id}`, await lineRes.text());
+        } catch (sendError: any) {
+            console.error(`Failed to send Telegram for task ${task.id}`, sendError?.message || sendError);
         }
     }
 

@@ -11,6 +11,7 @@ interface ItemDetailModalProps {
   allItems: ParaItem[];
   onNavigate: (itemId: string) => void; // Click child to open its detail
   onEdit: (itemId: string) => void;
+  onToggleComplete?: (itemId: string, currentStatus: boolean) => void;
 }
 
 export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({ 
@@ -19,7 +20,8 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
     item, 
     allItems, 
     onNavigate, 
-    onEdit
+    onEdit,
+    onToggleComplete
 }) => {
   if (!isOpen || !item) return null;
 
@@ -163,6 +165,19 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
             </div>
             
             <div className="flex gap-2">
+                {item.type === ParaType.TASK && onToggleComplete && (
+                    <button
+                        onClick={() => onToggleComplete(item.id, !!item.isCompleted)}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all shadow-sm ${
+                            item.isCompleted
+                                ? 'bg-white border-slate-200 text-slate-600 hover:text-amber-600 hover:border-amber-200'
+                                : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                        }`}
+                    >
+                        {item.isCompleted ? <Circle className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
+                        <span className="hidden sm:inline">{item.isCompleted ? 'Reopen' : 'Mark Done'}</span>
+                    </button>
+                )}
                 <button onClick={() => onEdit(item.id)} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm">
                     <Pencil className="w-4 h-4" />
                     <span className="hidden sm:inline">Edit</span>

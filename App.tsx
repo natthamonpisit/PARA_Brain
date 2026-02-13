@@ -1,5 +1,5 @@
 
-import React, { Suspense, useState, useEffect, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ParaBoard } from './components/ParaBoard';
 import { DynamicModuleBoard } from './components/DynamicModuleBoard'; 
@@ -15,7 +15,7 @@ import { FocusDock } from './components/FocusDock';
 import { MissionControlBoard } from './components/MissionControlBoard';
 import { LifeOverviewBoard } from './components/LifeOverviewBoard';
 import { ParaType, AppModule, ViewMode, ParaItem } from './types';
-import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network, Minimize2, Maximize2 } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network, Minimize2, Maximize2, Undo2 } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
 import { useModuleData } from './hooks/useModuleData'; 
@@ -83,7 +83,12 @@ export default function App() {
   // NEW: Detail Modal State
   const [detailItem, setDetailItem] = useState<ParaItem | null>(null);
   
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error';
+    action?: { label: string; onClick: () => void };
+  } | null>(null);
+  const notificationTimerRef = useRef<number | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // --- INITIAL LOAD ---
@@ -217,9 +222,71 @@ export default function App() {
     onRefreshModuleItems: loadModuleItems
   });
   
-  const showNotification = (message: string, type: 'success' | 'error') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
+  const clearNotificationTimer = () => {
+    if (notificationTimerRef.current !== null) {
+      window.clearTimeout(notificationTimerRef.current);
+      notificationTimerRef.current = null;
+    }
+  };
+
+  const showNotification = (
+    message: string,
+    type: 'success' | 'error',
+    options?: { durationMs?: number; action?: { label: string; onClick: () => void } }
+  ) => {
+    clearNotificationTimer();
+    setNotification({ message, type, action: options?.action });
+    const durationMs = options?.durationMs ?? 3000;
+    if (durationMs > 0) {
+      notificationTimerRef.current = window.setTimeout(() => {
+        setNotification(null);
+        notificationTimerRef.current = null;
+      }, durationMs);
+    }
+  };
+
+  const dismissNotification = () => {
+    clearNotificationTimer();
+    setNotification(null);
+  };
+
+  useEffect(() => () => clearNotificationTimer(), []);
+
+  const handleToggleComplete = async (id: string, currentStatus: boolean) => {
+    const item = items.find(i => i.id === id);
+    if (!item) {
+      showNotification('Task not found', 'error');
+      return;
+    }
+
+    const wasCompleted = !!currentStatus;
+    try {
+      await toggleComplete(id, currentStatus);
+      if (!wasCompleted) {
+        const shortTitle = item.title.length > 44 ? `${item.title.slice(0, 44)}...` : item.title;
+        showNotification(`Completed: ${shortTitle}`, 'success', {
+          durationMs: 5000,
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              dismissNotification();
+              void (async () => {
+                try {
+                  await toggleComplete(id, true);
+                  showNotification(`Reopened: ${shortTitle}`, 'success');
+                } catch {
+                  showNotification('Undo failed', 'error');
+                }
+              })();
+            }
+          }
+        });
+      } else {
+        showNotification(`Reopened: ${item.title}`, 'success');
+      }
+    } catch {
+      showNotification('Failed to update task status', 'error');
+    }
   };
 
   // --- ACTIONS ---
@@ -394,6 +461,18 @@ export default function App() {
           setDetailItem(item);
       }
   };
+
+  useEffect(() => {
+      if (!detailItem) return;
+      const latestDetailItem = items.find(i => i.id === detailItem.id);
+      if (!latestDetailItem) {
+          setDetailItem(null);
+          return;
+      }
+      if (latestDetailItem !== detailItem) {
+          setDetailItem(latestDetailItem);
+      }
+  }, [items, detailItem]);
 
   const handleManualSave = async (data: any, mode: 'PARA' | 'TRANSACTION' | 'ACCOUNT' | 'MODULE') => {
       try {
@@ -576,6 +655,15 @@ export default function App() {
             <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg animate-in slide-in-from-top-4 fade-in duration-300 border backdrop-blur-md bg-slate-900/95 border-slate-700">
                 {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-300" /> : <AlertCircle className="w-5 h-5 text-rose-300" />}
                 <span className={`text-sm font-semibold ${notification.type === 'success' ? 'text-emerald-200' : 'text-rose-200'}`}>{notification.message}</span>
+                {notification.action && (
+                  <button
+                    onClick={notification.action.onClick}
+                    className="ml-2 inline-flex items-center gap-1 rounded-md border border-emerald-200/40 bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                  >
+                    <Undo2 className="w-3 h-3" />
+                    <span>{notification.action.label}</span>
+                  </button>
+                )}
             </div>
         )}
 
@@ -675,7 +763,7 @@ export default function App() {
                               onSelectAll={handleSelectAll}
                               onDelete={handleDeleteWrapper} 
                               onArchive={handleArchiveWrapper}
-                              onToggleComplete={(id, s) => toggleComplete(id, s)}
+                              onToggleComplete={handleToggleComplete}
                               onEdit={handleEditItem} 
                               onItemClick={handleViewDetail} // Connect Detail View
                           />
@@ -786,6 +874,7 @@ export default function App() {
         allItems={items}
         onNavigate={handleViewDetail}
         onEdit={handleEditItem}
+        onToggleComplete={handleToggleComplete}
       />
 
       <ModuleBuilderModal isOpen={isModuleBuilderOpen} onClose={() => setIsModuleBuilderOpen(false)} onSave={handleCreateModule} />

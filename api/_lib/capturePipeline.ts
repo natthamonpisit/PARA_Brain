@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { v4 as uuidv4 } from 'uuid';
-import { runWithRetry } from './externalPolicy';
+import { runWithRetry } from './externalPolicy.js';
 
 export type CaptureSource = 'WEB' | 'TELEGRAM';
 export type CaptureOperation = 'CREATE' | 'TRANSACTION' | 'MODULE_ITEM' | 'COMPLETE' | 'CHAT';
@@ -58,6 +58,15 @@ interface CaptureModelOutput {
   targetModuleId?: string;
   moduleDataRaw?: Array<{ key: string; value: string }>;
   dedupRecommendation?: 'NEW' | 'LIKELY_DUPLICATE' | 'DUPLICATE';
+  goal?: string;
+  assumptions?: string[];
+  prerequisites?: string[];
+  starterTasks?: Array<{ title: string; description?: string }>;
+  nextActions?: string[];
+  clarifyingQuestions?: string[];
+  riskNotes?: string[];
+  recommendedProjectTitle?: string;
+  recommendedAreaTitle?: string;
 }
 
 interface ConfirmCommand {
@@ -104,6 +113,8 @@ const DEFAULT_INTENT: CaptureIntent = 'CHITCHAT';
 const DEFAULT_OPERATION: CaptureOperation = 'CHAT';
 const CONFIDENCE_CONFIRM_THRESHOLD = Number(process.env.CAPTURE_CONFIRM_THRESHOLD || 0.72);
 const SEMANTIC_DEDUP_THRESHOLD = Number(process.env.CAPTURE_SEMANTIC_DEDUP_THRESHOLD || 0.9);
+const ALFRED_AUTO_CAPTURE_ENABLED = process.env.ALFRED_AUTO_CAPTURE_ENABLED !== 'false';
+const CAPTURE_MODEL_NAME = process.env.CAPTURE_MODEL_NAME || 'gemini-3-flash-preview';
 
 const truncate = (value: string, max = 180): string => {
   if (!value) return '';
@@ -180,9 +191,102 @@ const toSafeTags = (value: any): string[] => {
     .slice(0, 12);
 };
 
+const toSafeTextList = (value: any, max = 6): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => normalizeMessage(String(item || '')))
+    .filter(Boolean)
+    .slice(0, max);
+};
+
+const toSafeStarterTasks = (value: any): Array<{ title: string; description?: string }> => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const title = normalizeMessage(String(item?.title || item || ''));
+      const description = normalizeMessage(String(item?.description || ''));
+      if (!title) return null;
+      return description ? { title, description } : { title };
+    })
+    .filter(Boolean)
+    .slice(0, 6) as Array<{ title: string; description?: string }>;
+};
+
 const normalizeType = (value: any): 'Tasks' | 'Projects' | 'Resources' | 'Areas' | 'Archives' => {
   const allowed = ['Tasks', 'Projects', 'Resources', 'Areas', 'Archives'];
   return allowed.includes(value) ? (value as any) : 'Tasks';
+};
+
+const looksLikePlanningRequest = (message: string): boolean => {
+  const text = normalizeMessage(message).toLowerCase();
+  if (!text) return false;
+  const patterns = [
+    /ต้องรู้อะไร/,
+    /ทำยังไง/,
+    /เริ่มยังไง/,
+    /ควรเริ่ม/,
+    /แนวทาง/,
+    /framework/,
+    /roadmap/,
+    /strategy/,
+    /guide/,
+    /\bplan\b/,
+    /\bstep\b/,
+    /แบ่งงาน/,
+    /แตกงาน/
+  ];
+  return patterns.some((re) => re.test(text));
+};
+
+const wantsAutoCapturePlan = (message: string): boolean => {
+  const text = normalizeMessage(message).toLowerCase();
+  if (!text) return false;
+  const patterns = [/จัดให้/, /ทำให้/, /บันทึก/, /สร้างให้/, /แตก task/, /split task/, /ช่วยวาง/];
+  return patterns.some((re) => re.test(text));
+};
+
+const joinSection = (title: string, lines: string[]): string => {
+  if (!lines.length) return '';
+  return `${title}\n${lines.join('\n')}`;
+};
+
+const buildAlfredGuidanceText = (modelOutput: CaptureModelOutput): string => {
+  const goal = normalizeMessage(String(modelOutput.goal || modelOutput.summary || ''));
+  const assumptions = toSafeTextList(modelOutput.assumptions, 4);
+  const prerequisites = toSafeTextList(modelOutput.prerequisites, 5);
+  const starterTasks = toSafeStarterTasks(modelOutput.starterTasks);
+  const nextActions = toSafeTextList(modelOutput.nextActions, 4);
+  const riskNotes = toSafeTextList(modelOutput.riskNotes, 3);
+  const questions = toSafeTextList(modelOutput.clarifyingQuestions, 3);
+
+  const sections = [
+    goal ? `Direction\n- เป้าหมาย: ${goal}` : '',
+    joinSection('Prerequisites', prerequisites.map((item) => `- ${item}`)),
+    joinSection(
+      'Starter Tasks',
+      starterTasks.map((task, idx) =>
+        task.description ? `${idx + 1}. ${task.title} - ${task.description}` : `${idx + 1}. ${task.title}`
+      )
+    ),
+    joinSection('Immediate Next Actions', nextActions.map((item, idx) => `${idx + 1}. ${item}`)),
+    joinSection('Assumptions', assumptions.map((item) => `- ${item}`)),
+    joinSection('Risk Notes', riskNotes.map((item) => `- ${item}`)),
+    joinSection('Need From You', questions.map((item, idx) => `${idx + 1}. ${item}`))
+  ].filter(Boolean);
+
+  return sections.join('\n\n').trim();
+};
+
+const buildPlanningTaskContent = (params: {
+  message: string;
+  modelOutput: CaptureModelOutput;
+  fallbackSummary: string;
+}): string => {
+  const { message, modelOutput, fallbackSummary } = params;
+  const guidance = buildAlfredGuidanceText(modelOutput);
+  const summary = normalizeMessage(String(modelOutput.summary || fallbackSummary || message));
+  if (!guidance) return summary;
+  return ['Summary', summary, '', 'Starter Direction', guidance].join('\n');
 };
 
 const findByTitle = (rows: any[], title: string): any | null => {
@@ -426,6 +530,10 @@ Core behavior:
 6. Use dedup hints: if likely duplicate, avoid new create unless user explicitly asks to create another.
 7. Keep assistant response concise in Thai.
 8. If confidence is low (< ${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}) for write operation, keep operation but provide data that can be confirmed.
+9. Alfred planning mode: when user asks "how to / what should I know / direction / framework", provide starter guidance fields:
+   - goal, prerequisites[], starterTasks[], nextActions[], riskNotes[], clarifyingQuestions[]
+10. If the user asks to "จัดให้/วางให้/ช่วยแตกงาน", keep response practical and suggest concrete starter tasks that can be executed today.
+11. Prefer a single master task with clear checklist when user has broad goal and low detail.
 
 PARA constraints:
 - Task should belong to a project when possible.
@@ -516,7 +624,47 @@ function buildResponseSchema() {
         type: Type.STRING,
         enum: ['NEW', 'LIKELY_DUPLICATE', 'DUPLICATE'],
         nullable: true
-      }
+      },
+      goal: { type: Type.STRING, nullable: true },
+      assumptions: {
+        type: Type.ARRAY,
+        nullable: true,
+        items: { type: Type.STRING }
+      },
+      prerequisites: {
+        type: Type.ARRAY,
+        nullable: true,
+        items: { type: Type.STRING }
+      },
+      starterTasks: {
+        type: Type.ARRAY,
+        nullable: true,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            description: { type: Type.STRING, nullable: true }
+          },
+          required: ['title']
+        }
+      },
+      nextActions: {
+        type: Type.ARRAY,
+        nullable: true,
+        items: { type: Type.STRING }
+      },
+      clarifyingQuestions: {
+        type: Type.ARRAY,
+        nullable: true,
+        items: { type: Type.STRING }
+      },
+      riskNotes: {
+        type: Type.ARRAY,
+        nullable: true,
+        items: { type: Type.STRING }
+      },
+      recommendedProjectTitle: { type: Type.STRING, nullable: true },
+      recommendedAreaTitle: { type: Type.STRING, nullable: true }
     },
     required: ['intent', 'confidence', 'isActionable', 'operation', 'chatResponse']
   };
@@ -529,7 +677,7 @@ async function analyzeCapture(params: {
   const ai = new GoogleGenAI({ apiKey: params.apiKey });
   const response = await runWithRetry(() =>
     ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: CAPTURE_MODEL_NAME,
       contents: params.prompt,
       config: {
         responseMimeType: 'application/json',
@@ -585,9 +733,35 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
   const isActionable = modelOutput.isActionable === true;
   let operation = toOperation(modelOutput.operation);
   let chatResponse = String(modelOutput.chatResponse || '').trim() || 'รับทราบครับ';
+  const planningRequest = looksLikePlanningRequest(message);
+  const autoCapturePlan = ALFRED_AUTO_CAPTURE_ENABLED && planningRequest && wantsAutoCapturePlan(message);
+
+  if (!modelOutput.relatedProjectTitle && modelOutput.recommendedProjectTitle) {
+    modelOutput.relatedProjectTitle = normalizeMessage(String(modelOutput.recommendedProjectTitle || ''));
+  }
+  if (!modelOutput.relatedAreaTitle && modelOutput.recommendedAreaTitle) {
+    modelOutput.relatedAreaTitle = normalizeMessage(String(modelOutput.recommendedAreaTitle || ''));
+  }
 
   if (!isActionable && operation !== 'CHAT') {
     operation = 'CHAT';
+  }
+
+  if (autoCapturePlan && isActionable && operation === 'CHAT') {
+    operation = 'CREATE';
+    const starterTasks = toSafeStarterTasks(modelOutput.starterTasks);
+    if (!modelOutput.type) modelOutput.type = 'Tasks';
+    if (!modelOutput.title && starterTasks[0]?.title) modelOutput.title = starterTasks[0].title;
+    if (!modelOutput.summary && modelOutput.goal) modelOutput.summary = modelOutput.goal;
+    if (typeof modelOutput.createProjectIfMissing !== 'boolean') {
+      modelOutput.createProjectIfMissing = Boolean(modelOutput.relatedProjectTitle);
+    }
+    chatResponse = `${chatResponse}\n\nรับทราบครับ ผมจัดเป็นแผนเริ่มต้นและบันทึกเป็น task ให้ทันที`;
+  }
+
+  const alfredGuidance = planningRequest ? buildAlfredGuidanceText(modelOutput) : '';
+  if (operation === 'CHAT' && alfredGuidance) {
+    chatResponse = `${chatResponse}\n\n${alfredGuidance}`;
   }
 
   if (dedup.isDuplicate && operation !== 'CHAT' && !forceConfirmed) {
@@ -677,9 +851,13 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         isActionable,
         operation,
         chatResponse,
-        actionType: 'CHAT',
+        actionType: alfredGuidance ? 'CHAT_WITH_GUIDANCE' : 'CHAT',
         status: 'SUCCESS',
-        dedup
+        dedup,
+        meta: {
+          planningRequest,
+          guidanceIncluded: Boolean(alfredGuidance)
+        }
       };
     }
 
@@ -735,7 +913,11 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
           title: baseTitle,
           type: 'Tasks',
           category: baseCategory,
-          content: String(modelOutput.summary || message),
+          content: buildPlanningTaskContent({
+            message,
+            modelOutput,
+            fallbackSummary: String(modelOutput.summary || message)
+          }),
           tags,
           related_item_ids: relatedItemIds,
           is_completed: false,
@@ -768,7 +950,10 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
             table,
             paraType,
             autoProjectCreated: createdItems.length > 1,
-            forceConfirmed
+            forceConfirmed,
+            planningRequest,
+            autoCapturePlan,
+            guidanceIncluded: Boolean(alfredGuidance)
           }
         };
       }
@@ -809,7 +994,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         meta: {
           table,
           paraType,
-          forceConfirmed
+          forceConfirmed,
+          planningRequest,
+          guidanceIncluded: Boolean(alfredGuidance)
         }
       };
     }

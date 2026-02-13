@@ -210,7 +210,9 @@ export default function App() {
     onAddItem: addItem, 
     onToggleComplete: toggleComplete, 
     onAddTransaction: addTransaction,
-    onAddModuleItem: addModuleItem
+    onAddModuleItem: addModuleItem,
+    onRefreshFinance: loadFinanceData,
+    onRefreshModuleItems: loadModuleItems
   });
   
   const showNotification = (message: string, type: 'success' | 'error') => {

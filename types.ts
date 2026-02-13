@@ -136,12 +136,24 @@ export type ChatCreatedItemType = 'PARA' | 'TRANSACTION' | 'MODULE';
 export interface TelegramLogPayloadV1 {
   contract: 'telegram_chat_v1';
   version: 1;
-  source: 'TELEGRAM';
+  source: ChatMessageSource;
+  intent?: string;
+  confidence?: number;
+  isActionable?: boolean;
   operation: 'CREATE' | 'TRANSACTION' | 'MODULE_ITEM' | 'COMPLETE' | 'CHAT' | 'ERROR' | 'PENDING_APPROVAL';
   chatResponse: string;
   itemType?: ChatCreatedItemType;
   createdItem?: ParaItem | Transaction | ModuleItem;
   createdItems?: ParaItem[];
+  dedup?: {
+    isDuplicate?: boolean;
+    reason?: string;
+    matchedItemId?: string;
+    matchedTable?: string;
+    matchedTitle?: string;
+    matchedLink?: string;
+    matchedLogId?: string;
+  };
   meta?: Record<string, any>;
 }
 

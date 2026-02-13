@@ -24,6 +24,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vRVh2cBTUcaOIZ9-0Hlasb
    - `TELEGRAM_USER_ID` (optional but recommended)
    - `TELEGRAM_WEBHOOK_SECRET` (optional but recommended)
    - `CRON_SECRET`
+   - `CAPTURE_API_SECRET` (optional)
 5. Run the app:
    `npm run dev`
 
@@ -49,9 +50,12 @@ Generate a mock daily brief:
   - If `CRON_SECRET` is set, provide `x-cron-key: <CRON_SECRET>`
   - If `force=true` and `APPROVAL_SECRET` is set, provide `x-approval-key: <APPROVAL_SECRET>`
 - Cron endpoints:
-  - `POST /api/cron-agent-daily` (requires `x-cron-key`)
-  - `POST /api/cron-heartbeat` (requires `x-cron-key`)
-  - `POST /api/cron-weekly-review` (requires `x-cron-key`)
+  - `POST /api/cron-agent-daily` (requires `x-cron-key` only when `CRON_SECRET` is set)
+  - `POST /api/cron-heartbeat` (requires `x-cron-key` only when `CRON_SECRET` is set)
+  - `POST /api/cron-weekly-review` (requires `x-cron-key` only when `CRON_SECRET` is set)
+- Unified capture endpoint (web + telegram behavior parity):
+  - `POST /api/capture-intake` (`{ source, message, eventId? }`)
+  - Optional auth with `x-capture-key` when `CAPTURE_API_SECRET` is set
 - Telegram endpoints:
   - `POST /api/telegram-webhook` (set as bot webhook URL)
   - `POST /api/telegram-push` (manual push helper)

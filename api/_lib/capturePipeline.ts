@@ -1,0 +1,881 @@
+import { GoogleGenAI, Type } from '@google/genai';
+import { v4 as uuidv4 } from 'uuid';
+import { runWithRetry } from './externalPolicy';
+
+export type CaptureSource = 'WEB' | 'TELEGRAM';
+export type CaptureOperation = 'CREATE' | 'TRANSACTION' | 'MODULE_ITEM' | 'COMPLETE' | 'CHAT';
+export type CaptureIntent =
+  | 'CHITCHAT'
+  | 'ACTIONABLE_NOTE'
+  | 'PROJECT_IDEA'
+  | 'TASK_CAPTURE'
+  | 'RESOURCE_CAPTURE'
+  | 'FINANCE_CAPTURE'
+  | 'COMPLETE_TASK'
+  | 'MODULE_CAPTURE';
+export type CaptureItemType = 'PARA' | 'TRANSACTION' | 'MODULE';
+
+interface DedupHints {
+  isDuplicate: boolean;
+  reason: string;
+  matchedItemId?: string;
+  matchedTable?: string;
+  matchedTitle?: string;
+  matchedLink?: string;
+  matchedLogId?: string;
+}
+
+interface CaptureContext {
+  projects: any[];
+  areas: any[];
+  tasks: any[];
+  resources: any[];
+  accounts: any[];
+  modules: any[];
+}
+
+interface CaptureModelOutput {
+  intent?: CaptureIntent;
+  confidence?: number;
+  isActionable?: boolean;
+  operation?: CaptureOperation;
+  chatResponse?: string;
+  title?: string;
+  summary?: string;
+  category?: string;
+  type?: 'Tasks' | 'Projects' | 'Resources' | 'Areas' | 'Archives';
+  relatedItemId?: string;
+  relatedProjectTitle?: string;
+  relatedAreaTitle?: string;
+  createProjectIfMissing?: boolean;
+  suggestedTags?: string[];
+  dueDate?: string;
+  amount?: number;
+  transactionType?: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  accountId?: string;
+  targetModuleId?: string;
+  moduleDataRaw?: Array<{ key: string; value: string }>;
+  dedupRecommendation?: 'NEW' | 'LIKELY_DUPLICATE' | 'DUPLICATE';
+}
+
+export interface CapturePipelineInput {
+  supabase: any;
+  userMessage: string;
+  source: CaptureSource;
+  geminiApiKey: string;
+  approvalGatesEnabled?: boolean;
+  timezone?: string;
+  excludeLogId?: string;
+}
+
+export interface CapturePipelineResult {
+  success: boolean;
+  source: CaptureSource;
+  intent: CaptureIntent;
+  confidence: number;
+  isActionable: boolean;
+  operation: CaptureOperation;
+  chatResponse: string;
+  itemType?: CaptureItemType;
+  createdItem?: Record<string, any> | null;
+  createdItems?: Record<string, any>[];
+  actionType: string;
+  status: 'SUCCESS' | 'FAILED' | 'PENDING' | 'SKIPPED_DUPLICATE';
+  dedup: DedupHints;
+  meta?: Record<string, any>;
+}
+
+const PARA_TYPE_TO_TABLE: Record<string, string> = {
+  Tasks: 'tasks',
+  Projects: 'projects',
+  Resources: 'resources',
+  Areas: 'areas',
+  Archives: 'archives'
+};
+
+const DEFAULT_INTENT: CaptureIntent = 'CHITCHAT';
+const DEFAULT_OPERATION: CaptureOperation = 'CHAT';
+
+const truncate = (value: string, max = 180): string => {
+  if (!value) return '';
+  return value.length > max ? `${value.slice(0, max - 3)}...` : value;
+};
+
+const normalizeMessage = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+const extractUrls = (text: string): string[] => {
+  const urls = text.match(/https?:\/\/[^\s)]+/gi) || [];
+  return Array.from(new Set(urls.map((u) => u.trim())));
+};
+
+const formatContextRows = (rows: any[], fields: string[]): string => {
+  return rows
+    .map((row) => {
+      const parts = fields
+        .map((f) => `${f}=${truncate(String(row?.[f] ?? ''))}`)
+        .filter((part) => !part.endsWith('='));
+      return parts.join(' | ');
+    })
+    .filter(Boolean)
+    .join('\n');
+};
+
+const toIntent = (value: any): CaptureIntent => {
+  const intents: CaptureIntent[] = [
+    'CHITCHAT',
+    'ACTIONABLE_NOTE',
+    'PROJECT_IDEA',
+    'TASK_CAPTURE',
+    'RESOURCE_CAPTURE',
+    'FINANCE_CAPTURE',
+    'COMPLETE_TASK',
+    'MODULE_CAPTURE'
+  ];
+  return intents.includes(value) ? value : DEFAULT_INTENT;
+};
+
+const toOperation = (value: any): CaptureOperation => {
+  const ops: CaptureOperation[] = ['CREATE', 'TRANSACTION', 'MODULE_ITEM', 'COMPLETE', 'CHAT'];
+  return ops.includes(value) ? value : DEFAULT_OPERATION;
+};
+
+const toSafeNumber = (value: any, fallback: number): number => {
+  const n = Number(value);
+  if (Number.isFinite(n)) return n;
+  return fallback;
+};
+
+const toSafeTags = (value: any): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((tag) => String(tag || '').trim())
+    .filter(Boolean)
+    .slice(0, 12);
+};
+
+const normalizeType = (value: any): 'Tasks' | 'Projects' | 'Resources' | 'Areas' | 'Archives' => {
+  const allowed = ['Tasks', 'Projects', 'Resources', 'Areas', 'Archives'];
+  return allowed.includes(value) ? (value as any) : 'Tasks';
+};
+
+const findByTitle = (rows: any[], title: string): any | null => {
+  const needle = String(title || '').trim().toLowerCase();
+  if (!needle) return null;
+  const exact = rows.find((row) => String(row.title || row.name || '').trim().toLowerCase() === needle);
+  if (exact) return exact;
+  const partial = rows.find((row) => String(row.title || row.name || '').trim().toLowerCase().includes(needle));
+  return partial || null;
+};
+
+async function loadCaptureContext(supabase: any): Promise<CaptureContext> {
+  const [projectsRes, areasRes, tasksRes, resourcesRes, accountsRes, modulesRes] = await Promise.all([
+    supabase
+      .from('projects')
+      .select('id,title,category,type,related_item_ids,updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(60),
+    supabase
+      .from('areas')
+      .select('id,title,name,category,updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(30),
+    supabase
+      .from('tasks')
+      .select('id,title,category,related_item_ids,is_completed,due_date,updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(80),
+    supabase
+      .from('resources')
+      .select('id,title,category,content,updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(40),
+    supabase.from('accounts').select('id,name').limit(20),
+    supabase.from('modules').select('id,name,schema_config').limit(20)
+  ]);
+
+  return {
+    projects: projectsRes.data || [],
+    areas: areasRes.data || [],
+    tasks: tasksRes.data || [],
+    resources: resourcesRes.data || [],
+    accounts: accountsRes.data || [],
+    modules: modulesRes.data || []
+  };
+}
+
+async function detectDuplicateHints(params: {
+  supabase: any;
+  message: string;
+  urls: string[];
+  excludeLogId?: string;
+}): Promise<DedupHints> {
+  const { supabase, message, urls, excludeLogId } = params;
+
+  const recentLogRes = await supabase
+    .from('system_logs')
+    .select('id,event_source,created_at,user_message')
+    .eq('user_message', message)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  const recentLog = (recentLogRes.data || []).find((row: any) => row.id !== excludeLogId);
+  if (recentLog) {
+    return {
+      isDuplicate: true,
+      reason: 'Exact same message already captured in system_logs',
+      matchedLogId: recentLog.id
+    };
+  }
+
+  for (const url of urls) {
+    const pattern = `%${url}%`;
+    const checks = await Promise.all([
+      supabase.from('resources').select('id,title').ilike('content', pattern).limit(1),
+      supabase.from('tasks').select('id,title').ilike('content', pattern).limit(1),
+      supabase.from('projects').select('id,title').ilike('content', pattern).limit(1)
+    ]);
+
+    const resourceMatch = checks[0].data?.[0];
+    if (resourceMatch) {
+      return {
+        isDuplicate: true,
+        reason: 'Found matching URL in resources',
+        matchedItemId: resourceMatch.id,
+        matchedTable: 'resources',
+        matchedTitle: resourceMatch.title,
+        matchedLink: url
+      };
+    }
+
+    const taskMatch = checks[1].data?.[0];
+    if (taskMatch) {
+      return {
+        isDuplicate: true,
+        reason: 'Found matching URL in tasks',
+        matchedItemId: taskMatch.id,
+        matchedTable: 'tasks',
+        matchedTitle: taskMatch.title,
+        matchedLink: url
+      };
+    }
+
+    const projectMatch = checks[2].data?.[0];
+    if (projectMatch) {
+      return {
+        isDuplicate: true,
+        reason: 'Found matching URL in projects',
+        matchedItemId: projectMatch.id,
+        matchedTable: 'projects',
+        matchedTitle: projectMatch.title,
+        matchedLink: url
+      };
+    }
+  }
+
+  return {
+    isDuplicate: false,
+    reason: 'No exact duplicate signal from logs or URLs'
+  };
+}
+
+function buildCapturePrompt(params: {
+  message: string;
+  source: CaptureSource;
+  timezone: string;
+  context: CaptureContext;
+  dedup: DedupHints;
+  urls: string[];
+}): string {
+  const { message, source, timezone, context, dedup, urls } = params;
+  const now = new Date();
+  const nowText = now.toLocaleString('en-US', { timeZone: timezone });
+
+  const projectsText = formatContextRows(context.projects.slice(0, 25), ['id', 'title', 'category']);
+  const areasText = formatContextRows(context.areas.slice(0, 20), ['id', 'title', 'name', 'category']);
+  const tasksText = formatContextRows(context.tasks.slice(0, 25), ['id', 'title', 'category', 'is_completed']);
+  const accountsText = formatContextRows(context.accounts.slice(0, 12), ['id', 'name']);
+  const modulesText = formatContextRows(context.modules.slice(0, 12), ['id', 'name']);
+
+  return `You are JAY, PARA Brain capture router.
+
+Current time (${timezone}): ${nowText} | ISO: ${now.toISOString()}
+Inbound source: ${source}
+User message: "${message}"
+URLs detected: ${urls.length > 0 ? urls.join(', ') : 'none'}
+Duplicate hints: isDuplicate=${dedup.isDuplicate}; reason=${dedup.reason}; matchedItemId=${dedup.matchedItemId || 'none'}; matchedTable=${dedup.matchedTable || 'none'}
+
+Core behavior:
+1. Classify intent first: CHITCHAT vs actionable capture.
+2. If CHITCHAT, set operation=CHAT and do not create data.
+3. If actionable, map into PARA/finance/module actions.
+4. Prefer linking task to an existing project.
+5. If task has no matching project but user clearly implies a project, propose relatedProjectTitle and createProjectIfMissing=true.
+6. Use dedup hints: if likely duplicate, avoid new create unless user explicitly asks to create another.
+7. Keep assistant response concise in Thai.
+
+PARA constraints:
+- Task should belong to a project when possible.
+- Project should map to an area by category or relatedAreaTitle.
+- Resource with URL should go to type=Resources unless user clearly asks for task/action.
+
+Existing Areas:
+${areasText || '(none)'}
+
+Existing Projects:
+${projectsText || '(none)'}
+
+Recent Tasks:
+${tasksText || '(none)'}
+
+Accounts:
+${accountsText || '(none)'}
+
+Modules:
+${modulesText || '(none)'}
+
+Return strict JSON only.`;
+}
+
+function buildResponseSchema() {
+  return {
+    type: Type.OBJECT,
+    properties: {
+      intent: {
+        type: Type.STRING,
+        enum: [
+          'CHITCHAT',
+          'ACTIONABLE_NOTE',
+          'PROJECT_IDEA',
+          'TASK_CAPTURE',
+          'RESOURCE_CAPTURE',
+          'FINANCE_CAPTURE',
+          'COMPLETE_TASK',
+          'MODULE_CAPTURE'
+        ]
+      },
+      confidence: { type: Type.NUMBER },
+      isActionable: { type: Type.BOOLEAN },
+      operation: {
+        type: Type.STRING,
+        enum: ['CREATE', 'TRANSACTION', 'MODULE_ITEM', 'COMPLETE', 'CHAT']
+      },
+      chatResponse: { type: Type.STRING },
+      title: { type: Type.STRING, nullable: true },
+      summary: { type: Type.STRING, nullable: true },
+      category: { type: Type.STRING, nullable: true },
+      type: {
+        type: Type.STRING,
+        enum: ['Tasks', 'Projects', 'Resources', 'Areas', 'Archives'],
+        nullable: true
+      },
+      relatedItemId: { type: Type.STRING, nullable: true },
+      relatedProjectTitle: { type: Type.STRING, nullable: true },
+      relatedAreaTitle: { type: Type.STRING, nullable: true },
+      createProjectIfMissing: { type: Type.BOOLEAN, nullable: true },
+      suggestedTags: {
+        type: Type.ARRAY,
+        nullable: true,
+        items: { type: Type.STRING }
+      },
+      dueDate: { type: Type.STRING, nullable: true },
+      amount: { type: Type.NUMBER, nullable: true },
+      transactionType: {
+        type: Type.STRING,
+        enum: ['INCOME', 'EXPENSE', 'TRANSFER'],
+        nullable: true
+      },
+      accountId: { type: Type.STRING, nullable: true },
+      targetModuleId: { type: Type.STRING, nullable: true },
+      moduleDataRaw: {
+        type: Type.ARRAY,
+        nullable: true,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            key: { type: Type.STRING },
+            value: { type: Type.STRING }
+          },
+          required: ['key', 'value']
+        }
+      },
+      dedupRecommendation: {
+        type: Type.STRING,
+        enum: ['NEW', 'LIKELY_DUPLICATE', 'DUPLICATE'],
+        nullable: true
+      }
+    },
+    required: ['intent', 'confidence', 'isActionable', 'operation', 'chatResponse']
+  };
+}
+
+async function analyzeCapture(params: {
+  apiKey: string;
+  prompt: string;
+}): Promise<CaptureModelOutput> {
+  const ai = new GoogleGenAI({ apiKey: params.apiKey });
+  const response = await runWithRetry(() =>
+    ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: params.prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: buildResponseSchema()
+      }
+    })
+  );
+
+  try {
+    return JSON.parse(response.text || '{}') as CaptureModelOutput;
+  } catch {
+    return {
+      intent: 'CHITCHAT',
+      confidence: 0.4,
+      isActionable: false,
+      operation: 'CHAT',
+      chatResponse: 'รับทราบครับ'
+    };
+  }
+}
+
+export async function runCapturePipeline(input: CapturePipelineInput): Promise<CapturePipelineResult> {
+  const timezone = input.timezone || 'Asia/Bangkok';
+  const approvalGatesEnabled = input.approvalGatesEnabled === true;
+  const message = normalizeMessage(input.userMessage);
+
+  const [context, dedup] = await Promise.all([
+    loadCaptureContext(input.supabase),
+    detectDuplicateHints({
+      supabase: input.supabase,
+      message,
+      urls: extractUrls(message),
+      excludeLogId: input.excludeLogId
+    })
+  ]);
+
+  const prompt = buildCapturePrompt({
+    message,
+    source: input.source,
+    timezone,
+    context,
+    dedup,
+    urls: extractUrls(message)
+  });
+
+  const modelOutput = await analyzeCapture({ apiKey: input.geminiApiKey, prompt });
+
+  const intent = toIntent(modelOutput.intent);
+  const confidence = Math.max(0, Math.min(1, toSafeNumber(modelOutput.confidence, 0.5)));
+  const isActionable = modelOutput.isActionable === true;
+  let operation = toOperation(modelOutput.operation);
+  let chatResponse = String(modelOutput.chatResponse || '').trim() || 'รับทราบครับ';
+
+  if (!isActionable && operation !== 'CHAT') {
+    operation = 'CHAT';
+  }
+
+  if (dedup.isDuplicate && operation !== 'CHAT') {
+    operation = 'CHAT';
+    chatResponse = `ข้อมูลนี้ดูเหมือนเคยมีแล้ว (${dedup.reason}) ผมยังไม่สร้างรายการซ้ำให้นะครับ`;
+    return {
+      success: true,
+      source: input.source,
+      intent,
+      confidence,
+      isActionable: false,
+      operation,
+      chatResponse,
+      actionType: 'SKIP_DUPLICATE',
+      status: 'SKIPPED_DUPLICATE',
+      dedup,
+      meta: {
+        dedupRecommendation: modelOutput.dedupRecommendation || 'DUPLICATE'
+      }
+    };
+  }
+
+  if (approvalGatesEnabled && ['TRANSACTION', 'MODULE_ITEM', 'COMPLETE'].includes(operation)) {
+    const pendingMsg = `${chatResponse}\n\n⚠️ Action requires approval and was not executed automatically.`;
+    return {
+      success: true,
+      source: input.source,
+      intent,
+      confidence,
+      isActionable,
+      operation,
+      chatResponse: pendingMsg,
+      actionType: 'PENDING_APPROVAL',
+      status: 'PENDING',
+      dedup,
+      meta: {
+        requestedOperation: operation
+      }
+    };
+  }
+
+  try {
+    const nowIso = new Date().toISOString();
+    const baseTitle = String(modelOutput.title || '').trim() || truncate(message, 80);
+    const baseCategory = String(modelOutput.category || '').trim() || 'Inbox';
+    const tags = toSafeTags(modelOutput.suggestedTags);
+
+    if (operation === 'CHAT') {
+      return {
+        success: true,
+        source: input.source,
+        intent,
+        confidence,
+        isActionable,
+        operation,
+        chatResponse,
+        actionType: 'CHAT',
+        status: 'SUCCESS',
+        dedup
+      };
+    }
+
+    if (operation === 'CREATE') {
+      const paraType = normalizeType(modelOutput.type);
+      const table = PARA_TYPE_TO_TABLE[paraType] || 'tasks';
+      const createdItems: Record<string, any>[] = [];
+
+      if (paraType === 'Tasks') {
+        let relatedItemIds: string[] = [];
+
+        if (modelOutput.relatedItemId) {
+          relatedItemIds = [String(modelOutput.relatedItemId)];
+        } else if (modelOutput.relatedProjectTitle) {
+          const project = findByTitle(context.projects, modelOutput.relatedProjectTitle);
+          if (project?.id) {
+            relatedItemIds = [project.id];
+          }
+        }
+
+        let autoProject: any = null;
+        if (relatedItemIds.length === 0 && (modelOutput.createProjectIfMissing || modelOutput.relatedProjectTitle)) {
+          const targetProjectTitle = String(modelOutput.relatedProjectTitle || '').trim();
+          if (targetProjectTitle) {
+            const existingProject = findByTitle(context.projects, targetProjectTitle);
+            if (existingProject?.id) {
+              relatedItemIds = [existingProject.id];
+            } else {
+              const area = findByTitle(context.areas, modelOutput.relatedAreaTitle || baseCategory);
+              const projectPayload: any = {
+                id: uuidv4(),
+                title: targetProjectTitle,
+                type: 'Projects',
+                category: String(modelOutput.relatedAreaTitle || baseCategory || 'General'),
+                content: `Auto-created from capture: ${truncate(message, 220)}`,
+                tags: Array.from(new Set(['auto-capture', 'project', ...tags])),
+                related_item_ids: area?.id ? [area.id] : [],
+                is_completed: false,
+                created_at: nowIso,
+                updated_at: nowIso
+              };
+              const projectInsert = await input.supabase.from('projects').insert(projectPayload).select().single();
+              if (projectInsert.error) throw new Error(projectInsert.error.message);
+              autoProject = projectInsert.data;
+              relatedItemIds = autoProject?.id ? [autoProject.id] : [];
+              if (autoProject) createdItems.push(autoProject);
+            }
+          }
+        }
+
+        const taskPayload: any = {
+          id: uuidv4(),
+          title: baseTitle,
+          type: 'Tasks',
+          category: baseCategory,
+          content: String(modelOutput.summary || message),
+          tags,
+          related_item_ids: relatedItemIds,
+          is_completed: false,
+          created_at: nowIso,
+          updated_at: nowIso
+        };
+        if (modelOutput.dueDate && String(modelOutput.dueDate).includes('T')) {
+          taskPayload.due_date = modelOutput.dueDate;
+        }
+
+        const insert = await input.supabase.from(table).insert(taskPayload).select().single();
+        if (insert.error) throw new Error(insert.error.message);
+        createdItems.push(insert.data);
+
+        return {
+          success: true,
+          source: input.source,
+          intent,
+          confidence,
+          isActionable,
+          operation,
+          chatResponse,
+          itemType: 'PARA',
+          createdItem: createdItems.length === 1 ? createdItems[0] : null,
+          createdItems: createdItems.length > 1 ? createdItems : undefined,
+          actionType: 'CREATE_PARA',
+          status: 'SUCCESS',
+          dedup,
+          meta: {
+            table,
+            paraType,
+            autoProjectCreated: createdItems.length > 1
+          }
+        };
+      }
+
+      const payload: any = {
+        id: uuidv4(),
+        title: baseTitle,
+        type: paraType,
+        category: baseCategory,
+        content: String(modelOutput.summary || message),
+        tags,
+        related_item_ids: modelOutput.relatedItemId ? [String(modelOutput.relatedItemId)] : [],
+        is_completed: false,
+        created_at: nowIso,
+        updated_at: nowIso
+      };
+
+      if (paraType === 'Areas') {
+        payload.name = baseTitle;
+      }
+
+      const insert = await input.supabase.from(table).insert(payload).select().single();
+      if (insert.error) throw new Error(insert.error.message);
+
+      return {
+        success: true,
+        source: input.source,
+        intent,
+        confidence,
+        isActionable,
+        operation,
+        chatResponse,
+        itemType: 'PARA',
+        createdItem: insert.data,
+        actionType: 'CREATE_PARA',
+        status: 'SUCCESS',
+        dedup,
+        meta: {
+          table,
+          paraType
+        }
+      };
+    }
+
+    if (operation === 'TRANSACTION') {
+      const targetAccountId = modelOutput.accountId || context.accounts?.[0]?.id || null;
+      if (!targetAccountId) {
+        return {
+          success: false,
+          source: input.source,
+          intent,
+          confidence,
+          isActionable,
+          operation,
+          chatResponse: '⚠️ หาบัญชีไม่เจอครับ',
+          actionType: 'ERROR',
+          status: 'FAILED',
+          dedup,
+          meta: { reason: 'ACCOUNT_NOT_FOUND' }
+        };
+      }
+
+      const txPayload = {
+        id: uuidv4(),
+        description: baseTitle,
+        amount: toSafeNumber(modelOutput.amount, 0),
+        type: modelOutput.transactionType || 'EXPENSE',
+        category: baseCategory || 'General',
+        account_id: targetAccountId,
+        transaction_date: nowIso
+      };
+
+      const insert = await input.supabase.from('transactions').insert(txPayload).select().single();
+      if (insert.error) throw new Error(insert.error.message);
+
+      return {
+        success: true,
+        source: input.source,
+        intent,
+        confidence,
+        isActionable,
+        operation,
+        chatResponse,
+        itemType: 'TRANSACTION',
+        createdItem: insert.data,
+        actionType: 'CREATE_TX',
+        status: 'SUCCESS',
+        dedup,
+        meta: {
+          table: 'transactions'
+        }
+      };
+    }
+
+    if (operation === 'MODULE_ITEM') {
+      if (!modelOutput.targetModuleId) {
+        return {
+          success: false,
+          source: input.source,
+          intent,
+          confidence,
+          isActionable,
+          operation,
+          chatResponse: '⚠️ ไม่พบโมดูลเป้าหมายสำหรับบันทึกข้อมูล',
+          actionType: 'ERROR',
+          status: 'FAILED',
+          dedup,
+          meta: { reason: 'MODULE_TARGET_MISSING' }
+        };
+      }
+
+      const moduleData: Record<string, any> = {};
+      if (Array.isArray(modelOutput.moduleDataRaw)) {
+        modelOutput.moduleDataRaw.forEach((f) => {
+          const key = String(f?.key || '').trim();
+          if (!key) return;
+          const raw = String(f?.value || '').trim();
+          const asNum = Number(raw);
+          moduleData[key] = raw !== '' && Number.isFinite(asNum) ? asNum : raw;
+        });
+      }
+
+      const modulePayload = {
+        id: uuidv4(),
+        module_id: modelOutput.targetModuleId,
+        title: baseTitle || 'Entry',
+        data: moduleData,
+        tags,
+        created_at: nowIso,
+        updated_at: nowIso
+      };
+
+      const insert = await input.supabase.from('module_items').insert(modulePayload).select().single();
+      if (insert.error) throw new Error(insert.error.message);
+
+      return {
+        success: true,
+        source: input.source,
+        intent,
+        confidence,
+        isActionable,
+        operation,
+        chatResponse,
+        itemType: 'MODULE',
+        createdItem: insert.data,
+        actionType: 'CREATE_MODULE',
+        status: 'SUCCESS',
+        dedup,
+        meta: {
+          table: 'module_items'
+        }
+      };
+    }
+
+    if (operation === 'COMPLETE') {
+      let targetTaskId = modelOutput.relatedItemId || '';
+
+      if (!targetTaskId && baseTitle) {
+        const foundTask = findByTitle(context.tasks, baseTitle);
+        if (foundTask?.id) targetTaskId = foundTask.id;
+      }
+
+      if (!targetTaskId) {
+        return {
+          success: true,
+          source: input.source,
+          intent,
+          confidence,
+          isActionable,
+          operation: 'CHAT',
+          chatResponse: 'ยังหา task ที่จะ complete ไม่เจอครับ ลองระบุชื่องานอีกครั้ง',
+          actionType: 'COMPLETE_TASK_NOT_FOUND',
+          status: 'SUCCESS',
+          dedup,
+          meta: {
+            requestedOperation: 'COMPLETE'
+          }
+        };
+      }
+
+      const update = await input.supabase
+        .from('tasks')
+        .update({ is_completed: true, updated_at: nowIso })
+        .eq('id', targetTaskId)
+        .select()
+        .single();
+
+      if (update.error) throw new Error(update.error.message);
+
+      return {
+        success: true,
+        source: input.source,
+        intent,
+        confidence,
+        isActionable,
+        operation,
+        chatResponse,
+        itemType: 'PARA',
+        createdItem: update.data,
+        actionType: 'COMPLETE_TASK',
+        status: 'SUCCESS',
+        dedup,
+        meta: {
+          table: 'tasks'
+        }
+      };
+    }
+
+    return {
+      success: true,
+      source: input.source,
+      intent,
+      confidence,
+      isActionable,
+      operation: 'CHAT',
+      chatResponse,
+      actionType: 'CHAT',
+      status: 'SUCCESS',
+      dedup
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      source: input.source,
+      intent,
+      confidence,
+      isActionable,
+      operation,
+      chatResponse: 'ระบบขัดข้องชั่วคราวครับ',
+      actionType: 'ERROR',
+      status: 'FAILED',
+      dedup,
+      meta: {
+        reason: 'PIPELINE_EXCEPTION',
+        error: error?.message || 'Unknown error'
+      }
+    };
+  }
+}
+
+export function toCaptureLogPayload(result: CapturePipelineResult) {
+  return {
+    contract: 'telegram_chat_v1',
+    version: 1,
+    source: result.source,
+    intent: result.intent,
+    confidence: result.confidence,
+    isActionable: result.isActionable,
+    operation: result.operation,
+    chatResponse: result.chatResponse,
+    itemType: result.itemType,
+    createdItem: result.createdItem || undefined,
+    createdItems: result.createdItems,
+    dedup: result.dedup,
+    meta: {
+      actionType: result.actionType,
+      status: result.status,
+      ...(result.meta || {})
+    }
+  };
+}

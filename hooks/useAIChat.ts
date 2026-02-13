@@ -23,9 +23,21 @@ interface UseAIChatProps {
     onToggleComplete: (id: string, status: boolean) => Promise<any>;
     onAddTransaction: (tx: Transaction) => Promise<any>;
     onAddModuleItem: (item: ModuleItem) => Promise<any>;
+    onRefreshFinance?: () => Promise<any>;
+    onRefreshModuleItems?: (moduleId: string) => Promise<any>;
 }
 
-export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplete, onAddTransaction, onAddModuleItem }: UseAIChatProps) => {
+export const useAIChat = ({
+    items,
+    accounts,
+    modules,
+    onAddItem,
+    onToggleComplete,
+    onAddTransaction,
+    onAddModuleItem,
+    onRefreshFinance,
+    onRefreshModuleItems
+}: UseAIChatProps) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
 
@@ -156,6 +168,25 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
         };
     }, [mapTelegramLogToMessages, upsertMessages]);
 
+    const callCaptureIntake = async (text: string): Promise<any> => {
+        const response = await fetch('/api/capture-intake', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                source: 'WEB',
+                message: text
+            })
+        });
+
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(body.error || `Capture API failed (${response.status})`);
+        }
+        return body;
+    };
+
     const handleSendMessage = async (text: string) => {
         if (!text.trim()) return;
 
@@ -171,6 +202,36 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
 
         try {
             const recentHistory = messages.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
+
+            try {
+                const apiResult = await callCaptureIntake(text);
+                addMessage({
+                    id: generateId(),
+                    role: 'assistant',
+                    text: String(apiResult.chatResponse || 'รับทราบครับ'),
+                    source: 'WEB',
+                    itemType: apiResult.itemType as ChatCreatedItemType | undefined,
+                    createdItem: apiResult.createdItem || undefined,
+                    createdItems: Array.isArray(apiResult.createdItems) && apiResult.createdItems.length > 0
+                        ? apiResult.createdItems
+                        : undefined,
+                    timestamp: new Date()
+                });
+
+                if (apiResult.itemType === 'TRANSACTION' && onRefreshFinance) {
+                    await onRefreshFinance();
+                }
+
+                if (apiResult.itemType === 'MODULE' && onRefreshModuleItems) {
+                    const moduleId = apiResult?.createdItem?.moduleId || apiResult?.createdItem?.module_id;
+                    if (moduleId) {
+                        await onRefreshModuleItems(String(moduleId));
+                    }
+                }
+                return;
+            } catch (captureError: any) {
+                console.warn('Capture API unavailable, falling back to local analyzer:', captureError?.message || captureError);
+            }
             
             const result = await analyzeLifeOS(text, {
                 paraItems: items,

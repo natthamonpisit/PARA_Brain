@@ -1,4 +1,4 @@
-import { fetchWithTimeoutRetry } from './externalPolicy';
+import { fetchWithTimeoutRetry } from './externalPolicy.js';
 
 interface SendTelegramTextParams {
   botToken: string;
@@ -38,4 +38,3 @@ export async function sendTelegramText(params: SendTelegramTextParams) {
 
   return result;
 }
-

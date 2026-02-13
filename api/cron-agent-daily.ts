@@ -1,4 +1,4 @@
-import { finalizeApiObservation, startApiObservation } from './_lib/observability';
+import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
 
 export default async function handler(req: any, res: any) {
   const obs = startApiObservation(req, '/api/cron-agent-daily', { source: 'CRON' });

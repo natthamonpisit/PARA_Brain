@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { runCapturePipeline, toCaptureLogPayload, CaptureSource } from './_lib/capturePipeline';
-import { finalizeApiObservation, startApiObservation } from './_lib/observability';
+import { runCapturePipeline, toCaptureLogPayload, CaptureSource } from './_lib/capturePipeline.js';
+import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
 
 function getCaptureKey(req: any): string {
   return req.headers?.['x-capture-key'] || req.headers?.authorization?.replace('Bearer ', '') || req.query?.key || '';

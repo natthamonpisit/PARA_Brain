@@ -25,3 +25,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.playwright-cli
+output
+memory/daily/*.md
+memory/heartbeat/
+memory/weekly/

@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { sendTelegramText } from './_lib/telegram';
+import { sendTelegramText } from './_lib/telegram.js';
 
 // Initialize Services
 // Note: In Vercel Serverless, process.env works automatically.

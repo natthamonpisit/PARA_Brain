@@ -9,8 +9,8 @@ import {
   persistPulseSnapshotToDb,
   recordPulseFeedbackToDb,
   savePulseSourcePolicyToDb
-} from './_lib/thailandPulsePipeline';
-import { finalizeApiObservation, startApiObservation } from './_lib/observability';
+} from './_lib/thailandPulsePipeline.js';
+import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
 
 const defaultOwnerKey = process.env.AGENT_OWNER_KEY || 'default';
 

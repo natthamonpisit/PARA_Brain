@@ -14,7 +14,7 @@ import { ItemDetailModal } from './components/ItemDetailModal'; // New Import
 import { FocusDock } from './components/FocusDock';
 import { MissionControlBoard } from './components/MissionControlBoard';
 import { ParaType, AppModule, ViewMode, ParaItem } from './types';
-import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network, Minimize2, Maximize2 } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
 import { useModuleData } from './hooks/useModuleData'; 
@@ -55,6 +55,14 @@ export default function App() {
   const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | 'Review' | 'Agent' | string>('All');
   const [viewMode, setViewMode] = useState<ViewMode>('GRID');
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isChatCompact, setIsChatCompact] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('para-chat-compact') === '1';
+  });
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.matchMedia('(min-width: 768px)').matches;
+  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState(''); 
   const [quickCaptureText, setQuickCaptureText] = useState('');
@@ -81,6 +89,44 @@ export default function App() {
     loadFinanceData();
     loadModules();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia('(min-width: 768px)');
+    const syncViewport = () => setIsDesktopViewport(media.matches);
+    syncViewport();
+    media.addEventListener('change', syncViewport);
+    return () => media.removeEventListener('change', syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopViewport && isChatCompact) {
+      setIsChatCompact(false);
+    }
+  }, [isDesktopViewport, isChatCompact]);
+
+  useEffect(() => {
+    if (!isChatOpen || typeof window === 'undefined') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsChatOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isChatOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('para-chat-compact', isChatCompact ? '1' : '0');
+  }, [isChatCompact]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !isChatOpen || isDesktopViewport) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isChatOpen, isDesktopViewport]);
 
   // --- VIEW LOGIC ---
   useEffect(() => {
@@ -476,10 +522,11 @@ export default function App() {
 
             <button
               onClick={() => setIsChatOpen((prev) => !prev)}
-              className={`hidden md:flex items-center gap-1 px-2 py-1.5 rounded-lg border transition-colors ${isChatOpen ? 'bg-cyan-500/10 border-cyan-400/40 text-cyan-200' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
-              title="Toggle Chat Widget"
+              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${isChatOpen ? 'bg-cyan-500/10 border-cyan-400/40 text-cyan-200' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+              title={isChatOpen ? 'Close AI Copilot' : 'Open AI Copilot'}
             >
               <MessageSquare className="w-4 h-4" />
+              <span className="text-xs font-semibold">{isChatOpen ? 'Close' : 'Chat'}</span>
             </button>
           </div>
         </header>
@@ -526,7 +573,7 @@ export default function App() {
         <div className="flex-1 overflow-hidden relative flex">
             
             {/* Main Board */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 transition-all duration-300">
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 sm:p-4 lg:p-8 transition-all duration-300">
                 <div className="w-full pb-24 md:pb-0 max-w-[1600px] mx-auto">
                     {shouldShowFocusDock && (
                         <FocusDock
@@ -623,7 +670,7 @@ export default function App() {
 
             {/* Batch Action Bar */}
             {selectedIds.size > 0 && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-6 duration-300">
+                <div className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-4 md:px-6 py-3 rounded-2xl shadow-2xl flex items-center justify-between gap-4 w-[calc(100%-1.5rem)] max-w-xl animate-in slide-in-from-bottom-6 duration-300">
                     <div className="flex items-center gap-2 border-r border-slate-700 pr-4">
                         <div className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">{selectedIds.size}</div>
                         <span className="text-sm font-medium">Selected</span>
@@ -645,17 +692,37 @@ export default function App() {
       {isChatOpen && (
         <button
           onClick={() => setIsChatOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-[1px]"
+          className="fixed inset-0 z-40 bg-slate-950/60 md:bg-slate-950/45 backdrop-blur-[1px]"
           aria-label="Close chat overlay"
         />
       )}
 
       <div className={`
         fixed z-50 transition-all duration-200 ease-out
-        left-3 right-3 bottom-3 h-[72vh]
-        md:left-auto md:right-6 md:bottom-6 md:w-[390px] md:h-[min(72vh,640px)]
-        ${isChatOpen ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-6 opacity-0 pointer-events-none'}
+        left-0 right-0 top-0 bottom-0
+        md:left-auto md:top-auto md:right-6 md:bottom-6
+        ${isDesktopViewport ? (isChatCompact ? 'md:w-[320px] md:h-[420px]' : 'md:w-[390px] md:h-[min(72vh,640px)]') : ''}
+        ${isChatOpen ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-6 md:translate-y-4 opacity-0 pointer-events-none'}
       `}>
+        {isChatOpen && isDesktopViewport && (
+          <div className="absolute -top-10 right-0 flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/95 px-2 py-1 shadow-xl">
+            <button
+              onClick={() => setIsChatCompact((prev) => !prev)}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-cyan-200"
+              title={isChatCompact ? 'Expand chat' : 'Compact chat'}
+            >
+              {isChatCompact ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+              <span>{isChatCompact ? 'Expand' : 'Compact'}</span>
+            </button>
+            <button
+              onClick={() => setIsChatOpen(false)}
+              className="rounded-full px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-rose-200"
+              title="Close chat"
+            >
+              Close
+            </button>
+          </div>
+        )}
         <Suspense fallback={boardFallback}>
           <ChatPanel
             messages={messages}
@@ -663,7 +730,7 @@ export default function App() {
             onCompleteTask={handleChatCompletion}
             isProcessing={isProcessing}
             onClose={() => setIsChatOpen(false)}
-            className="h-full w-full rounded-2xl border border-slate-700 shadow-2xl overflow-hidden"
+            className={`h-full w-full shadow-2xl overflow-hidden ${isDesktopViewport ? 'rounded-2xl border border-slate-700' : 'rounded-none border-x-0 border-b-0 border-t border-slate-700'}`}
           />
         </Suspense>
       </div>
@@ -671,11 +738,12 @@ export default function App() {
       {!isChatOpen && (
         <button
           onClick={() => setIsChatOpen(true)}
-          className="fixed z-50 right-5 bottom-5 md:right-6 md:bottom-6 inline-flex items-center gap-2 rounded-full border border-cyan-400/50 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-cyan-200 shadow-xl hover:bg-cyan-500/10"
+          className="fixed z-50 right-4 bottom-4 md:right-6 md:bottom-6 inline-flex items-center gap-2 rounded-full border border-cyan-400/50 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-cyan-200 shadow-xl hover:bg-cyan-500/10"
           title="Open AI Copilot"
+          aria-expanded={isChatOpen}
         >
           <MessageSquare className="w-4 h-4" />
-          <span className="hidden sm:inline">AI Copilot</span>
+          <span>AI Copilot</span>
         </button>
       )}
 

@@ -24,34 +24,34 @@ const ReviewSection: React.FC<ReviewSectionProps> = ({
   emptyLabel,
   onOpenItem
 }) => (
-  <section className="bg-white border border-slate-200 rounded-2xl p-5">
+  <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-5">
     <div className="flex items-start justify-between gap-4 mb-4">
       <div>
-        <h3 className="text-base font-bold text-slate-900">{title}</h3>
-        <p className="text-xs text-slate-500 mt-1">{description}</p>
+        <h3 className="text-base font-bold text-slate-100">{title}</h3>
+        <p className="text-xs text-slate-400 mt-1">{description}</p>
       </div>
-      <div className="p-2 rounded-lg bg-slate-50 text-slate-600">{icon}</div>
+      <div className="p-2 rounded-lg bg-slate-800 text-cyan-300">{icon}</div>
     </div>
 
     {items.length === 0 ? (
-      <div className="text-sm text-slate-400 py-4">{emptyLabel}</div>
+      <div className="text-sm text-slate-500 py-4">{emptyLabel}</div>
     ) : (
       <div className="space-y-2">
         {items.slice(0, 8).map(item => (
           <button
             key={item.id}
             onClick={() => onOpenItem(item.id)}
-            className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/40 transition-colors"
+            className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/90 hover:border-cyan-400/40 hover:bg-slate-800/80 transition-colors"
           >
             <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-800 truncate">{item.title}</p>
-              <p className="text-[11px] text-slate-400 truncate">{item.category || 'No category'}</p>
+              <p className="text-sm font-medium text-slate-100 truncate">{item.title}</p>
+              <p className="text-[11px] text-slate-500 truncate">{item.category || 'No category'}</p>
             </div>
-            <ArrowRight className="w-4 h-4 text-slate-300 shrink-0" />
+            <ArrowRight className="w-4 h-4 text-slate-500 shrink-0" />
           </button>
         ))}
         {items.length > 8 && (
-          <div className="text-xs text-slate-400 pt-1">+ {items.length - 8} more</div>
+          <div className="text-xs text-slate-500 pt-1">+ {items.length - 8} more</div>
         )}
       </div>
     )}
@@ -110,13 +110,13 @@ export const ReviewBoard: React.FC<ReviewBoardProps> = ({ items, onOpenItem }) =
   return (
     <div className="pb-32 space-y-6 animate-in fade-in duration-500">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Weekly Review</h1>
-        <p className="text-sm text-slate-500 mt-1">
+        <h1 className="text-3xl font-bold text-slate-100">Weekly Review</h1>
+        <p className="text-sm text-slate-400 mt-1">
           Clean inbox noise, rescue stalled work, and reconnect orphan notes.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ReviewSection
           title="Overdue Tasks"
           description="Tasks with due dates in the past and still incomplete."

@@ -1,12 +1,20 @@
+import { finalizeApiObservation, startApiObservation } from './_lib/observability';
+
 export default async function handler(req: any, res: any) {
+  const obs = startApiObservation(req, '/api/cron-agent-daily', { source: 'CRON' });
+  const respond = async (status: number, body: any, meta?: Record<string, any>) => {
+    await finalizeApiObservation(obs, status, meta);
+    return res.status(status).json(body);
+  };
+
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });
   }
 
   const cronSecret = process.env.CRON_SECRET;
   const providedKey = req.query?.key || req.headers?.['x-cron-key'];
   if (cronSecret && providedKey !== cronSecret) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return respond(401, { error: 'Unauthorized' }, { reason: 'auth_failed' });
   }
 
   try {
@@ -21,9 +29,12 @@ export default async function handler(req: any, res: any) {
       writeFile: false,
       dryRun: false
     });
-    return res.status(200).json({ success: true, ...result });
+    return respond(200, { success: true, ...result }, {
+      runType: 'DAILY_BRIEF',
+      dryRun: false
+    });
   } catch (error: any) {
     console.error('[cron-agent-daily] failed', error);
-    return res.status(500).json({ error: error.message || 'Internal error' });
+    return respond(500, { error: error.message || 'Internal error' }, { reason: 'exception', error: error?.message || 'unknown' });
   }
 }

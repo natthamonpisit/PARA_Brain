@@ -211,7 +211,8 @@ async function embedForSemanticDedup(apiKey: string, text: string): Promise<numb
           config: { outputDimensionality: 1536 }
         })
       );
-      const values = response?.embeddings?.[0]?.values || response?.embeddings?.[0]?.embedding?.values;
+      const firstEmbedding: any = response?.embeddings?.[0];
+      const values = firstEmbedding?.values || firstEmbedding?.embedding?.values;
       if (Array.isArray(values) && values.length === 1536) {
         return values;
       }

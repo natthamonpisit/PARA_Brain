@@ -66,34 +66,96 @@ export const useAIChat = ({
         return value === 'PARA' || value === 'TRANSACTION' || value === 'MODULE';
     };
 
+    const toJsonPayload = (value: any): any | null => {
+        if (!value) return null;
+        if (typeof value === 'object') return value;
+        if (typeof value !== 'string') return null;
+        const raw = value.trim();
+        if (!raw || !raw.startsWith('{')) return null;
+        try {
+            const parsed = JSON.parse(raw);
+            if (typeof parsed === 'string' && parsed.trim().startsWith('{')) {
+                return JSON.parse(parsed);
+            }
+            return parsed;
+        } catch {
+            return null;
+        }
+    };
+
+    const normalizeCreatedItem = (
+        value: any,
+        itemType?: ChatCreatedItemType
+    ): ParaItem | Transaction | ModuleItem | undefined => {
+        if (!value || typeof value !== 'object') return undefined;
+        const raw = value as Record<string, any>;
+
+        if (itemType === 'TRANSACTION') {
+            return {
+                ...raw,
+                accountId: raw.accountId || raw.account_id || '',
+                transactionDate: raw.transactionDate || raw.transaction_date || raw.created_at || new Date().toISOString()
+            } as Transaction;
+        }
+
+        if (itemType === 'MODULE') {
+            return {
+                ...raw,
+                moduleId: raw.moduleId || raw.module_id || '',
+                createdAt: raw.createdAt || raw.created_at || new Date().toISOString(),
+                updatedAt: raw.updatedAt || raw.updated_at || new Date().toISOString()
+            } as ModuleItem;
+        }
+
+        return {
+            ...raw,
+            isCompleted: raw.isCompleted ?? raw.is_completed ?? false,
+            relatedItemIds: raw.relatedItemIds || raw.related_item_ids || [],
+            createdAt: raw.createdAt || raw.created_at || new Date().toISOString(),
+            updatedAt: raw.updatedAt || raw.updated_at || new Date().toISOString(),
+            dueDate: raw.dueDate || raw.due_date
+        } as ParaItem;
+    };
+
     const parseTelegramPayload = (value: any): {
         text: string;
         itemType?: ChatCreatedItemType;
         createdItem?: ParaItem | Transaction | ModuleItem;
         createdItems?: ParaItem[];
     } => {
-        const raw = String(value || '').trim();
-        if (!raw) return { text: '' };
-        if (!raw.startsWith('{')) return { text: raw };
-        try {
-            const parsed = JSON.parse(raw) as Partial<TelegramLogPayloadV1>;
-            if (parsed.contract !== 'telegram_chat_v1' || parsed.version !== 1) {
-                return { text: raw };
+        const raw = (() => {
+            if (typeof value === 'string') return value.trim();
+            if (value && typeof value === 'object') {
+                try {
+                    return JSON.stringify(value);
+                } catch {
+                    return '[payload]';
+                }
             }
-            const text = typeof parsed.chatResponse === 'string' && parsed.chatResponse.trim()
-                ? parsed.chatResponse
-                : raw;
-            const itemType = isItemType(parsed.itemType) ? parsed.itemType : undefined;
-            const createdItem = parsed.createdItem && typeof parsed.createdItem === 'object'
-                ? parsed.createdItem as ParaItem | Transaction | ModuleItem
-                : undefined;
-            const createdItems = Array.isArray(parsed.createdItems)
-                ? parsed.createdItems.filter((item) => !!item && typeof item === 'object') as ParaItem[]
-                : undefined;
-            return { text, itemType, createdItem, createdItems };
-        } catch {
+            return String(value || '').trim();
+        })();
+        if (!raw) return { text: '' };
+        const parsed = toJsonPayload(value) as Partial<TelegramLogPayloadV1> | null;
+        if (!parsed || typeof parsed !== 'object') {
             return { text: raw };
         }
+
+        const looksLikePayload =
+            parsed.contract === 'telegram_chat_v1' ||
+            (typeof parsed.chatResponse === 'string' && typeof parsed.operation === 'string');
+        if (!looksLikePayload) return { text: raw };
+
+        const text = typeof parsed.chatResponse === 'string' && parsed.chatResponse.trim()
+            ? parsed.chatResponse
+            : raw;
+        const itemType = isItemType(parsed.itemType) ? parsed.itemType : undefined;
+        const createdItem = normalizeCreatedItem(parsed.createdItem, itemType);
+        const createdItems = Array.isArray(parsed.createdItems)
+            ? parsed.createdItems
+                .map((item) => normalizeCreatedItem(item, 'PARA'))
+                .filter(Boolean) as ParaItem[]
+            : undefined;
+        return { text, itemType, createdItem, createdItems };
     };
 
     const mapTelegramLogToMessages = useCallback((row: any): ChatMessage[] => {

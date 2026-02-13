@@ -15,12 +15,22 @@
 - Additional parallel progress:
   - UX Mission Control V1 shipped (dashboard redesign + focus queue + floating chat widget)
   - Telegram migration completed (LINE removed) + Telegram logs now appear in web chat stream
-  - Remaining gap: special cards (created item card, etc.) are still not generated directly from Telegram logs
+  - Telegram parity completed:
+    - special cards render from structured Telegram payloads
+    - duplicate replay hardened with DB/API idempotency guard
   - Thailand Pulse Phase 1.2 completed:
     - Web MCP provider layer (`EXA` + `Firecrawl` + RSS fallback)
     - Citation rendering in UI and provider labeling
     - Supabase snapshot persistence + history API sync (`pulse_snapshots`)
     - 12-hour cron endpoint + Vercel schedule
+  - Tuning Sprint P1 completed:
+    - retrieval benchmark matrix (`50/100`) with HNSW recommendation
+    - hot-query index migration for `system_logs` + `tasks`
+    - observability baseline (structured API logs + `api_observability_events`)
+  - Thailand Pulse Quality tuning completed:
+    - source allow/deny policy (UI + API + DB persistence)
+    - confidence scoring and ranked display
+    - relevance feedback loop with feedback-aware ranking
 
 ## Priority P0 (ต้องทำก่อน)
 1. Frontend bundle split
@@ -58,6 +68,7 @@
   - map structured event เป็น `ChatMessage.createdItem/createdItems` ในฝั่ง UI
 - KPI:
   - Telegram interaction ที่สร้าง item/transaction/module แสดงการ์ดเทียบเท่ากับ web chat
+**Current state:** `done`
 
 2. Idempotency for inbound Telegram updates
 - ปัญหา: replay/update ซ้ำจาก Telegram webhook อาจสร้าง card หรือรายการซ้ำ
@@ -65,6 +76,7 @@
   - เก็บ update id แล้วกันซ้ำระดับ DB/API
 - KPI:
   - ไม่มี duplicate create จาก event เดิม
+**Current state:** `done`
 
 ## Priority P1 (ทำต่อจาก P0)
 4. Retrieval tuning (real data)
@@ -73,6 +85,7 @@
   - เปรียบเทียบ HNSW/IVFFlat เป็นรอบ ๆ และกำหนด index policy เดียว
 - KPI:
   - p95 retrieval latency ดีขึ้นและคงที่
+**Current state:** `done`
 
 5. DB index review (hot queries)
 - งาน:
@@ -80,6 +93,7 @@
   - เพิ่ม composite indexes ที่ขาด
 - KPI:
   - ลด query latency หน้า Agent + Dashboard
+**Current state:** `done`
 
 6. Observability baseline
 - งาน:
@@ -87,6 +101,7 @@
   - เก็บ latency และ error rate ต่อ endpoint
 - KPI:
   - debug production issue ได้ใน < 10 นาที
+**Current state:** `done`
 
 ## Thailand Pulse Quality Backlog (New)
 1. Source allow/deny policy
@@ -94,6 +109,7 @@
   - เพิ่ม user-configurable allowlist/denylist สำหรับ publisher domain
 - KPI:
   - ลดข่าว noise/low-trust ใน feed ได้ชัดเจน
+**Current state:** `done`
 
 2. Confidence scoring formula
 - งาน:
@@ -101,6 +117,7 @@
   - แสดง score พร้อมเหตุผลแบบสั้น
 - KPI:
   - ranking ของข่าวตรงความสำคัญผู้ใช้มากขึ้น
+**Current state:** `done`
 
 3. Relevance feedback loop
 - งาน:
@@ -108,6 +125,7 @@
   - ใช้ feedback ปรับ ranking ในรอบถัดไป
 - KPI:
   - CTR บนข่าวที่ถูก save เพิ่มขึ้น
+**Current state:** `done`
 
 ## Priority P2 (หลัง E2E)
 7. In-memory / edge cache strategy
@@ -120,15 +138,12 @@
   - แยก long-running tasks จาก request path เพื่อกัน timeout
 
 ## Recommended Execution Order (Next Session)
-1. Telegram parity backlog ข้อ 1 (special card generation from Telegram logs)
-2. Telegram parity backlog ข้อ 2 (idempotency against duplicate updates)
-3. P1-4 Retrieval tuning (real data benchmark 50/100 samples)
-4. P1-5 DB index review for hot queries (`agent_runs`, `memory_summaries`, `tasks`)
-5. P1-6 Observability baseline (structured logs + endpoint latency/error rate)
-6. Quick verify: `npm run build` + `agent:daily:dry` + `agent:heartbeat`
+1. Monitor observability/error rate baselines from `api_observability_events` on real traffic
+2. Calibrate confidence weighting using real feedback density (`pulse_feedback`)
+3. Expand trend quality inputs (e.g. verified trend APIs/newswire) and compare against current keyword extraction
+4. Quick verify after each tweak: `npm run build` + `agent:daily:dry` + `agent:heartbeat`
 
 ## Definition of Done (Next Session)
-- p95 retrieval latency ดีขึ้นและมี baseline เปรียบเทียบรอบใหม่
-- hot queries สำคัญมี index coverage ที่ชัดเจน
-- endpoint logs ช่วย trace failures ได้รวดเร็ว
-- mission-control UI ไม่มี responsive/blocking regression ที่สำคัญ
+- สามารถชี้ regression จาก observability table/log ได้ชัดภายในไม่กี่นาที
+- feedback volume มากพอสำหรับปรับ confidence weight รอบถัดไป
+- Thailand Pulse ranking มีความสม่ำเสมอมากขึ้นจาก feedback-based calibration

@@ -1,9 +1,13 @@
 import {
   generateThailandPulseSnapshot,
+  getDefaultPulseSourcePolicyFromEnv,
   getDefaultPulseInterestsFromEnv,
+  loadPulseFeedbackSignalFromDb,
+  loadPulseSourcePolicyFromDb,
   normalizeInterests,
   persistPulseSnapshotToDb
 } from './_lib/thailandPulsePipeline';
+import { finalizeApiObservation, startApiObservation } from './_lib/observability';
 
 const defaultOwnerKey = process.env.AGENT_OWNER_KEY || 'default';
 
@@ -16,8 +20,14 @@ const parseBodyInterests = (req: any) => {
 };
 
 export default async function handler(req: any, res: any) {
+  const obs = startApiObservation(req, '/api/cron-thailand-pulse', { source: 'CRON' });
+  const respond = async (status: number, body: any, meta?: Record<string, any>) => {
+    await finalizeApiObservation(obs, status, meta);
+    return res.status(status).json(body);
+  };
+
   if (req.method !== 'POST' && req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });
   }
 
   const cronSecret = process.env.CRON_SECRET;
@@ -26,7 +36,7 @@ export default async function handler(req: any, res: any) {
     req.headers?.['x-cron-key'] ||
     req.headers?.authorization?.replace('Bearer ', '');
   if (cronSecret && providedKey !== cronSecret) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return respond(401, { error: 'Unauthorized' }, { reason: 'auth_failed' });
   }
 
   try {
@@ -35,11 +45,16 @@ export default async function handler(req: any, res: any) {
       ? bodyInterests
       : getDefaultPulseInterestsFromEnv();
     const ownerKey = String(req.query?.ownerKey || req.headers?.['x-owner-key'] || defaultOwnerKey);
+    const policyFromDb = await loadPulseSourcePolicyFromDb(ownerKey);
+    const sourcePolicy = policyFromDb.policy || getDefaultPulseSourcePolicyFromEnv();
+    const feedbackSignal = await loadPulseFeedbackSignalFromDb(ownerKey, 45);
 
     const result = await generateThailandPulseSnapshot({
       interests,
       exaApiKey: process.env.EXA_API_KEY,
-      firecrawlApiKey: process.env.FIRECRAWL_API_KEY
+      firecrawlApiKey: process.env.FIRECRAWL_API_KEY,
+      sourcePolicy,
+      feedbackSignal
     });
 
     const persisted = await persistPulseSnapshotToDb(result.snapshot, ownerKey);
@@ -47,7 +62,7 @@ export default async function handler(req: any, res: any) {
       result.notes.push(`Persist failed: ${persisted.reason}`);
     }
 
-    return res.status(200).json({
+    return respond(200, {
       success: persisted.persisted,
       ownerKey,
       runType: 'THAILAND_PULSE_12H',
@@ -59,10 +74,17 @@ export default async function handler(req: any, res: any) {
         articleCount: category.articles.length
       })),
       latencyMs: result.latencyMs,
+      feedbackSignals: feedbackSignal.totalSignals,
+      sourcePolicy,
       notes: result.notes
+    }, {
+      runType: 'THAILAND_PULSE_12H',
+      provider: result.snapshot.provider,
+      latencyMs: result.latencyMs,
+      persisted: persisted.persisted
     });
   } catch (error: any) {
     console.error('[cron-thailand-pulse] failed', error);
-    return res.status(500).json({ error: error?.message || 'Internal error' });
+    return respond(500, { error: error?.message || 'Internal error' }, { reason: 'exception', error: error?.message || 'unknown' });
   }
 }

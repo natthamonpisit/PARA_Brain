@@ -22,6 +22,11 @@ export interface PulseArticle {
   trustTier: PulseTrustTier;
   category: string;
   keywords: string[];
+  domain?: string;
+  confidenceScore?: number;
+  confidenceLabel?: 'HIGH' | 'MEDIUM' | 'LOW';
+  confidenceReasons?: string[];
+  relevanceBias?: number;
   provider?: PulseProvider;
   citations?: PulseCitation[];
 }
@@ -55,10 +60,23 @@ export interface ThailandPulseSnapshot {
   notes: string[];
   isFallback?: boolean;
   provider?: PulseProvider;
+  quality?: {
+    scoringVersion: string;
+    feedbackSignals: number;
+    allowDomains: string[];
+    denyDomains: string[];
+  };
+}
+
+export interface PulseSourcePolicy {
+  allowDomains: string[];
+  denyDomains: string[];
 }
 
 const SNAPSHOT_STORAGE_KEY = 'para-thailand-pulse-snapshots-v1';
 const INTEREST_STORAGE_KEY = 'para-thailand-pulse-interests-v1';
+const SOURCE_POLICY_STORAGE_KEY = 'para-thailand-pulse-source-policy-v1';
+const FEEDBACK_STORAGE_KEY = 'para-thailand-pulse-feedback-v1';
 
 const MAX_HISTORY_DAYS = 7;
 const MAX_INTERESTS = 12;
@@ -88,6 +106,15 @@ const safeJsonParse = <T>(raw: string | null, fallback: T): T => {
 };
 
 const cleanInterest = (value: string) => value.trim().replace(/\s+/g, ' ');
+const cleanDomain = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+    .replace(/:\d+$/, '')
+    .replace(/\.+$/, '');
 
 export const sanitizeInterests = (values: string[]) => {
   const unique = new Set<string>();
@@ -96,6 +123,15 @@ export const sanitizeInterests = (values: string[]) => {
     if (cleaned) unique.add(cleaned);
   });
   return Array.from(unique).slice(0, MAX_INTERESTS);
+};
+
+export const sanitizeDomains = (values: string[]) => {
+  const unique = new Set<string>();
+  values.forEach((value) => {
+    const cleaned = cleanDomain(value);
+    if (cleaned) unique.add(cleaned);
+  });
+  return Array.from(unique).slice(0, 80);
 };
 
 export const getPulseInterests = (): string[] => {
@@ -112,6 +148,39 @@ export const savePulseInterests = (interests: string[]) => {
   if (typeof window === 'undefined') return;
   const sanitized = sanitizeInterests(interests);
   window.localStorage.setItem(INTEREST_STORAGE_KEY, JSON.stringify(sanitized));
+};
+
+export const getPulseSourcePolicy = (): PulseSourcePolicy => {
+  if (typeof window === 'undefined') {
+    return { allowDomains: [], denyDomains: [] };
+  }
+  const stored = safeJsonParse<PulseSourcePolicy>(
+    window.localStorage.getItem(SOURCE_POLICY_STORAGE_KEY),
+    { allowDomains: [], denyDomains: [] }
+  );
+  return {
+    allowDomains: sanitizeDomains(stored?.allowDomains || []),
+    denyDomains: sanitizeDomains(stored?.denyDomains || [])
+  };
+};
+
+export const savePulseSourcePolicy = (policy: PulseSourcePolicy) => {
+  if (typeof window === 'undefined') return;
+  const sanitized = {
+    allowDomains: sanitizeDomains(policy.allowDomains || []),
+    denyDomains: sanitizeDomains(policy.denyDomains || [])
+  };
+  window.localStorage.setItem(SOURCE_POLICY_STORAGE_KEY, JSON.stringify(sanitized));
+};
+
+export const getPulseFeedbackMap = (): Record<string, boolean> => {
+  if (typeof window === 'undefined') return {};
+  return safeJsonParse<Record<string, boolean>>(window.localStorage.getItem(FEEDBACK_STORAGE_KEY), {});
+};
+
+const persistPulseFeedbackMap = (map: Record<string, boolean>) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(map));
 };
 
 const sortSnapshots = (snapshots: ThailandPulseSnapshot[]) =>
@@ -230,13 +299,92 @@ const buildFallbackSnapshot = (interests: string[]): ThailandPulseSnapshot => {
   };
 };
 
+interface PulseFetchOptions {
+  ownerKey?: string;
+  sourcePolicy?: PulseSourcePolicy;
+}
+
+export const fetchPulseSourcePolicyFromServer = async (ownerKey?: string): Promise<PulseSourcePolicy | null> => {
+  const params = new URLSearchParams({ mode: 'policy' });
+  if (ownerKey) params.set('ownerKey', ownerKey);
+  const response = await fetch(`/api/thailand-pulse?${params.toString()}`);
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => ({}));
+  const policy = payload?.policy;
+  if (!policy || typeof policy !== 'object') return null;
+  return {
+    allowDomains: sanitizeDomains(policy.allowDomains || []),
+    denyDomains: sanitizeDomains(policy.denyDomains || [])
+  };
+};
+
+export const savePulseSourcePolicyToServer = async (
+  policy: PulseSourcePolicy,
+  ownerKey?: string
+): Promise<boolean> => {
+  const response = await fetch('/api/thailand-pulse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mode: 'policy',
+      ownerKey,
+      allowDomains: sanitizeDomains(policy.allowDomains || []),
+      denyDomains: sanitizeDomains(policy.denyDomains || [])
+    })
+  });
+  return response.ok;
+};
+
+export const submitPulseFeedback = async (payload: {
+  article: PulseArticle;
+  relevant: boolean;
+  ownerKey?: string;
+  snapshotDate?: string;
+}) => {
+  const feedbackMap = getPulseFeedbackMap();
+  feedbackMap[payload.article.id] = payload.relevant;
+  persistPulseFeedbackMap(feedbackMap);
+
+  const response = await fetch('/api/thailand-pulse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mode: 'feedback',
+      ownerKey: payload.ownerKey,
+      articleId: payload.article.id,
+      articleUrl: payload.article.url,
+      source: payload.article.source,
+      domain: payload.article.domain,
+      category: payload.article.category,
+      keywords: payload.article.keywords || [],
+      relevant: payload.relevant,
+      snapshotDate: payload.snapshotDate,
+      confidenceScore: payload.article.confidenceScore,
+      metadata: {
+        provider: payload.article.provider,
+        trustTier: payload.article.trustTier
+      }
+    })
+  });
+
+  return response.ok;
+};
+
 export const fetchThailandPulseSnapshot = async (
-  interests: string[]
+  interests: string[],
+  options: PulseFetchOptions = {}
 ): Promise<ThailandPulseSnapshot> => {
   const sanitized = sanitizeInterests(interests);
   const effectiveInterests = sanitized.length > 0 ? sanitized : [...DEFAULT_PULSE_INTERESTS];
-  const query = encodeURIComponent(effectiveInterests.join(','));
-  const response = await fetch(`/api/thailand-pulse?interests=${query}`);
+  const params = new URLSearchParams({
+    interests: effectiveInterests.join(',')
+  });
+  if (options.ownerKey) params.set('ownerKey', options.ownerKey);
+  if (options.sourcePolicy) {
+    params.set('allowDomains', sanitizeDomains(options.sourcePolicy.allowDomains || []).join(','));
+    params.set('denyDomains', sanitizeDomains(options.sourcePolicy.denyDomains || []).join(','));
+  }
+  const response = await fetch(`/api/thailand-pulse?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error(`Feed request failed (${response.status})`);
@@ -251,10 +399,11 @@ export const fetchThailandPulseSnapshot = async (
 };
 
 export const loadPulseSnapshotWithFallback = async (
-  interests: string[]
+  interests: string[],
+  options: PulseFetchOptions = {}
 ): Promise<ThailandPulseSnapshot> => {
   try {
-    const snapshot = await fetchThailandPulseSnapshot(interests);
+    const snapshot = await fetchThailandPulseSnapshot(interests, options);
     persistPulseSnapshot(snapshot);
     return snapshot;
   } catch {

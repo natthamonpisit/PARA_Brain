@@ -1,24 +1,24 @@
 {
-  "generated_at": "2026-02-12T09:16:13.305Z",
-  "samples": 12,
+  "generated_at": "2026-02-13T11:00:11.955Z",
+  "samples": 100,
   "source_rows": 105,
   "ivfflat": {
     "name": "ivfflat",
-    "samples": 12,
-    "avg_ms": 0.933,
-    "p50_ms": 0.93,
-    "p95_ms": 0.983,
-    "min_ms": 0.905,
-    "max_ms": 0.983
+    "samples": 100,
+    "avg_ms": 1.358,
+    "p50_ms": 1.353,
+    "p95_ms": 1.438,
+    "min_ms": 1.277,
+    "max_ms": 1.48
   },
   "hnsw": {
     "name": "hnsw",
-    "samples": 12,
-    "avg_ms": 0.926,
-    "p50_ms": 0.925,
-    "p95_ms": 0.953,
-    "min_ms": 0.891,
-    "max_ms": 0.953
+    "samples": 100,
+    "avg_ms": 1.348,
+    "p50_ms": 1.345,
+    "p95_ms": 1.426,
+    "min_ms": 1.273,
+    "max_ms": 1.46
   },
   "winner_by_avg_latency": "hnsw"
 }

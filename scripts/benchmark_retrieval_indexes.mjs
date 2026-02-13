@@ -88,7 +88,7 @@ async function main() {
   const tableName = `benchmark_memory_chunks_${Date.now()}`;
   const queryTable = `${tableName}_queries`;
 
-  const runCase = (name, createIndexSql, vectors) => {
+  const runCase = (name, createIndexSql, sampleTotal) => {
     console.log(`[bench] case=${name} create index`);
     psqlQuery(pgEnv, `drop index if exists ${tableName}_ivf_idx;`);
     psqlQuery(pgEnv, `drop index if exists ${tableName}_hnsw_idx;`);
@@ -96,10 +96,16 @@ async function main() {
     psqlQuery(pgEnv, `analyze ${tableName};`);
 
     const times = [];
-    for (const vec of vectors) {
+    for (let sampleIndex = 0; sampleIndex < sampleTotal; sampleIndex += 1) {
       const explainOut = psqlQuery(
         pgEnv,
-        `explain (analyze, format json) select id from ${tableName} order by embedding <=> $$${vec}$$::vector(1536) limit 8;`
+        `explain (analyze, format json)
+         select id
+         from ${tableName}
+         order by embedding <=> (
+           select embedding from ${queryTable} offset ${sampleIndex} limit 1
+         )
+         limit 8;`
       );
       times.push(extractExecutionTimeMs(explainOut));
     }
@@ -125,25 +131,16 @@ async function main() {
       throw new Error(`Not enough embedded rows for benchmark (${rowCount} found, ${sampleCount} requested).`);
     }
 
-    const vectorsRaw = psqlQuery(pgEnv, `select embedding::text from ${queryTable};`);
-    const vectors = vectorsRaw
-      .split('\n')
-      .map((x) => x.trim())
-      .filter(Boolean);
-    if (vectors.length < sampleCount) {
-      throw new Error(`Failed to collect query vectors (${vectors.length}/${sampleCount})`);
-    }
-
     const adaptiveLists = Math.max(1, Math.min(100, Math.floor(rowCount / 1000)));
     const ivf = runCase(
       'ivfflat',
       `create index ${tableName}_ivf_idx on ${tableName} using ivfflat (embedding vector_cosine_ops) with (lists = ${adaptiveLists});`,
-      vectors
+      sampleCount
     );
     const hnsw = runCase(
       'hnsw',
       `create index ${tableName}_hnsw_idx on ${tableName} using hnsw (embedding vector_cosine_ops);`,
-      vectors
+      sampleCount
     );
 
     const better = ivf.avg_ms === hnsw.avg_ms ? 'tie' : (ivf.avg_ms < hnsw.avg_ms ? 'ivfflat' : 'hnsw');

@@ -1,8 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
+import { finalizeApiObservation, startApiObservation } from './_lib/observability';
 
 export default async function handler(req: any, res: any) {
+  const obs = startApiObservation(req, '/api/agent-daily', { source: 'AGENT' });
+  const respond = async (status: number, body: any, meta?: Record<string, any>) => {
+    await finalizeApiObservation(obs, status, meta);
+    return res.status(status).json(body);
+  };
+
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });
   }
 
   try {
@@ -14,7 +21,7 @@ export default async function handler(req: any, res: any) {
     const approvalSecret = process.env.APPROVAL_SECRET;
 
     if (!supabaseUrl || !serviceRole || !geminiKey) {
-      return res.status(500).json({ error: 'Missing server configuration' });
+      return respond(500, { error: 'Missing server configuration' }, { reason: 'missing_env' });
     }
 
     const providedKey =
@@ -22,9 +29,9 @@ export default async function handler(req: any, res: any) {
       req.headers?.authorization?.replace('Bearer ', '') ||
       req.query?.key;
     if (cronSecret && providedKey !== cronSecret && !allowUiTrigger) {
-      return res.status(401).json({
+      return respond(401, {
         error: 'Unauthorized. Provide x-cron-key or enable ALLOW_AGENT_UI_TRIGGER=true for UI/manual runs.'
-      });
+      }, { reason: 'auth_failed' });
     }
 
     const dryRun = !!req.body?.dryRun;
@@ -33,9 +40,9 @@ export default async function handler(req: any, res: any) {
     const approvalKey = req.headers?.['x-approval-key'] || req.query?.approval_key;
 
     if (force && approvalSecret && approvalKey !== approvalSecret) {
-      return res.status(403).json({
+      return respond(403, {
         error: 'Force run requires valid approval key (x-approval-key).'
-      });
+      }, { reason: 'approval_required' });
     }
 
     const db = createClient(supabaseUrl, serviceRole, {
@@ -52,12 +59,12 @@ export default async function handler(req: any, res: any) {
         .gte('started_at', since)
         .order('started_at', { ascending: false })
         .limit(1);
-      if (recentErr) return res.status(500).json({ error: recentErr.message });
+      if (recentErr) return respond(500, { error: recentErr.message }, { reason: 'recent_runs_query_failed' });
       if (recentRuns && recentRuns.length > 0) {
-        return res.status(429).json({
+        return respond(429, {
           error: 'Daily agent recently triggered. Use force=true to bypass.',
           retryable: true
-        });
+        }, { reason: 'cooldown_guard' });
       }
     }
 
@@ -69,12 +76,12 @@ export default async function handler(req: any, res: any) {
         .eq('summary_type', 'DAILY')
         .eq('summary_date', runDate)
         .maybeSingle();
-      if (existsErr) return res.status(500).json({ error: existsErr.message });
+      if (existsErr) return respond(500, { error: existsErr.message }, { reason: 'summary_exists_query_failed' });
       if (existingSummary) {
-        return res.status(409).json({
+        return respond(409, {
           error: `Summary already exists for ${runDate}. Use force=true to regenerate.`,
           retryable: true
-        });
+        }, { reason: 'idempotency_guard', runDate });
       }
     }
 
@@ -90,9 +97,13 @@ export default async function handler(req: any, res: any) {
       writeFile: false
     });
 
-    return res.status(200).json({ success: true, ...result, dryRun });
+    return respond(200, { success: true, ...result, dryRun }, {
+      dryRun,
+      force,
+      runDate: runDate || null
+    });
   } catch (error: any) {
     console.error('[api/agent-daily] failed', error);
-    return res.status(500).json({ error: error.message || 'Internal error' });
+    return respond(500, { error: error.message || 'Internal error' }, { reason: 'exception', error: error?.message || 'unknown' });
   }
 }

@@ -1,4 +1,4 @@
-# Thailand Pulse: Web MCP Phase 1.1
+# Thailand Pulse: Web MCP Phase 1.3
 
 Last updated: 2026-02-13
 
@@ -14,6 +14,10 @@ Last updated: 2026-02-13
   - API route `GET /api/thailand-pulse?mode=history&days=7` serves cross-device history.
   - Cron route `/api/cron-thailand-pulse` is available and scheduled every 12 hours via `vercel.json`.
   - Migration `20260213_phaseH_thailand_pulse_snapshots.sql` applied on 2026-02-13.
+- Phase 1.3: completed
+  - Source allow/deny policy added (UI + API + DB `pulse_source_preferences`)
+  - Confidence scoring/ranking added per article
+  - Relevance feedback loop added (`pulse_feedback`) and used in ranking
 
 ## Runtime Provider Strategy
 1. `EXA_API_KEY` available:
@@ -42,10 +46,24 @@ Each article should include:
 
 UI shows up to 3 citations per story.
 
+## Quality Tuning (Now Live)
+1. Source policy
+- Allowlist/denylist domain controls are available in Pulse UI.
+- Policy persists via `POST /api/thailand-pulse` mode `policy`.
+
+2. Confidence formula (`confidence_v1`)
+- Score = trust tier (50%) + freshness (22%) + corroboration (18%) + feedback bias (10%).
+- Confidence reasons are exposed in UI for transparency.
+
+3. Relevance feedback loop
+- UI now supports `Relevant` / `Not Relevant`.
+- Feedback saved via `POST /api/thailand-pulse` mode `feedback`.
+- Ranking consumes aggregated feedback signal on next fetch/cron run.
+
 ## Recommended Next Steps
-1. Add source allow/deny list UI for user-controlled trust policy.
-2. Add per-topic confidence scoring with transparent formula (source tier + corroboration + freshness).
-3. Add user feedback loop (`relevant`/`not relevant`) to improve ranking over time.
+1. Calibrate formula weights against real feedback data volume.
+2. Add stronger trend sources (official trend/news APIs) to reduce keyword-only drift.
+3. Add simple quality dashboard from `pulse_feedback` + `api_observability_events`.
 
 ## Reference URLs
 - MCP specification: https://modelcontextprotocol.io/specification/2025-06-18

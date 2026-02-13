@@ -159,7 +159,10 @@
 - [x] Telegram push path supports `TELEGRAM_CHAT_ID` with `TELEGRAM_USER_ID` fallback
 - [x] Telegram log rows (`system_logs.event_source=TELEGRAM`) are loaded and streamed into web ChatPanel
 - [x] Telegram sender labeling rendered in chat timeline
-- [ ] Special cards from Telegram logs (created PARA item / transaction / module card) are not generated yet
+- [x] Special cards from Telegram logs (created PARA item / transaction / module card) are generated from structured payload parsing
+- [x] Replay-safe idempotency hardened:
+  - DB unique index on `(event_source, event_id)` for non-null `event_id`
+  - API duplicate handling for webhook/intake race conditions
 
 ## Thailand Pulse Sprint (Phase 1 -> 1.2)
 - [x] New left menu + one-page `Thailand Pulse` board with category cards, trend radar, source coverage, and save-to-resource flow
@@ -188,6 +191,33 @@
    - `GET /api/thailand-pulse?mode=history&days=7`
 5. Trigger scheduled ingest manually (or via cron):
    - `POST /api/cron-thailand-pulse` with `x-cron-key: <CRON_SECRET>`
+
+## Tuning Sprint P1 (Completed)
+- [x] Retrieval benchmark expansion:
+  - Added matrix runner `npm run agent:benchmark:indexes:p1` (samples `50,100`)
+  - Output files:
+    - `docs/benchmarks/latest_vector_benchmark.json`
+    - `docs/benchmarks/latest_vector_benchmark_matrix.json`
+- [x] DB hot-query index review:
+  - Migration: `supabase/migrations/20260213_phaseI_tuning_p1_indexes_observability.sql`
+  - Added indexes for `system_logs` and `tasks` hot paths + Telegram event uniqueness
+- [x] Observability baseline:
+  - Added structured API observability helper (`api/_lib/observability.ts`)
+  - Instrumented key endpoints and persisted metrics to `api_observability_events`
+
+## Thailand Pulse Quality Tuning (Completed)
+- [x] Source allow/deny policy:
+  - UI controls in `ThailandPulseBoard`
+  - Server policy persistence via `pulse_source_preferences`
+- [x] Confidence scoring formula + ranking:
+  - score from trust tier + freshness + corroboration + feedback bias
+  - rendered as confidence badges/reasons in UI
+- [x] Relevance feedback loop:
+  - `Relevant` / `Not Relevant` actions in UI
+  - feedback persistence in `pulse_feedback`
+  - feedback signals applied to ranking on next fetch/cron run
+- [x] Migration:
+  - `supabase/migrations/20260213_phaseI_thailand_pulse_quality.sql`
 
 ## Next Session (Recommended)
 1. Build Telegram log -> structured operation mapping so chat can render created-item cards directly from inbound Telegram events

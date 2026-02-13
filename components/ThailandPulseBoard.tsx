@@ -12,13 +12,21 @@ import {
 import {
   DEFAULT_PULSE_INTERESTS,
   PulseArticle,
+  PulseSourcePolicy,
   ThailandPulseSnapshot,
+  fetchPulseSourcePolicyFromServer,
   getLatestPulseSnapshot,
+  getPulseFeedbackMap,
   getPulseInterests,
+  getPulseSourcePolicy,
   getPulseSnapshotHistory,
   loadPulseSnapshotWithFallback,
+  savePulseSourcePolicy,
+  savePulseSourcePolicyToServer,
   savePulseInterests,
+  sanitizeDomains,
   sanitizeInterests,
+  submitPulseFeedback,
   syncPulseHistoryFromServer
 } from '../services/thailandPulseService';
 
@@ -86,17 +94,28 @@ const providerTone: Record<string, string> = {
   FALLBACK: 'border-amber-400/35 bg-amber-500/10 text-amber-100'
 };
 
+const confidenceTone: Record<string, string> = {
+  HIGH: 'border-emerald-300/40 bg-emerald-500/15 text-emerald-100',
+  MEDIUM: 'border-cyan-300/40 bg-cyan-500/15 text-cyan-100',
+  LOW: 'border-amber-300/40 bg-amber-500/15 text-amber-100'
+};
+
 const limitArticlesForPhaseOne = 4;
 
 export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveArticle }) => {
   const [interests, setInterests] = useState<string[]>(() => getPulseInterests());
   const [interestInput, setInterestInput] = useState('');
+  const [sourcePolicy, setSourcePolicy] = useState<PulseSourcePolicy>(() => getPulseSourcePolicy());
+  const [allowInput, setAllowInput] = useState('');
+  const [denyInput, setDenyInput] = useState('');
   const [snapshot, setSnapshot] = useState<ThailandPulseSnapshot | null>(() => getLatestPulseSnapshot());
   const [history, setHistory] = useState<ThailandPulseSnapshot[]>(() => getPulseSnapshotHistory());
   const [selectedDateKey, setSelectedDateKey] = useState<string>(() => getLatestPulseSnapshot()?.dateKey || '');
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [saveStatus, setSaveStatus] = useState<Record<string, 'idle' | 'saving' | 'saved' | 'error'>>({});
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, boolean>>(() => getPulseFeedbackMap());
+  const [feedbackStatus, setFeedbackStatus] = useState<Record<string, 'idle' | 'sending'>>({});
   const [errorText, setErrorText] = useState<string | null>(null);
 
   const hydrateFromStorage = useCallback(() => {
@@ -111,13 +130,16 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
   }, [selectedDateKey]);
 
   const fetchLive = useCallback(
-    async (mode: 'initial' | 'refresh', targetInterests?: string[]) => {
+    async (mode: 'initial' | 'refresh', targetInterests?: string[], targetPolicy?: PulseSourcePolicy) => {
       setErrorText(null);
       if (mode === 'initial') setIsLoading(true);
       if (mode === 'refresh') setIsRefreshing(true);
       try {
         const effectiveInterests = targetInterests || interests;
-        const next = await loadPulseSnapshotWithFallback(effectiveInterests);
+        const effectivePolicy = targetPolicy || sourcePolicy;
+        const next = await loadPulseSnapshotWithFallback(effectiveInterests, {
+          sourcePolicy: effectivePolicy
+        });
         setSnapshot(next);
         setSelectedDateKey(next.dateKey);
       } catch (error: any) {
@@ -128,7 +150,7 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
         hydrateFromStorage();
       }
     },
-    [hydrateFromStorage, interests]
+    [hydrateFromStorage, interests, sourcePolicy]
   );
 
   useEffect(() => {
@@ -141,6 +163,12 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
   useEffect(() => {
     let active = true;
     void (async () => {
+      const remotePolicy = await fetchPulseSourcePolicyFromServer();
+      if (active && remotePolicy) {
+        setSourcePolicy(remotePolicy);
+        savePulseSourcePolicy(remotePolicy);
+      }
+
       const synced = await syncPulseHistoryFromServer(7);
       if (!active || synced.length === 0) return;
       setHistory(synced);
@@ -186,6 +214,66 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
     setInterests(effective);
     savePulseInterests(effective);
     void fetchLive('refresh', effective);
+  };
+
+  const applySourcePolicy = (nextPolicy: PulseSourcePolicy) => {
+    const sanitizedPolicy = {
+      allowDomains: sanitizeDomains(nextPolicy.allowDomains || []),
+      denyDomains: sanitizeDomains(nextPolicy.denyDomains || [])
+    };
+    setSourcePolicy(sanitizedPolicy);
+    savePulseSourcePolicy(sanitizedPolicy);
+    void savePulseSourcePolicyToServer(sanitizedPolicy);
+    void fetchLive('refresh', interests, sanitizedPolicy);
+  };
+
+  const handleAddAllowDomain = () => {
+    const next = sanitizeDomains([...sourcePolicy.allowDomains, allowInput]);
+    setAllowInput('');
+    if (next.length === sourcePolicy.allowDomains.length) return;
+    applySourcePolicy({ ...sourcePolicy, allowDomains: next });
+  };
+
+  const handleAddDenyDomain = () => {
+    const next = sanitizeDomains([...sourcePolicy.denyDomains, denyInput]);
+    setDenyInput('');
+    if (next.length === sourcePolicy.denyDomains.length) return;
+    applySourcePolicy({ ...sourcePolicy, denyDomains: next });
+  };
+
+  const handleRemoveAllowDomain = (domain: string) => {
+    applySourcePolicy({
+      ...sourcePolicy,
+      allowDomains: sourcePolicy.allowDomains.filter((item) => item !== domain)
+    });
+  };
+
+  const handleRemoveDenyDomain = (domain: string) => {
+    applySourcePolicy({
+      ...sourcePolicy,
+      denyDomains: sourcePolicy.denyDomains.filter((item) => item !== domain)
+    });
+  };
+
+  const handleFeedback = async (article: PulseArticle, relevant: boolean) => {
+    setFeedbackStatus((prev) => ({ ...prev, [article.id]: 'sending' }));
+    setFeedbackMap((prev) => ({ ...prev, [article.id]: relevant }));
+    try {
+      const ok = await submitPulseFeedback({
+        article,
+        relevant,
+        snapshotDate: currentSnapshot?.dateKey
+      });
+      if (!ok) {
+        setErrorText('Feedback saved locally, but server sync failed.');
+      } else if (!isViewingHistory) {
+        void fetchLive('refresh');
+      }
+    } catch {
+      setErrorText('Feedback saved locally, but server sync failed.');
+    } finally {
+      setFeedbackStatus((prev) => ({ ...prev, [article.id]: 'idle' }));
+    }
   };
 
   const handleSaveArticle = async (article: PulseArticle) => {
@@ -346,6 +434,96 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs uppercase tracking-[0.14em] text-cyan-200">Source Policy</p>
+          <HelpTip
+            th="กำหนด allow/deny list ของโดเมนข่าวเพื่อเพิ่มคุณภาพ feed ตามที่ต้องการ"
+            en="Set allow/deny lists for publisher domains to tune feed quality."
+          />
+        </div>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-emerald-200">Allow Domains</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {sourcePolicy.allowDomains.length === 0 && (
+                <span className="text-[11px] text-slate-500">Empty = allow all sources</span>
+              )}
+              {sourcePolicy.allowDomains.map((domain) => (
+                <button
+                  key={domain}
+                  onClick={() => handleRemoveAllowDomain(domain)}
+                  className="inline-flex items-center gap-1 rounded-full border border-emerald-400/35 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-100"
+                >
+                  {domain} <span className="text-emerald-200">×</span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={allowInput}
+                onChange={(event) => setAllowInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleAddAllowDomain();
+                  }
+                }}
+                placeholder="example: reuters.com"
+                className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-100 outline-none focus:border-emerald-400/45 focus:ring-2 focus:ring-emerald-500/20"
+              />
+              <button
+                onClick={handleAddAllowDomain}
+                className="rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-100"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-rose-200">Deny Domains</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {sourcePolicy.denyDomains.length === 0 && (
+                <span className="text-[11px] text-slate-500">No blocked domains</span>
+              )}
+              {sourcePolicy.denyDomains.map((domain) => (
+                <button
+                  key={domain}
+                  onClick={() => handleRemoveDenyDomain(domain)}
+                  className="inline-flex items-center gap-1 rounded-full border border-rose-400/35 bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-100"
+                >
+                  {domain} <span className="text-rose-200">×</span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={denyInput}
+                onChange={(event) => setDenyInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleAddDenyDomain();
+                  }
+                }}
+                placeholder="example: lowtrust.blog"
+                className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-100 outline-none focus:border-rose-400/45 focus:ring-2 focus:ring-rose-500/20"
+              />
+              <button
+                onClick={handleAddDenyDomain}
+                className="rounded-lg border border-rose-400/35 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-100"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="grid gap-4 xl:grid-cols-[2fr,1fr]">
         <div className="space-y-4">
           {currentSnapshot.categories.map((category) => (
@@ -367,6 +545,8 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
               <div className="mt-3 space-y-2">
                 {category.articles.slice(0, limitArticlesForPhaseOne).map((article) => {
                   const status = saveStatus[article.id] || 'idle';
+                  const feedbackVote = feedbackMap[article.id];
+                  const feedbackBusy = feedbackStatus[article.id] === 'sending';
                   return (
                     <div
                       key={article.id}
@@ -384,8 +564,23 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
                             {article.provider}
                           </span>
                         )}
+                        {Number.isFinite(Number(article.confidenceScore)) && (
+                          <span
+                            className={`rounded-full border px-2 py-0.5 ${
+                              confidenceTone[article.confidenceLabel || 'MEDIUM'] || confidenceTone.MEDIUM
+                            }`}
+                            title={(article.confidenceReasons || []).join(' | ')}
+                          >
+                            {article.confidenceLabel || 'MEDIUM'} {Number(article.confidenceScore).toFixed(1)}
+                          </span>
+                        )}
                         <span className="text-slate-500">{formatRelativeTime(article.publishedAt)}</span>
                       </div>
+                      {article.confidenceReasons && article.confidenceReasons.length > 0 && (
+                        <p className="mt-2 text-[11px] text-slate-500">
+                          {article.confidenceReasons.join(' • ')}
+                        </p>
+                      )}
                       {article.citations && article.citations.length > 0 && (
                         <details className="mt-2 rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-2">
                           <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-200">
@@ -437,6 +632,30 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
                             <BookMarked className="h-3.5 w-3.5" />
                           )}
                           {status === 'saved' ? 'Saved' : 'Save to Resources'}
+                        </button>
+                        <button
+                          onClick={() => void handleFeedback(article, true)}
+                          disabled={feedbackBusy}
+                          className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+                            feedbackVote === true
+                              ? 'border-emerald-400/45 bg-emerald-500/20 text-emerald-100'
+                              : 'border-slate-600 text-slate-300 hover:border-emerald-400/45 hover:text-emerald-100'
+                          } disabled:cursor-not-allowed disabled:opacity-70`}
+                        >
+                          {feedbackBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Up'}
+                          Relevant
+                        </button>
+                        <button
+                          onClick={() => void handleFeedback(article, false)}
+                          disabled={feedbackBusy}
+                          className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+                            feedbackVote === false
+                              ? 'border-rose-400/45 bg-rose-500/20 text-rose-100'
+                              : 'border-slate-600 text-slate-300 hover:border-rose-400/45 hover:text-rose-100'
+                          } disabled:cursor-not-allowed disabled:opacity-70`}
+                        >
+                          {feedbackBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Down'}
+                          Not Relevant
                         </button>
                       </div>
                     </div>

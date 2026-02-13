@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendTelegramText } from './_lib/telegram';
 import { runCapturePipeline, toCaptureLogPayload } from './_lib/capturePipeline';
+import { finalizeApiObservation, startApiObservation } from './_lib/observability';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
@@ -24,9 +25,21 @@ function getTextMessage(update: any) {
   };
 }
 
+function isUniqueViolation(error: any): boolean {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '').toLowerCase();
+  return code === '23505' || message.includes('duplicate key value');
+}
+
 export default async function handler(req: any, res: any) {
+  const obs = startApiObservation(req, '/api/telegram-webhook', { source: 'TELEGRAM' });
+  const respond = async (status: number, body: any, meta?: Record<string, any>) => {
+    await finalizeApiObservation(obs, status, meta);
+    return res.status(status).json(body);
+  };
+
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });
   }
 
   try {
@@ -36,28 +49,28 @@ export default async function handler(req: any, res: any) {
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
     if (!botToken) {
-      return res.status(500).json({ error: 'Missing TELEGRAM_BOT_TOKEN' });
+      return respond(500, { error: 'Missing TELEGRAM_BOT_TOKEN' }, { reason: 'missing_token' });
     }
     if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ error: 'Missing Supabase credentials' });
+      return respond(500, { error: 'Missing Supabase credentials' }, { reason: 'missing_supabase' });
     }
     if (!geminiKey) {
-      return res.status(500).json({ error: 'Missing GEMINI_API_KEY or VITE_GEMINI_API_KEY' });
+      return respond(500, { error: 'Missing GEMINI_API_KEY or VITE_GEMINI_API_KEY' }, { reason: 'missing_gemini_key' });
     }
     if (!verifyTelegramSecret(req)) {
-      return res.status(401).json({ error: 'Invalid webhook secret' });
+      return respond(401, { error: 'Invalid webhook secret' }, { reason: 'invalid_secret' });
     }
 
     const incoming = getTextMessage(req.body);
     if (!incoming) {
-      return res.status(200).json({ success: true, message: 'Ignored non-text update' });
+      return respond(200, { success: true, message: 'Ignored non-text update' }, { ignored: 'non_text' });
     }
 
     if (allowedUserId && incoming.userId !== String(allowedUserId)) {
-      return res.status(200).json({ success: true, message: 'Ignored unauthorized user' });
+      return respond(200, { success: true, message: 'Ignored unauthorized user' }, { ignored: 'unauthorized_user' });
     }
     if (allowedChatId && incoming.chatId !== String(allowedChatId)) {
-      return res.status(200).json({ success: true, message: 'Ignored unauthorized chat' });
+      return respond(200, { success: true, message: 'Ignored unauthorized chat' }, { ignored: 'unauthorized_chat' });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey, {
@@ -71,17 +84,18 @@ export default async function handler(req: any, res: any) {
         text: `user_id=${incoming.userId}\nchat_id=${incoming.chatId}`,
         replyToMessageId: incoming.messageId
       });
-      return res.status(200).json({ success: true });
+      return respond(200, { success: true }, { operation: 'ID_DISCOVERY' });
     }
 
     const eventId = incoming.updateId || `${incoming.chatId}:${incoming.messageId}`;
     const { data: existingLog } = await supabase
       .from('system_logs')
       .select('id')
+      .eq('event_source', 'TELEGRAM')
       .eq('event_id', eventId)
       .maybeSingle();
     if (existingLog) {
-      return res.status(200).json({ success: true, message: 'Duplicate ignored' });
+      return respond(200, { success: true, message: 'Duplicate ignored' }, { duplicateEvent: true, eventId });
     }
 
     const { data: logRow, error: logError } = await supabase
@@ -97,7 +111,10 @@ export default async function handler(req: any, res: any) {
       .single();
 
     if (logError || !logRow?.id) {
-      return res.status(500).json({ error: logError?.message || 'Failed to create log row' });
+      if (isUniqueViolation(logError)) {
+        return respond(200, { success: true, message: 'Duplicate ignored' }, { duplicateEvent: true, eventId });
+      }
+      return respond(500, { error: logError?.message || 'Failed to create log row' }, { reason: 'log_insert_failed', eventId });
     }
 
     const result = await runCapturePipeline({
@@ -128,13 +145,18 @@ export default async function handler(req: any, res: any) {
       replyToMessageId: incoming.messageId
     });
 
-    return res.status(200).json({
+    return respond(200, {
       success: result.success,
       operation: result.operation,
       status: result.status
+    }, {
+      operation: result.operation,
+      status: result.status,
+      actionType: result.actionType,
+      eventId
     });
   } catch (error: any) {
     console.error('[telegram-webhook] failed', error);
-    return res.status(500).json({ error: error.message || 'Internal error' });
+    return respond(500, { error: error.message || 'Internal error' }, { reason: 'exception', error: error?.message || 'unknown' });
   }
 }

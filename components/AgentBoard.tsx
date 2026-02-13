@@ -55,11 +55,24 @@ const cleanSummaryLine = (line: string) =>
     .trim();
 
 const HelpText: React.FC<{ th: string; en: string; className?: string }> = ({ th, en, className }) => (
-  <p className={`mt-1 text-[10px] leading-snug text-slate-400 ${className || ''}`}>
-    <span className="font-semibold text-slate-300">TH:</span> {th}
-    <span className="mx-1 text-slate-500">|</span>
-    <span className="font-semibold text-slate-300">EN:</span> {en}
-  </p>
+  <span className={`group relative inline-flex shrink-0 ${className || ''}`}>
+    <button
+      type="button"
+      className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-cyan-400/50 bg-slate-900/90 text-[10px] font-bold text-cyan-100 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-400/35"
+      aria-label={`Help: ${en}`}
+      title={`TH: ${th}\nEN: ${en}`}
+    >
+      ?
+    </button>
+    <span className="pointer-events-none absolute right-0 top-5 z-30 hidden w-72 rounded-md border border-slate-600 bg-slate-900/95 p-2 text-[11px] leading-relaxed text-slate-100 shadow-xl group-hover:block group-focus-within:block">
+      <span className="block">
+        <span className="font-semibold text-cyan-200">TH:</span> {th}
+      </span>
+      <span className="mt-1 block">
+        <span className="font-semibold text-cyan-200">EN:</span> {en}
+      </span>
+    </span>
+  </span>
 );
 
 export const AgentBoard: React.FC<AgentBoardProps> = ({
@@ -721,11 +734,11 @@ export const AgentBoard: React.FC<AgentBoardProps> = ({
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {topCards.map((card) => (
-            <article key={card.label} className={`rounded-xl border p-3 ${card.tone}`}>
+            <article key={card.label} className={`relative rounded-xl border p-3 ${card.tone}`}>
               <p className="text-[11px] uppercase tracking-[0.14em] opacity-80">{card.label}</p>
               <p className="mt-1 text-lg font-semibold">{card.value}</p>
               <p className="mt-1 text-xs opacity-85">{card.hint}</p>
-              <HelpText th={card.helpTh} en={card.helpEn} className="opacity-95" />
+              <HelpText th={card.helpTh} en={card.helpEn} className="absolute right-2 top-2" />
             </article>
           ))}
         </div>

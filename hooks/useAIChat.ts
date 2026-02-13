@@ -1,9 +1,9 @@
-
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ParaItem, ChatMessage, FinanceAccount, AppModule, ParaType, Transaction, ModuleItem } from '../types';
 import { analyzeLifeOS, performLifeAnalysis } from '../services/geminiService';
 import { generateId } from '../utils/helpers';
 import { HistoryLog } from '../types';
+import { supabase } from '../services/supabase';
 
 interface UseAIChatProps {
     items: ParaItem[];
@@ -19,9 +19,94 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
 
-    const addMessage = (msg: ChatMessage) => {
-        setMessages(prev => [...prev, msg]);
+    const upsertMessages = useCallback((incoming: ChatMessage[]) => {
+        setMessages(prev => {
+            const map = new Map<string, ChatMessage>();
+            prev.forEach(msg => map.set(msg.id, msg));
+            incoming.forEach(msg => {
+                const existing = map.get(msg.id);
+                map.set(msg.id, existing ? { ...existing, ...msg } : msg);
+            });
+            return Array.from(map.values()).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+        });
+    }, []);
+
+    const addMessage = useCallback((msg: ChatMessage) => {
+        upsertMessages([msg]);
+    }, [upsertMessages]);
+
+    const toSafeDate = (value: any): Date => {
+        const d = new Date(value || Date.now());
+        return Number.isNaN(d.getTime()) ? new Date() : d;
     };
+
+    const mapTelegramLogToMessages = useCallback((row: any): ChatMessage[] => {
+        if (!row?.id) return [];
+        const timestamp = toSafeDate(row.created_at);
+        const incoming: ChatMessage[] = [];
+        if (row.user_message) {
+            incoming.push({
+                id: `sys:${row.id}:user`,
+                role: 'user',
+                source: 'TELEGRAM',
+                text: String(row.user_message),
+                timestamp
+            });
+        }
+        if (row.ai_response) {
+            incoming.push({
+                id: `sys:${row.id}:assistant`,
+                role: 'assistant',
+                source: 'TELEGRAM',
+                text: String(row.ai_response),
+                timestamp
+            });
+        }
+        return incoming;
+    }, []);
+
+    useEffect(() => {
+        let mounted = true;
+
+        const loadRecentTelegramMessages = async () => {
+            const { data, error } = await supabase
+                .from('system_logs')
+                .select('id,user_message,ai_response,created_at,event_source')
+                .eq('event_source', 'TELEGRAM')
+                .order('created_at', { ascending: true })
+                .limit(80);
+
+            if (!mounted || error || !data) return;
+            const incoming = data.flatMap(mapTelegramLogToMessages);
+            if (incoming.length > 0) upsertMessages(incoming);
+        };
+
+        loadRecentTelegramMessages();
+
+        const channel = supabase
+            .channel('chat-telegram-sync')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'system_logs',
+                    filter: 'event_source=eq.TELEGRAM'
+                },
+                (payload) => {
+                    const row = payload.new || payload.old;
+                    if (!row) return;
+                    const incoming = mapTelegramLogToMessages(row);
+                    if (incoming.length > 0) upsertMessages(incoming);
+                }
+            )
+            .subscribe();
+
+        return () => {
+            mounted = false;
+            supabase.removeChannel(channel);
+        };
+    }, [mapTelegramLogToMessages, upsertMessages]);
 
     const handleSendMessage = async (text: string) => {
         if (!text.trim()) return;
@@ -30,6 +115,7 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
             id: generateId(),
             role: 'user',
             text: text,
+            source: 'WEB',
             timestamp: new Date()
         });
 
@@ -94,6 +180,7 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                     id: generateId(),
                     role: 'assistant',
                     text: result.chatResponse,
+                    source: 'WEB',
                     createdItems: createdItems,
                     itemType: 'PARA',
                     timestamp: new Date()
@@ -122,15 +209,16 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                     id: generateId(),
                     role: 'assistant',
                     text: result.chatResponse,
+                    source: 'WEB',
                     createdItem: newItem,
                     itemType: 'PARA',
                     timestamp: new Date()
                 });
 
             } else if (result.operation === 'CHAT') {
-                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, timestamp: new Date() });
+                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', timestamp: new Date() });
             } else if (result.operation === 'COMPLETE') {
-                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, timestamp: new Date() });
+                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', timestamp: new Date() });
             } else if (result.operation === 'TRANSACTION') {
                 const txDesc = result.title || text;
                 const newTx: Transaction = {
@@ -144,9 +232,9 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                 };
                 if (newTx.accountId) {
                     await onAddTransaction(newTx);
-                    addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, createdItem: newTx, itemType: 'TRANSACTION', timestamp: new Date() });
+                    addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', createdItem: newTx, itemType: 'TRANSACTION', timestamp: new Date() });
                 } else {
-                     addMessage({ id: generateId(), role: 'assistant', text: "No valid account found.", timestamp: new Date() });
+                     addMessage({ id: generateId(), role: 'assistant', text: "No valid account found.", source: 'WEB', timestamp: new Date() });
                 }
             } else if (result.operation === 'MODULE_ITEM') {
                 if (result.targetModuleId) {
@@ -161,15 +249,15 @@ export const useAIChat = ({ items, accounts, modules, onAddItem, onToggleComplet
                         id: generateId(), moduleId: result.targetModuleId, title: result.title || "New Entry", data: modData, tags: result.suggestedTags || [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
                     };
                     await onAddModuleItem(newItem);
-                    addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, createdItem: newItem, itemType: 'MODULE', timestamp: new Date() });
+                    addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', createdItem: newItem, itemType: 'MODULE', timestamp: new Date() });
                 }
             } else {
-                 addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, timestamp: new Date() });
+                 addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', timestamp: new Date() });
             }
 
         } catch (error: any) {
             console.error("AI Error:", error);
-            addMessage({ id: generateId(), role: 'assistant', text: `Error: ${error.message}`, timestamp: new Date() });
+            addMessage({ id: generateId(), role: 'assistant', text: `Error: ${error.message}`, source: 'WEB', timestamp: new Date() });
         } finally {
             setIsProcessing(false);
         }

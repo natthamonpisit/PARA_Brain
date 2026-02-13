@@ -176,6 +176,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   timestamp: Date;
+  source?: 'WEB' | 'TELEGRAM';
   createdItem?: ParaItem | Transaction | ModuleItem;
   createdItems?: ParaItem[]; // For batch
   suggestedCompletionItems?: ParaItem[];

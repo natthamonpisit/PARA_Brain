@@ -6,7 +6,7 @@ import { sendTelegramText } from './_lib/telegram';
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
-const telegramChatId = process.env.TELEGRAM_CHAT_ID;
+const telegramChatId = process.env.TELEGRAM_CHAT_ID || process.env.TELEGRAM_USER_ID;
 
 export default async function handler(req: any, res: any) {
   const cronSecret = process.env.CRON_SECRET;

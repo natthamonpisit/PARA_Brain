@@ -21,7 +21,7 @@ export default async function handler(req: any, res: any) {
 
     const shouldPushTelegram = process.env.HEARTBEAT_PUSH_TELEGRAM === 'true';
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
+    const chatId = process.env.TELEGRAM_CHAT_ID || process.env.TELEGRAM_USER_ID;
     if (shouldPushTelegram && botToken && chatId) {
       const warnCount = result.checks.filter((c: any) => c.status === 'WARN').length;
       const msg = [

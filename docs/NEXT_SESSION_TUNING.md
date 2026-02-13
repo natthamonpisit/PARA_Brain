@@ -14,6 +14,8 @@
   - `npm run agent:heartbeat` passed
 - Additional parallel progress:
   - UX Mission Control V1 shipped (dashboard redesign + focus queue + floating chat widget)
+  - Telegram migration completed (LINE removed) + Telegram logs now appear in web chat stream
+  - Remaining gap: special cards (created item card, etc.) are still not generated directly from Telegram logs
 
 ## Priority P0 (ต้องทำก่อน)
 1. Frontend bundle split
@@ -36,12 +38,28 @@
 3. Add API timeout/retry policy (server endpoints)
 - ปัญหา: endpoint บางจุดยังไม่มี timeout/retry policy แบบชัดเจน
 - งาน:
-  - ตั้ง timeout กลางสำหรับ external API calls (LINE/Gemini)
+  - ตั้ง timeout กลางสำหรับ external API calls (Telegram/Gemini)
   - ใส่ retry เฉพาะ error ที่ควร retry (429/5xx)
 - KPI:
   - ลด failed run จาก transient error
 
 **Current state:** `done`
+
+## Telegram Bridge Parity Backlog (New)
+1. Convert Telegram system logs into structured chat events with operation metadata
+- ปัญหา: ตอนนี้ chat ดึงแค่ข้อความ ทำให้การ์ดพิเศษ (created item card ฯลฯ) ไม่ขึ้นจาก Telegram โดยตรง
+- งาน:
+  - บันทึก operation/type/payload reference ต่อ interaction ใน `system_logs` หรือ table mapping
+  - map structured event เป็น `ChatMessage.createdItem/createdItems` ในฝั่ง UI
+- KPI:
+  - Telegram interaction ที่สร้าง item/transaction/module แสดงการ์ดเทียบเท่ากับ web chat
+
+2. Idempotency for inbound Telegram updates
+- ปัญหา: replay/update ซ้ำจาก Telegram webhook อาจสร้าง card หรือรายการซ้ำ
+- งาน:
+  - เก็บ update id แล้วกันซ้ำระดับ DB/API
+- KPI:
+  - ไม่มี duplicate create จาก event เดิม
 
 ## Priority P1 (ทำต่อจาก P0)
 4. Retrieval tuning (real data)
@@ -76,11 +94,12 @@
   - แยก long-running tasks จาก request path เพื่อกัน timeout
 
 ## Recommended Execution Order (Next Session)
-1. P1-4 Retrieval tuning (real data benchmark 50/100 samples)
-2. P1-5 DB index review for hot queries (`agent_runs`, `memory_summaries`, `tasks`)
-3. P1-6 Observability baseline (structured logs + endpoint latency/error rate)
-4. Quick verify: `npm run build` + `agent:daily:dry` + `agent:heartbeat`
-5. UI manual smoke for mission-control pages + floating chat behavior
+1. Telegram parity backlog ข้อ 1 (special card generation from Telegram logs)
+2. Telegram parity backlog ข้อ 2 (idempotency against duplicate updates)
+3. P1-4 Retrieval tuning (real data benchmark 50/100 samples)
+4. P1-5 DB index review for hot queries (`agent_runs`, `memory_summaries`, `tasks`)
+5. P1-6 Observability baseline (structured logs + endpoint latency/error rate)
+6. Quick verify: `npm run build` + `agent:daily:dry` + `agent:heartbeat`
 
 ## Definition of Done (Next Session)
 - p95 retrieval latency ดีขึ้นและมี baseline เปรียบเทียบรอบใหม่

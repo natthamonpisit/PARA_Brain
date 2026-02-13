@@ -111,7 +111,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               {msg.role === 'assistant' ? (
                  <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Gemini</span>
               ) : (
-                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">You</span>
+                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                   {msg.source === 'TELEGRAM' ? 'Telegram' : 'You'}
+                 </span>
               )}
             </div>
 

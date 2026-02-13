@@ -1,7 +1,7 @@
 version: 1
-updated_at: "2026-02-13T14:30:00Z"
-current_phase: "UX Mission Control Sprint"
-next_session_focus: "Mission Control P1 polish (cards harmonization, chat widget UX polish, mobile/tablet QA)"
+updated_at: "2026-02-13T16:10:00Z"
+current_phase: "Telegram Bridge + UX Stabilization"
+next_session_focus: "Convert Telegram logs into created-item cards directly (PARA/Transaction/Module) with action parity to web chat"
 post_phase_tasks:
   - id: "T0"
     title: "Tune performance/reliability quick wins"
@@ -17,8 +17,12 @@ post_phase_tasks:
     notes: "Shell/theme converted to mission-control, unified focus queue added, mission dashboard with KPI + SVG charts, agent board redesigned, and floating chat widget overlay released."
   - id: "T3"
     title: "Mission Control UX polish + QA"
+    status: "done"
+    notes: "Completed: card style harmonization across PARA/Finance/Review boards, chat widget UX polish (ESC close + compact mode + mobile behavior), and responsive QA fixes."
+  - id: "T4"
+    title: "Telegram bridge parity for chat cards"
     status: "ready"
-    notes: "Polish visual consistency across all cards/modules, tune floating chat open/close behavior, and run responsive QA for mobile/tablet/desktop."
+    notes: "Telegram messages now flow into web chat stream from system_logs, but special UI cards (created item card etc.) are not yet generated directly from Telegram logs."
 phases:
   - id: "Phase A"
     title: "Infra Unblock + Go-Live Path"

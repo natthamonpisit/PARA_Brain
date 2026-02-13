@@ -17,6 +17,7 @@
 - Phase G (Personal Ops + Finance Autopilot): `completed`
 - Tuning Sprint P0 (Bundle/Agent Query/Retry Policy): `completed`
 - UX Mission Control Sprint V1: `completed`
+- Telegram Integration Sprint: `in_progress`
 
 ## Phase 1 Deliverables
 - [x] DB schema migration for profile/memory/run tracking
@@ -152,14 +153,18 @@
    - Tablet: mission board cards remain readable and chat overlay stays usable
    - Mobile: chat opens as full-height floating overlay and closes cleanly
 
+## Telegram Integration Sprint (Current)
+- [x] LINE integration removed and replaced with Telegram endpoints/services/env wiring
+- [x] Telegram push path supports `TELEGRAM_CHAT_ID` with `TELEGRAM_USER_ID` fallback
+- [x] Telegram log rows (`system_logs.event_source=TELEGRAM`) are loaded and streamed into web ChatPanel
+- [x] Telegram sender labeling rendered in chat timeline
+- [ ] Special cards from Telegram logs (created PARA item / transaction / module card) are not generated yet
+
 ## Next Session (Recommended)
-1. Harmonize old board card styles (`ParaBoard`, `FinanceBoard`, `ReviewBoard`) to match mission-control design tokens
-2. Polish chat widget UX:
-   - sticky position memory
-   - ESC-to-close on desktop
-   - optional compact mode
-3. Run manual responsive QA checklist + fix overflow/spacing regressions
-4. Continue queued backend tuning P1 after UX polish
+1. Build Telegram log -> structured operation mapping so chat can render created-item cards directly from inbound Telegram events
+2. Persist operation metadata per Telegram interaction (operation, type, payload reference) to avoid brittle text parsing
+3. Add guardrails for duplicate replay (same Telegram update id should not create duplicate cards/items)
+4. Continue queued backend tuning P1 (retrieval benchmark expansion, hot-query DB index review, observability baseline)
 
 ## Notes
 - Keep DB as source-of-truth.

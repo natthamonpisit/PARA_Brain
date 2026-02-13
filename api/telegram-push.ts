@@ -8,13 +8,13 @@ export default async function handler(req: any, res: any) {
   try {
     const { message } = req.body || {};
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
+    const chatId = process.env.TELEGRAM_CHAT_ID || process.env.TELEGRAM_USER_ID;
 
     if (!botToken) {
       return res.status(500).json({ error: 'Missing TELEGRAM_BOT_TOKEN' });
     }
     if (!chatId) {
-      return res.status(500).json({ error: 'Missing TELEGRAM_CHAT_ID' });
+      return res.status(500).json({ error: 'Missing TELEGRAM_CHAT_ID (or TELEGRAM_USER_ID fallback)' });
     }
     if (!message) {
       return res.status(400).json({ error: "Missing 'message' in request body" });
@@ -32,4 +32,3 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }
-

@@ -1,10 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
-import { sendTelegramText } from './_lib/telegram';
-import { runCapturePipeline, toCaptureLogPayload } from './_lib/capturePipeline';
-import { finalizeApiObservation, startApiObservation } from './_lib/observability';
+import { sendTelegramText } from './_lib/telegram.js';
+import { runCapturePipeline, toCaptureLogPayload } from './_lib/capturePipeline.js';
+import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
+
+export const config = {
+  maxDuration: 60
+};
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const PROCESSING_STALE_MS = Number(process.env.TELEGRAM_PROCESSING_STALE_MS || 90000);
 
 function verifyTelegramSecret(req: any): boolean {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -29,6 +34,50 @@ function isUniqueViolation(error: any): boolean {
   const code = String(error?.code || '');
   const message = String(error?.message || '').toLowerCase();
   return code === '23505' || message.includes('duplicate key value');
+}
+
+function parseMillis(value: any): number {
+  const ms = new Date(String(value || '')).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function isProcessingStale(log: { created_at?: any; updated_at?: any }): boolean {
+  const ts = parseMillis(log?.updated_at) || parseMillis(log?.created_at);
+  if (!ts) return true;
+  return Date.now() - ts >= PROCESSING_STALE_MS;
+}
+
+function extractChatResponse(raw: any): string | null {
+  if (!raw) return null;
+  try {
+    const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const text = String(payload?.chatResponse || '').trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+async function sendTelegramReply(params: {
+  botToken: string;
+  chatId: string;
+  text: string;
+  replyToMessageId?: number;
+}) {
+  try {
+    await sendTelegramText(params);
+  } catch (error: any) {
+    const detail = String(error?.message || '').toLowerCase();
+    if (params.replyToMessageId && detail.includes('message to be replied not found')) {
+      await sendTelegramText({
+        botToken: params.botToken,
+        chatId: params.chatId,
+        text: params.text
+      });
+      return;
+    }
+    throw error;
+  }
 }
 
 export default async function handler(req: any, res: any) {
@@ -78,7 +127,7 @@ export default async function handler(req: any, res: any) {
     });
 
     if (incoming.text.toLowerCase() === 'id') {
-      await sendTelegramText({
+      await sendTelegramReply({
         botToken,
         chatId: incoming.chatId,
         text: `user_id=${incoming.userId}\nchat_id=${incoming.chatId}`,
@@ -90,31 +139,111 @@ export default async function handler(req: any, res: any) {
     const eventId = incoming.updateId || `${incoming.chatId}:${incoming.messageId}`;
     const { data: existingLog } = await supabase
       .from('system_logs')
-      .select('id')
+      .select('id,status,action_type,ai_response,created_at,updated_at')
       .eq('event_source', 'TELEGRAM')
       .eq('event_id', eventId)
       .maybeSingle();
-    if (existingLog) {
-      return respond(200, { success: true, message: 'Duplicate ignored' }, { duplicateEvent: true, eventId });
-    }
 
-    const { data: logRow, error: logError } = await supabase
-      .from('system_logs')
-      .insert({
-        event_source: 'TELEGRAM',
-        event_id: eventId,
-        user_message: incoming.text,
-        status: 'PROCESSING',
-        action_type: 'THINKING'
-      })
-      .select('id')
-      .single();
+    let logId = '';
+    let recoveredFromStale = false;
+    if (existingLog?.id) {
+      const currentStatus = String(existingLog.status || '').toUpperCase();
 
-    if (logError || !logRow?.id) {
-      if (isUniqueViolation(logError)) {
-        return respond(200, { success: true, message: 'Duplicate ignored' }, { duplicateEvent: true, eventId });
+      if (currentStatus !== 'PROCESSING') {
+        const replayText =
+          extractChatResponse(existingLog.ai_response) ||
+          'ข้อความนี้ถูกประมวลผลไปแล้วครับ';
+        await sendTelegramReply({
+          botToken,
+          chatId: incoming.chatId,
+          text: replayText,
+          replyToMessageId: incoming.messageId
+        });
+        return respond(200, {
+          success: true,
+          duplicateEvent: true,
+          message: 'Duplicate replayed',
+          status: existingLog.status || null
+        }, {
+          duplicateEvent: true,
+          replayed: true,
+          eventId,
+          status: existingLog.status || null
+        });
       }
-      return respond(500, { error: logError?.message || 'Failed to create log row' }, { reason: 'log_insert_failed', eventId });
+
+      if (!isProcessingStale(existingLog)) {
+        await sendTelegramReply({
+          botToken,
+          chatId: incoming.chatId,
+          text: 'กำลังประมวลผลข้อความนี้อยู่ครับ ลองรอสักครู่แล้วส่งใหม่ได้เลย',
+          replyToMessageId: incoming.messageId
+        });
+        return respond(200, {
+          success: true,
+          duplicateEvent: true,
+          message: 'Still processing',
+          status: existingLog.status || 'PROCESSING'
+        }, {
+          duplicateEvent: true,
+          processingInProgress: true,
+          eventId
+        });
+      }
+
+      const { data: claimed, error: claimError } = await supabase
+        .from('system_logs')
+        .update({
+          status: 'PROCESSING',
+          action_type: 'RETRYING'
+        })
+        .eq('id', existingLog.id)
+        .eq('status', 'PROCESSING')
+        .select('id')
+        .maybeSingle();
+
+      if (claimError || !claimed?.id) {
+        await sendTelegramReply({
+          botToken,
+          chatId: incoming.chatId,
+          text: 'กำลังประมวลผลข้อความนี้อยู่ครับ ลองรอสักครู่แล้วส่งใหม่ได้เลย',
+          replyToMessageId: incoming.messageId
+        });
+        return respond(200, {
+          success: true,
+          duplicateEvent: true,
+          message: 'Processing already claimed',
+          status: 'PROCESSING'
+        }, {
+          duplicateEvent: true,
+          processingInProgress: true,
+          eventId
+        });
+      }
+
+      logId = claimed.id;
+      recoveredFromStale = true;
+    } else {
+      const { data: logRow, error: logError } = await supabase
+        .from('system_logs')
+        .insert({
+          event_source: 'TELEGRAM',
+          event_id: eventId,
+          user_message: incoming.text,
+          status: 'PROCESSING',
+          action_type: 'THINKING'
+        })
+        .select('id')
+        .single();
+
+      if (logError || !logRow?.id) {
+        if (isUniqueViolation(logError)) {
+          return respond(200, { success: true, message: 'Duplicate race ignored' }, { duplicateEvent: true, eventId });
+        }
+        return respond(500, { error: logError?.message || 'Failed to create log row' }, { reason: 'log_insert_failed', eventId });
+      }
+
+      logId = logRow.id;
     }
 
     const result = await runCapturePipeline({
@@ -124,7 +253,7 @@ export default async function handler(req: any, res: any) {
       geminiApiKey: geminiKey,
       approvalGatesEnabled: process.env.ENABLE_APPROVAL_GATES === 'true',
       timezone: process.env.AGENT_DEFAULT_TIMEZONE || 'Asia/Bangkok',
-      excludeLogId: logRow.id
+      excludeLogId: logId
     });
 
     const payload = toCaptureLogPayload(result);
@@ -136,9 +265,9 @@ export default async function handler(req: any, res: any) {
         action_type: result.actionType,
         status: result.status
       })
-      .eq('id', logRow.id);
+      .eq('id', logId);
 
-    await sendTelegramText({
+    await sendTelegramReply({
       botToken,
       chatId: incoming.chatId,
       text: result.chatResponse,
@@ -153,6 +282,7 @@ export default async function handler(req: any, res: any) {
       operation: result.operation,
       status: result.status,
       actionType: result.actionType,
+      recoveredFromStale,
       eventId
     });
   } catch (error: any) {

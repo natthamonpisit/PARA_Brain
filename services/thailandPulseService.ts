@@ -1,5 +1,6 @@
 export type PulseTrustTier = 'A' | 'B' | 'C' | 'UNKNOWN';
 export type PulseProvider = 'RSS' | 'EXA' | 'EXA+FIRECRAWL' | 'MIXED' | 'FALLBACK';
+export type PulseRegion = 'TH' | 'GLOBAL';
 
 export interface PulseCitation {
   label: string;
@@ -29,12 +30,22 @@ export interface PulseArticle {
   relevanceBias?: number;
   provider?: PulseProvider;
   citations?: PulseCitation[];
+  region?: PulseRegion;
 }
 
 export interface PulseCategorySnapshot {
+  id?: string;
   name: string;
+  region?: PulseRegion;
   query: string;
+  trustedSources?: string[];
   articles: PulseArticle[];
+}
+
+export interface PulseSectionSnapshot {
+  id: PulseRegion;
+  label: string;
+  categories: PulseCategorySnapshot[];
 }
 
 export interface PulseTrendSignal {
@@ -55,6 +66,7 @@ export interface ThailandPulseSnapshot {
   generatedAt: string;
   interests: string[];
   categories: PulseCategorySnapshot[];
+  sections?: PulseSectionSnapshot[];
   trends: PulseTrendSignal[];
   sourceCoverage: PulseSourceCoverage[];
   notes: string[];
@@ -80,6 +92,10 @@ const FEEDBACK_STORAGE_KEY = 'para-thailand-pulse-feedback-v1';
 
 const MAX_HISTORY_DAYS = 7;
 const MAX_INTERESTS = 12;
+const REGION_LABEL: Record<PulseRegion, string> = {
+  TH: 'Thailand',
+  GLOBAL: 'Global'
+};
 
 export const DEFAULT_PULSE_INTERESTS = [
   'Technology',
@@ -196,6 +212,69 @@ const trimHistory = (snapshots: ThailandPulseSnapshot[]) => {
   return sortSnapshots(Array.from(byDate.values())).slice(0, MAX_HISTORY_DAYS);
 };
 
+const toRegion = (value: unknown): PulseRegion => (value === 'GLOBAL' ? 'GLOBAL' : 'TH');
+
+const normalizeCategory = (category: PulseCategorySnapshot, regionHint?: PulseRegion): PulseCategorySnapshot => {
+  const region = category.region ? toRegion(category.region) : regionHint;
+  return {
+    ...category,
+    region,
+    trustedSources: Array.isArray(category.trustedSources)
+      ? category.trustedSources
+          .map((item) => String(item || '').trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      : []
+  };
+};
+
+const sectionsFromCategories = (categories: PulseCategorySnapshot[]): PulseSectionSnapshot[] => {
+  const grouped: Record<PulseRegion, PulseCategorySnapshot[]> = { TH: [], GLOBAL: [] };
+  categories.forEach((category) => {
+    const region = toRegion(category.region);
+    grouped[region].push(normalizeCategory(category, region));
+  });
+  return (['TH', 'GLOBAL'] as PulseRegion[])
+    .filter((region) => grouped[region].length > 0)
+    .map((region) => ({
+      id: region,
+      label: REGION_LABEL[region],
+      categories: grouped[region]
+    }));
+};
+
+const normalizeSnapshot = (snapshot: ThailandPulseSnapshot): ThailandPulseSnapshot => {
+  const categories = Array.isArray(snapshot.categories)
+    ? snapshot.categories.map((category) => normalizeCategory(category))
+    : [];
+
+  if (Array.isArray(snapshot.sections) && snapshot.sections.length > 0) {
+    const sections = snapshot.sections.map((section) => {
+      const id = toRegion(section.id);
+      return {
+        id,
+        label: String(section.label || REGION_LABEL[id]),
+        categories: Array.isArray(section.categories)
+          ? section.categories.map((category) => normalizeCategory(category, id))
+          : []
+      };
+    });
+    const flattened = sections.flatMap((section) => section.categories);
+    return {
+      ...snapshot,
+      categories: flattened,
+      sections
+    };
+  }
+
+  const sections = sectionsFromCategories(categories);
+  return {
+    ...snapshot,
+    categories,
+    sections
+  };
+};
+
 const writeSnapshotHistory = (snapshots: ThailandPulseSnapshot[]) => {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(SNAPSHOT_STORAGE_KEY, JSON.stringify(trimHistory(snapshots)));
@@ -207,7 +286,7 @@ export const getPulseSnapshotHistory = (): ThailandPulseSnapshot[] => {
     window.localStorage.getItem(SNAPSHOT_STORAGE_KEY),
     []
   );
-  return trimHistory(snapshots);
+  return trimHistory(snapshots.map((snapshot) => normalizeSnapshot(snapshot)));
 };
 
 export const getLatestPulseSnapshot = (): ThailandPulseSnapshot | null => {
@@ -218,7 +297,7 @@ export const getLatestPulseSnapshot = (): ThailandPulseSnapshot | null => {
 export const persistPulseSnapshot = (snapshot: ThailandPulseSnapshot) => {
   if (typeof window === 'undefined') return;
   const existing = getPulseSnapshotHistory();
-  const merged = trimHistory([snapshot, ...existing]);
+  const merged = trimHistory([normalizeSnapshot(snapshot), ...existing]);
   writeSnapshotHistory(merged);
 };
 
@@ -231,7 +310,7 @@ export const fetchPulseSnapshotHistoryFromServer = async (days = 7): Promise<Tha
   const payload = await response.json();
   const snapshots = payload?.snapshots;
   if (!Array.isArray(snapshots)) return [];
-  return trimHistory(snapshots as ThailandPulseSnapshot[]);
+  return trimHistory((snapshots as ThailandPulseSnapshot[]).map((snapshot) => normalizeSnapshot(snapshot)));
 };
 
 export const syncPulseHistoryFromServer = async (days = 7): Promise<ThailandPulseSnapshot[]> => {
@@ -251,8 +330,52 @@ const buildFallbackSnapshot = (interests: string[]): ThailandPulseSnapshot => {
   const now = new Date();
   const generatedAt = now.toISOString();
   const dateKey = toDateKey(now);
+  const buildCategory = (interest: string, index: number, region: PulseRegion): PulseCategorySnapshot => {
+    const query = region === 'TH' ? `${interest} Thailand` : `${interest} global`;
+    const trustedSources = region === 'TH'
+      ? ['Bangkok Post', 'Thai PBS', 'Reuters']
+      : ['Reuters', 'Bloomberg', 'BBC'];
+    return {
+      id: `${region.toLowerCase()}-${cleanInterest(interest).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      name: interest,
+      region,
+      query,
+      trustedSources,
+      articles: [
+        {
+          id: `fallback-${region.toLowerCase()}-${index}`,
+          title: `No live articles for ${interest} (${region === 'TH' ? 'Thailand' : 'Global'})`,
+          summary: 'Feed is temporarily unavailable. Refresh again to load latest updates.',
+          url: `https://news.google.com/search?q=${encodeURIComponent(query)}`,
+          source: 'Google News',
+          sourceUrl: 'https://news.google.com/',
+          publishedAt: generatedAt,
+          trustTier: 'B',
+          category: interest,
+          keywords: [interest],
+          provider: 'FALLBACK',
+          region,
+          citations: [
+            {
+              label: 'Google News Search',
+              url: `https://news.google.com/search?q=${encodeURIComponent(query)}`,
+              provider: 'FALLBACK',
+              retrievedAt: generatedAt
+            }
+          ]
+        }
+      ]
+    };
+  };
 
-  return {
+  const sections: PulseSectionSnapshot[] = (['TH', 'GLOBAL'] as PulseRegion[]).map((region) => ({
+    id: region,
+    label: REGION_LABEL[region],
+    categories: interests.map((interest, index) => buildCategory(interest, index, region))
+  }));
+  const categories = sections.flatMap((section) => section.categories);
+
+  return normalizeSnapshot({
     id: `pulse-fallback-${dateKey}`,
     dateKey,
     generatedAt,
@@ -269,34 +392,9 @@ const buildFallbackSnapshot = (interests: string[]): ThailandPulseSnapshot => {
       { label: 'กกต', count: 1, categories: ['Political'] }
     ],
     sourceCoverage: [],
-    categories: interests.map((interest, index) => ({
-      name: interest,
-      query: `${interest} Thailand`,
-      articles: [
-        {
-          id: `fallback-${index}`,
-          title: `No live articles for ${interest} right now`,
-          summary: 'Feed is temporarily unavailable. Refresh again to load latest updates.',
-          url: `https://news.google.com/search?q=${encodeURIComponent(`${interest} Thailand`)}`,
-          source: 'Google News',
-          sourceUrl: 'https://news.google.com/',
-          publishedAt: generatedAt,
-          trustTier: 'B',
-          category: interest,
-          keywords: [interest],
-          provider: 'FALLBACK',
-          citations: [
-            {
-              label: 'Google News Search',
-              url: `https://news.google.com/search?q=${encodeURIComponent(`${interest} Thailand`)}`,
-              provider: 'FALLBACK',
-              retrievedAt: generatedAt
-            }
-          ]
-        }
-      ]
-    }))
-  };
+    sections,
+    categories
+  });
 };
 
 interface PulseFetchOptions {
@@ -395,7 +493,7 @@ export const fetchThailandPulseSnapshot = async (
   if (!snapshot || !Array.isArray(snapshot.categories)) {
     throw new Error('Invalid feed payload');
   }
-  return snapshot;
+  return normalizeSnapshot(snapshot);
 };
 
 export const loadPulseSnapshotWithFallback = async (

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export type TrustTier = 'A' | 'B' | 'C' | 'UNKNOWN';
 export type PulseProvider = 'RSS' | 'EXA' | 'EXA+FIRECRAWL' | 'MIXED' | 'FALLBACK';
+export type PulseRegion = 'TH' | 'GLOBAL';
 
 export interface PulseCitation {
   label: string;
@@ -31,6 +32,7 @@ export interface PulseArticle {
   confidenceLabel?: 'HIGH' | 'MEDIUM' | 'LOW';
   confidenceReasons?: string[];
   relevanceBias?: number;
+  region?: PulseRegion;
 }
 
 export interface PulseSnapshot {
@@ -39,9 +41,24 @@ export interface PulseSnapshot {
   generatedAt: string;
   interests: string[];
   categories: Array<{
+    id?: string;
     name: string;
+    region?: PulseRegion;
     query: string;
+    trustedSources?: string[];
     articles: PulseArticle[];
+  }>;
+  sections?: Array<{
+    id: PulseRegion;
+    label: string;
+    categories: Array<{
+      id?: string;
+      name: string;
+      region?: PulseRegion;
+      query: string;
+      trustedSources?: string[];
+      articles: PulseArticle[];
+    }>;
   }>;
   trends: Array<{
     label: string;
@@ -153,6 +170,47 @@ const QUERY_PRESETS: Record<string, string> = {
   Business: '(business OR company earnings OR commerce OR startup funding) Thailand'
 };
 
+const GLOBAL_QUERY_PRESETS: Record<string, string> = {
+  Technology: '(technology OR tech startup OR software OR cloud OR cybersecurity)',
+  AI: '(AI OR "artificial intelligence" OR "open source AI" OR LLM OR agentic AI OR GLM-5)',
+  Economic: '(economy OR inflation OR GDP OR central bank OR investment)',
+  Political: '(politics OR election OR parliament OR policy OR geopolitical)',
+  Business: '(business OR company earnings OR IPO OR startup funding OR mergers)'
+};
+
+const PULSE_REGIONS: Array<{ id: PulseRegion; label: string }> = [
+  { id: 'TH', label: 'Thailand' },
+  { id: 'GLOBAL', label: 'Global' }
+];
+
+const TRUSTED_SOURCE_SHORTLIST: Record<string, Record<PulseRegion, string[]>> = {
+  Technology: {
+    TH: ['Bangkok Post', 'Thai PBS', 'The Standard'],
+    GLOBAL: ['Reuters', 'Bloomberg', 'The Verge']
+  },
+  AI: {
+    TH: ['Thai PBS', 'Bangkok Post', 'The Standard'],
+    GLOBAL: ['Reuters', 'MIT Technology Review', 'The Verge']
+  },
+  Economic: {
+    TH: ['Bangkok Post', 'Thai PBS', 'Reuters'],
+    GLOBAL: ['Financial Times', 'Reuters', 'Bloomberg']
+  },
+  Political: {
+    TH: ['Thai PBS', 'Bangkok Post', 'Reuters'],
+    GLOBAL: ['Reuters', 'BBC', 'Associated Press']
+  },
+  Business: {
+    TH: ['Bangkok Post', 'The Nation Thailand', 'Reuters'],
+    GLOBAL: ['Financial Times', 'Bloomberg', 'Reuters']
+  }
+};
+
+const DEFAULT_TRUSTED_SOURCES: Record<PulseRegion, string[]> = {
+  TH: ['Thai PBS', 'Bangkok Post', 'Reuters'],
+  GLOBAL: ['Reuters', 'Bloomberg', 'BBC']
+};
+
 const TRUST_WEIGHT: Record<TrustTier, number> = {
   A: 1,
   B: 0.8,
@@ -237,6 +295,22 @@ const normalizeDomain = (value: string) => {
   return normalized;
 };
 
+const toSlug = (value: string) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const toUniqueList = (values: string[], max = 3) =>
+  Array.from(
+    new Set(
+      values
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  ).slice(0, max);
+
 export const normalizeDomains = (input: unknown): string[] => {
   const raw = Array.isArray(input) ? input.join(',') : String(input || '');
   const values = raw
@@ -296,8 +370,11 @@ const fetchWithTimeout = async (url: string, init: RequestInit = {}, timeoutMs =
   }
 };
 
-const fetchRss = async (query: string): Promise<ParsedItem[]> => {
-  const url = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=th&gl=TH&ceid=TH:th`;
+const fetchRss = async (query: string, region: PulseRegion): Promise<ParsedItem[]> => {
+  const locale = region === 'TH'
+    ? { hl: 'th', gl: 'TH', ceid: 'TH:th' }
+    : { hl: 'en-US', gl: 'US', ceid: 'US:en' };
+  const url = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=${locale.hl}&gl=${locale.gl}&ceid=${locale.ceid}`;
   const response = await fetchWithTimeout(url, {
     headers: { 'user-agent': 'Mozilla/5.0 PARA-Brain-Pulse/1.2' }
   });
@@ -443,11 +520,37 @@ const mergeByLink = (rows: ParsedItem[]) => {
   return Array.from(unique.values());
 };
 
-const buildQuery = (interest: string) => {
-  const key = Object.keys(QUERY_PRESETS).find(
-    (candidate) => candidate.toLowerCase() === interest.toLowerCase()
-  );
-  return key ? QUERY_PRESETS[key] : `${interest} Thailand`;
+const canonicalInterestKey = (interest: string) =>
+  Object.keys(QUERY_PRESETS).find((candidate) => candidate.toLowerCase() === interest.toLowerCase());
+
+const buildQuery = (interest: string, region: PulseRegion) => {
+  const key = canonicalInterestKey(interest);
+  if (region === 'TH') {
+    return key ? QUERY_PRESETS[key] : `${interest} Thailand`;
+  }
+  return key ? GLOBAL_QUERY_PRESETS[key] : `${interest} global market`;
+};
+
+const trustedShortlist = (interest: string, region: PulseRegion): string[] => {
+  const key = canonicalInterestKey(interest);
+  if (key && TRUSTED_SOURCE_SHORTLIST[key]?.[region]) {
+    return TRUSTED_SOURCE_SHORTLIST[key][region];
+  }
+  return DEFAULT_TRUSTED_SOURCES[region];
+};
+
+const trustedSourceCandidatesFromArticles = (articles: PulseArticle[]): string[] => {
+  const ranked = [...articles]
+    .filter((article) => article.trustTier === 'A' || article.trustTier === 'B')
+    .sort((a, b) => Number(b.confidenceScore || 0) - Number(a.confidenceScore || 0))
+    .map((article) => article.source);
+  return toUniqueList(ranked, 6);
+};
+
+const deriveTrustedSources = (interest: string, region: PulseRegion, articles: PulseArticle[]) => {
+  const dynamic = trustedSourceCandidatesFromArticles(articles);
+  const staticList = trustedShortlist(interest, region);
+  return toUniqueList([...dynamic, ...staticList], 3);
 };
 
 const trendFromTitles = (
@@ -822,79 +925,106 @@ export const generateThailandPulseSnapshot = async (opts: {
     notes.push(`Feedback signals applied (${feedbackSignal.totalSignals} votes).`);
   }
 
-  const categories = await Promise.all(
-    interests.map(async (interest) => {
-      const query = buildQuery(interest);
+  const sections = await Promise.all(
+    PULSE_REGIONS.map(async (region) => {
+      const categories = await Promise.all(
+        interests.map(async (interest) => {
+          const query = buildQuery(interest, region.id);
 
-      try {
-        const exaRows = opts.exaApiKey ? await fetchExa(query, opts.exaApiKey) : [];
-        const rssRows = exaRows.length < 5 ? await fetchRss(query) : [];
-        const merged = mergeByLink([...exaRows, ...rssRows]).slice(0, MAX_ITEMS_PER_CATEGORY);
-        const sourceFiltered = merged.filter((row) => {
-          const domain = normalizeDomain(domainFromUrl(row.link));
-          if (effectiveSourcePolicy.denyDomains.length > 0 && isDomainMatch(domain, effectiveSourcePolicy.denyDomains)) {
-            return false;
-          }
-          if (effectiveSourcePolicy.allowDomains.length > 0 && !isDomainMatch(domain, effectiveSourcePolicy.allowDomains)) {
-            return false;
-          }
-          return true;
-        });
-        if (merged.length > sourceFiltered.length) {
-          notes.push(`${interest}: filtered ${merged.length - sourceFiltered.length} article(s) by source policy.`);
-        }
+          try {
+            const exaRows = opts.exaApiKey ? await fetchExa(query, opts.exaApiKey) : [];
+            const rssRows = exaRows.length < 5 ? await fetchRss(query, region.id) : [];
+            const merged = mergeByLink([...exaRows, ...rssRows]).slice(0, MAX_ITEMS_PER_CATEGORY);
+            const sourceFiltered = merged.filter((row) => {
+              const domain = normalizeDomain(domainFromUrl(row.link));
+              if (effectiveSourcePolicy.denyDomains.length > 0 && isDomainMatch(domain, effectiveSourcePolicy.denyDomains)) {
+                return false;
+              }
+              if (effectiveSourcePolicy.allowDomains.length > 0 && !isDomainMatch(domain, effectiveSourcePolicy.allowDomains)) {
+                return false;
+              }
+              return true;
+            });
+            if (merged.length > sourceFiltered.length) {
+              notes.push(`${region.label}/${interest}: filtered ${merged.length - sourceFiltered.length} article(s) by source policy.`);
+            }
 
-        const shouldEnrich = Boolean(opts.firecrawlApiKey) && sourceFiltered.length > 0;
-        const enrichTargets = shouldEnrich ? sourceFiltered.slice(0, FIRECRAWL_ENRICH_PER_CATEGORY) : [];
-        const enrichedTop = shouldEnrich
-          ? await Promise.all(enrichTargets.map((row) => enrichWithFirecrawl(row, opts.firecrawlApiKey!)))
-          : enrichTargets;
+            const shouldEnrich = Boolean(opts.firecrawlApiKey) && sourceFiltered.length > 0;
+            const enrichTargets = shouldEnrich ? sourceFiltered.slice(0, FIRECRAWL_ENRICH_PER_CATEGORY) : [];
+            const enrichedTop = shouldEnrich
+              ? await Promise.all(enrichTargets.map((row) => enrichWithFirecrawl(row, opts.firecrawlApiKey!)))
+              : enrichTargets;
 
-        const byLink = new Map<string, ParsedItem>();
-        sourceFiltered.forEach((row) => byLink.set(normalizeLink(row.link), row));
-        enrichedTop.forEach((row) => byLink.set(normalizeLink(row.link), row));
+            const byLink = new Map<string, ParsedItem>();
+            sourceFiltered.forEach((row) => byLink.set(normalizeLink(row.link), row));
+            enrichedTop.forEach((row) => byLink.set(normalizeLink(row.link), row));
 
-        const articles = Array.from(byLink.values())
-          .slice(0, MAX_ITEMS_PER_CATEGORY)
-          .map((row, index) => {
-            const trustTier = trustTierFromSource(row.source);
-            const words = row.title.match(/[A-Za-z][A-Za-z0-9-]{2,}/g) || [];
-            const domain = normalizeDomain(domainFromUrl(row.link));
+            const scoredArticles = Array.from(byLink.values())
+              .slice(0, MAX_ITEMS_PER_CATEGORY)
+              .map((row, index) => {
+                const trustTier = trustTierFromSource(row.source);
+                const words = row.title.match(/[A-Za-z][A-Za-z0-9-]{2,}/g) || [];
+                const domain = normalizeDomain(domainFromUrl(row.link));
+                return {
+                  id: stableId(`${region.id}-${interest}`, row.link, index),
+                  title: row.title,
+                  summary: row.summary,
+                  url: row.link,
+                  source: row.source,
+                  sourceUrl: row.sourceUrl,
+                  publishedAt: row.publishedAt,
+                  trustTier,
+                  category: interest,
+                  provider: row.provider,
+                  citations: row.citations || [],
+                  keywords: Array.from(new Set(words.map((word) => word.toLowerCase()))).slice(0, 8),
+                  domain,
+                  region: region.id as PulseRegion
+                };
+              })
+              .map((article) => withConfidenceScore(article, feedbackSignal, nowIso))
+              .sort((a, b) => {
+                const byScore = Number(b.confidenceScore || 0) - Number(a.confidenceScore || 0);
+                if (byScore !== 0) return byScore;
+                return String(b.publishedAt || '').localeCompare(String(a.publishedAt || ''));
+              });
+
+            const trustedSources = deriveTrustedSources(interest, region.id, scoredArticles);
+            if (scoredArticles.length === 0) {
+              notes.push(`No results for ${region.label}/${interest}.`);
+            }
+
             return {
-              id: stableId(interest, row.link, index),
-              title: row.title,
-              summary: row.summary,
-              url: row.link,
-              source: row.source,
-              sourceUrl: row.sourceUrl,
-              publishedAt: row.publishedAt,
-              trustTier,
-              category: interest,
-              provider: row.provider,
-              citations: row.citations || [],
-              keywords: Array.from(new Set(words.map((word) => word.toLowerCase()))).slice(0, 8),
-              domain
+              id: `${region.id.toLowerCase()}-${toSlug(interest)}`,
+              name: interest,
+              region: region.id,
+              query,
+              trustedSources,
+              articles: scoredArticles
             };
-          })
-          .map((article) => withConfidenceScore(article, feedbackSignal, nowIso))
-          .sort((a, b) => {
-            const byScore = Number(b.confidenceScore || 0) - Number(a.confidenceScore || 0);
-            if (byScore !== 0) return byScore;
-            return String(b.publishedAt || '').localeCompare(String(a.publishedAt || ''));
-          });
+          } catch (error: any) {
+            notes.push(`Failed ${region.label}/${interest}: ${error?.message || 'unknown error'}`);
+            return {
+              id: `${region.id.toLowerCase()}-${toSlug(interest)}`,
+              name: interest,
+              region: region.id,
+              query,
+              trustedSources: trustedShortlist(interest, region.id).slice(0, 3),
+              articles: []
+            };
+          }
+        })
+      );
 
-        if (articles.length === 0) {
-          notes.push(`No results for ${interest}.`);
-        }
-
-        return { name: interest, query, articles };
-      } catch (error: any) {
-        notes.push(`Failed ${interest}: ${error?.message || 'unknown error'}`);
-        return { name: interest, query, articles: [] };
-      }
+      return {
+        id: region.id,
+        label: region.label,
+        categories
+      };
     })
   );
 
+  const categories = sections.flatMap((section) => section.categories);
   const allArticles = categories.flatMap((category) => category.articles);
   const trends = trendFromTitles(
     allArticles.map((article) => ({ title: article.title, category: article.category }))
@@ -919,6 +1049,7 @@ export const generateThailandPulseSnapshot = async (opts: {
     dateKey,
     generatedAt,
     interests,
+    sections,
     categories,
     trends,
     sourceCoverage: coverage,

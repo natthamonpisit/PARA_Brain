@@ -16,6 +16,9 @@ import {
 import {
   DEFAULT_PULSE_INTERESTS,
   PulseArticle,
+  PulseCategorySnapshot,
+  PulseRegion,
+  PulseSectionSnapshot,
   PulseSourcePolicy,
   ThailandPulseSnapshot,
   fetchPulseSourcePolicyFromServer,
@@ -104,6 +107,16 @@ const confidenceTone: Record<string, string> = {
   LOW: 'border-amber-300/40 bg-amber-500/15 text-amber-100'
 };
 
+const regionLabel: Record<PulseRegion, string> = {
+  TH: 'Thailand',
+  GLOBAL: 'Global'
+};
+
+const categoryKeyOf = (category: PulseCategorySnapshot) => {
+  if (category.id) return category.id;
+  return `${category.region || 'TH'}::${category.name}`;
+};
+
 export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveArticle }) => {
   const [interests, setInterests] = useState<string[]>(() => getPulseInterests());
   const [interestInput, setInterestInput] = useState('');
@@ -116,7 +129,7 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
-  const [activeCategoryName, setActiveCategoryName] = useState<string | null>(null);
+  const [activeCategoryKey, setActiveCategoryKey] = useState<string | null>(null);
   const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<Record<string, 'idle' | 'saving' | 'saved' | 'error'>>({});
   const [feedbackMap, setFeedbackMap] = useState<Record<string, boolean>>(() => getPulseFeedbackMap());
@@ -200,21 +213,55 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
   }, [currentSnapshot]);
 
   const isViewingHistory = Boolean(currentSnapshot && selectedDateKey && currentSnapshot.dateKey !== history[0]?.dateKey);
-  const sortedCategories = useMemo(() => {
-    if (!currentSnapshot) return [];
-    return [...currentSnapshot.categories].sort((a, b) => b.articles.length - a.articles.length);
+  const sectionedCategories = useMemo(() => {
+    if (!currentSnapshot) return [] as PulseSectionSnapshot[];
+    const rawSections = Array.isArray(currentSnapshot.sections) && currentSnapshot.sections.length > 0
+      ? currentSnapshot.sections
+      : [
+          {
+            id: 'TH' as PulseRegion,
+            label: regionLabel.TH,
+            categories: currentSnapshot.categories
+          }
+        ];
+    const map = new Map<PulseRegion, PulseSectionSnapshot>();
+    rawSections.forEach((section) => {
+      const id = section.id === 'GLOBAL' ? 'GLOBAL' : 'TH';
+      map.set(id, {
+        id,
+        label: section.label || regionLabel[id],
+        categories: [...(section.categories || [])].sort((a, b) => b.articles.length - a.articles.length)
+      });
+    });
+    (['TH', 'GLOBAL'] as PulseRegion[]).forEach((id) => {
+      if (!map.has(id)) {
+        map.set(id, {
+          id,
+          label: regionLabel[id],
+          categories: []
+        });
+      }
+    });
+    return (['TH', 'GLOBAL'] as PulseRegion[]).map((id) => map.get(id)!);
   }, [currentSnapshot]);
-  const activeCategory = useMemo(
-    () => {
-      if (!currentSnapshot || !activeCategoryName) return null;
-      return currentSnapshot.categories.find((category) => category.name === activeCategoryName) || null;
-    },
-    [activeCategoryName, currentSnapshot]
-  );
+  const activeCategory = useMemo(() => {
+    if (!activeCategoryKey) return null;
+    for (const section of sectionedCategories) {
+      const category = section.categories.find((item) => categoryKeyOf(item) === activeCategoryKey);
+      if (category) {
+        return {
+          sectionId: section.id,
+          sectionLabel: section.label,
+          category
+        };
+      }
+    }
+    return null;
+  }, [activeCategoryKey, sectionedCategories]);
   const activeArticle = useMemo(
     () =>
       activeCategory && activeArticleId
-        ? activeCategory.articles.find((article) => article.id === activeArticleId) || null
+        ? activeCategory.category.articles.find((article) => article.id === activeArticleId) || null
         : null,
     [activeArticleId, activeCategory]
   );
@@ -225,23 +272,25 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
       : 'overview';
 
   useEffect(() => {
-    if (!activeCategoryName) return;
-    const exists = currentSnapshot?.categories.some((category) => category.name === activeCategoryName);
+    if (!activeCategoryKey) return;
+    const exists = sectionedCategories.some((section) =>
+      section.categories.some((category) => categoryKeyOf(category) === activeCategoryKey)
+    );
     if (!exists) {
-      setActiveCategoryName(null);
+      setActiveCategoryKey(null);
       setActiveArticleId(null);
     }
-  }, [activeCategoryName, currentSnapshot]);
+  }, [activeCategoryKey, sectionedCategories]);
 
   useEffect(() => {
     if (!activeArticleId) return;
-    if (!activeCategory || !activeCategory.articles.some((article) => article.id === activeArticleId)) {
+    if (!activeCategory || !activeCategory.category.articles.some((article) => article.id === activeArticleId)) {
       setActiveArticleId(null);
     }
   }, [activeArticleId, activeCategory]);
 
-  const openCategory = (categoryName: string) => {
-    setActiveCategoryName(categoryName);
+  const openCategory = (category: PulseCategorySnapshot) => {
+    setActiveCategoryKey(categoryKeyOf(category));
     setActiveArticleId(null);
   };
 
@@ -250,7 +299,7 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
       setActiveArticleId(null);
       return;
     }
-    setActiveCategoryName(null);
+    setActiveCategoryKey(null);
   };
 
   const handleAddInterest = () => {
@@ -461,7 +510,7 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
                 key={item.id}
                 onClick={() => {
                   setSelectedDateKey(item.dateKey);
-                  setActiveCategoryName(null);
+                  setActiveCategoryKey(null);
                   setActiveArticleId(null);
                 }}
                 className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${
@@ -630,30 +679,56 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
           <div className="space-y-3">
             <div className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-cyan-200">Topic Headlines</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-cyan-200">Regional Headlines</h2>
                 <HelpTip
-                  th="หน้า overview แสดงเฉพาะหัวเรื่องหลักเพื่อประหยัดพื้นที่ คลิกเพื่อดูข่าวย่อย"
-                  en="Overview only shows top headlines by topic. Click a topic to drill down."
+                  th="แยกข่าวเป็น 2 ส่วน: ไทย และต่างประเทศ พร้อมแหล่งข่าวน่าเชื่อถือของแต่ละหัวข้อ"
+                  en="Split into Thailand and Global sections with trusted sources per topic."
                 />
               </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {sortedCategories.map((category) => (
-                  <button
-                    key={category.name}
-                    onClick={() => openCategory(category.name)}
-                    className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 text-left transition hover:border-cyan-400/45"
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                {sectionedCategories.map((section) => (
+                  <div
+                    key={section.id}
+                    className="rounded-xl border border-slate-700 bg-slate-900/95 p-3"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold uppercase tracking-[0.12em] text-cyan-100">{category.name}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold uppercase tracking-[0.12em] text-cyan-100">
+                        {section.label}
+                      </p>
                       <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300">
-                        {category.articles.length}
+                        {section.categories.reduce((sum, category) => sum + category.articles.length, 0)} stories
                       </span>
                     </div>
-                    <p className="mt-2 line-clamp-2 text-sm text-slate-200">
-                      {category.articles[0]?.title || 'No stories in this topic yet.'}
-                    </p>
-                    <p className="mt-2 line-clamp-1 text-[11px] text-slate-500">Query: {category.query}</p>
-                  </button>
+                    <div className="mt-3 space-y-2">
+                      {section.categories.length === 0 && (
+                        <p className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-slate-500">
+                          No categories for this section in the selected snapshot.
+                        </p>
+                      )}
+                      {section.categories.map((category) => (
+                        <button
+                          key={categoryKeyOf(category)}
+                          onClick={() => openCategory(category)}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900/90 p-2.5 text-left transition hover:border-cyan-400/45"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-100">{category.name}</p>
+                            <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[10px] text-slate-300">
+                              {category.articles.length}
+                            </span>
+                          </div>
+                          <p className="mt-1 line-clamp-1 text-xs text-slate-200">
+                            {category.articles[0]?.title || 'No stories in this topic yet.'}
+                          </p>
+                          {Array.isArray(category.trustedSources) && category.trustedSources.length > 0 && (
+                            <p className="mt-1 line-clamp-1 text-[10px] text-emerald-200/90">
+                              Trusted: {category.trustedSources.slice(0, 3).join(' • ')}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -707,21 +782,28 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
         <section className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-cyan-200">{activeCategory.name}</h2>
-              <p className="mt-1 text-xs text-slate-500">Query: {activeCategory.query}</p>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-cyan-200">{activeCategory.category.name}</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                {activeCategory.sectionLabel} • Query: {activeCategory.category.query}
+              </p>
+              {Array.isArray(activeCategory.category.trustedSources) && activeCategory.category.trustedSources.length > 0 && (
+                <p className="mt-1 text-xs text-emerald-200/90">
+                  Trusted sources: {activeCategory.category.trustedSources.slice(0, 3).join(' • ')}
+                </p>
+              )}
             </div>
             <span className="rounded-full border border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-300">
-              {activeCategory.articles.length} stories
+              {activeCategory.category.articles.length} stories
             </span>
           </div>
 
           <div className="mt-3 space-y-2">
-            {activeCategory.articles.length === 0 && (
+            {activeCategory.category.articles.length === 0 && (
               <p className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 text-sm text-slate-400">
                 No stories available in this category.
               </p>
             )}
-            {activeCategory.articles.map((article) => (
+            {activeCategory.category.articles.map((article) => (
               <div key={article.id} className="rounded-xl border border-slate-700 bg-slate-900/95 p-3">
                 <button
                   onClick={() => setActiveArticleId(article.id)}

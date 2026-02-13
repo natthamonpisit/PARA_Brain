@@ -1,12 +1,12 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck, Target } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
-  activeType: ParaType | 'All' | 'Finance' | 'Review' | 'Agent' | string;
-  onSelectType: (type: ParaType | 'All' | 'Finance' | 'Review' | 'Agent' | string) => void;
+  activeType: ParaType | 'All' | 'LifeOverview' | 'Finance' | 'Review' | 'Agent' | string;
+  onSelectType: (type: ParaType | 'All' | 'LifeOverview' | 'Finance' | 'Review' | 'Agent' | string) => void;
   stats: Record<string, number>;
   onExport?: () => void;
   onImport?: (file: File) => void;
@@ -41,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = [
     { type: 'All', label: 'Mission', icon: Box, color: 'text-cyan-300' },
+    { type: 'LifeOverview', label: 'Life Overview', icon: Target, color: 'text-cyan-200' },
     { type: 'Agent', label: 'Agent', icon: BrainCircuit, color: 'text-indigo-600' },
     { type: 'Review', label: 'Review', icon: ClipboardCheck, color: 'text-violet-500' },
     { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },
@@ -122,6 +123,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const Icon = item.icon;
             const count = item.type === 'All' 
               ? Object.values(stats).reduce((a: number, b: number) => a + b, 0) 
+              : item.type === 'LifeOverview'
+                ? stats[ParaType.AREA as string] || 0
               : stats[item.type as string] || 0;
 
             return (

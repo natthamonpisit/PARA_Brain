@@ -13,6 +13,7 @@ import { HabitBoard } from './components/HabitBoard';
 import { ItemDetailModal } from './components/ItemDetailModal'; // New Import
 import { FocusDock } from './components/FocusDock';
 import { MissionControlBoard } from './components/MissionControlBoard';
+import { LifeOverviewBoard } from './components/LifeOverviewBoard';
 import { ParaType, AppModule, ViewMode, ParaItem } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network, Minimize2, Maximize2 } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
@@ -53,7 +54,7 @@ export default function App() {
   } = useAgentData();
 
   // --- UI STATE ---
-  const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | 'Review' | 'Agent' | string>('All');
+  const [activeType, setActiveType] = useState<ParaType | 'All' | 'LifeOverview' | 'Finance' | 'Review' | 'Agent' | string>('All');
   const [viewMode, setViewMode] = useState<ViewMode>('GRID');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatCompact, setIsChatCompact] = useState(() => {
@@ -132,7 +133,7 @@ export default function App() {
   // --- VIEW LOGIC ---
   useEffect(() => {
       // Load modules when selected
-      if (typeof activeType === 'string' && !['All', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+      if (typeof activeType === 'string' && !['All', 'LifeOverview', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
           loadModuleItems(activeType);
       }
       // Clear selection when changing tabs
@@ -243,7 +244,7 @@ export default function App() {
       const ids = Array.from(selectedIds) as string[];
       for (const id of ids) {
           try {
-             if (typeof activeType === 'string' && !['All', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+             if (typeof activeType === 'string' && !['All', 'LifeOverview', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
                  await deleteModuleItem(id, activeType as string);
              } else {
                  await deleteItem(id);
@@ -357,7 +358,7 @@ export default function App() {
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
     try {
-        if (typeof activeType === 'string' && !['All', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+        if (typeof activeType === 'string' && !['All', 'LifeOverview', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
             await deleteModuleItem(id, activeType as string);
         } else {
             await deleteItem(id);
@@ -439,8 +440,14 @@ export default function App() {
       setEditingItem(null);
   };
 
-  const pageTitle = activeModule ? activeModule.name : (activeType === 'All' ? 'Dashboard' : activeType);
-  const shouldShowFocusDock = activeType !== 'Agent';
+  const pageTitle = activeModule ? activeModule.name : (
+    activeType === 'All'
+      ? 'Dashboard'
+      : activeType === 'LifeOverview'
+        ? 'Life Overview'
+        : activeType
+  );
+  const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview';
   const boardFallback = (
     <div className="h-48 flex items-center justify-center text-slate-400">
       <Loader2 className="w-5 h-5 animate-spin" />
@@ -504,7 +511,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && !activeModule && activeType !== 'All' && (
+            {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && activeType !== 'LifeOverview' && !activeModule && activeType !== 'All' && (
                 <div className="hidden md:flex bg-slate-900 p-1 rounded-lg border border-slate-700">
                     <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="List"><List className="w-4 h-4" /></button>
@@ -637,6 +644,11 @@ export default function App() {
                                 onOpenTriageItem={handleViewDetail}
                             />
                         </Suspense>
+                    ) : activeType === 'LifeOverview' ? (
+                        <LifeOverviewBoard
+                          items={items}
+                          onOpenItem={handleViewDetail}
+                        />
                     ) : viewMode === 'CALENDAR' ? (
                         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
                           <CalendarBoard 

@@ -27,6 +27,9 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vRVh2cBTUcaOIZ9-0Hlasb
    - `CAPTURE_API_SECRET` (optional)
    - `CAPTURE_CONFIRM_THRESHOLD` (optional, default `0.72`)
    - `CAPTURE_SEMANTIC_DEDUP_THRESHOLD` (optional, default `0.9`)
+   - `EXA_API_KEY` (optional, enables fresher web discovery for Thailand Pulse)
+   - `FIRECRAWL_API_KEY` (optional, enables citation enrichment for Thailand Pulse)
+   - `THAILAND_PULSE_DEFAULT_INTERESTS` (optional, comma-separated)
 5. Run the app:
    `npm run dev`
 
@@ -55,6 +58,10 @@ Generate a mock daily brief:
   - `POST /api/cron-agent-daily` (requires `x-cron-key` only when `CRON_SECRET` is set)
   - `POST /api/cron-heartbeat` (requires `x-cron-key` only when `CRON_SECRET` is set)
   - `POST /api/cron-weekly-review` (requires `x-cron-key` only when `CRON_SECRET` is set)
+  - `GET|POST /api/cron-thailand-pulse` (every 12h via `vercel.json`, supports bearer `CRON_SECRET`)
+- Thailand Pulse APIs:
+  - `GET /api/thailand-pulse?interests=Technology,AI,...` (fetch latest snapshot and persist)
+  - `GET /api/thailand-pulse?mode=history&days=7` (read persisted snapshot history)
 - Unified capture endpoint (web + telegram behavior parity):
   - `POST /api/capture-intake` (`{ source, message, eventId? }`)
   - Optional auth with `x-capture-key` when `CAPTURE_API_SECRET` is set

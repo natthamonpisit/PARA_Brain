@@ -18,7 +18,8 @@ import {
   getPulseSnapshotHistory,
   loadPulseSnapshotWithFallback,
   savePulseInterests,
-  sanitizeInterests
+  sanitizeInterests,
+  syncPulseHistoryFromServer
 } from '../services/thailandPulseService';
 
 interface ThailandPulseBoardProps {
@@ -136,6 +137,23 @@ export const ThailandPulseBoard: React.FC<ThailandPulseBoardProps> = ({ onSaveAr
       void fetchLive('initial');
     }
   }, [fetchLive, hydrateFromStorage]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const synced = await syncPulseHistoryFromServer(7);
+      if (!active || synced.length === 0) return;
+      setHistory(synced);
+      const preferred = synced.find((item) => item.dateKey === selectedDateKey) || synced[0];
+      setSnapshot(preferred);
+      if (!selectedDateKey || !synced.some((item) => item.dateKey === selectedDateKey)) {
+        setSelectedDateKey(preferred.dateKey);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const currentSnapshot = useMemo(() => {
     if (!snapshot) return null;

@@ -127,6 +127,11 @@ const trimHistory = (snapshots: ThailandPulseSnapshot[]) => {
   return sortSnapshots(Array.from(byDate.values())).slice(0, MAX_HISTORY_DAYS);
 };
 
+const writeSnapshotHistory = (snapshots: ThailandPulseSnapshot[]) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(SNAPSHOT_STORAGE_KEY, JSON.stringify(trimHistory(snapshots)));
+};
+
 export const getPulseSnapshotHistory = (): ThailandPulseSnapshot[] => {
   if (typeof window === 'undefined') return [];
   const snapshots = safeJsonParse<ThailandPulseSnapshot[]>(
@@ -145,7 +150,32 @@ export const persistPulseSnapshot = (snapshot: ThailandPulseSnapshot) => {
   if (typeof window === 'undefined') return;
   const existing = getPulseSnapshotHistory();
   const merged = trimHistory([snapshot, ...existing]);
-  window.localStorage.setItem(SNAPSHOT_STORAGE_KEY, JSON.stringify(merged));
+  writeSnapshotHistory(merged);
+};
+
+export const fetchPulseSnapshotHistoryFromServer = async (days = 7): Promise<ThailandPulseSnapshot[]> => {
+  const safeDays = Math.max(1, Math.min(30, Math.floor(Number(days) || 7)));
+  const response = await fetch(`/api/thailand-pulse?mode=history&days=${safeDays}`);
+  if (!response.ok) {
+    throw new Error(`History request failed (${response.status})`);
+  }
+  const payload = await response.json();
+  const snapshots = payload?.snapshots;
+  if (!Array.isArray(snapshots)) return [];
+  return trimHistory(snapshots as ThailandPulseSnapshot[]);
+};
+
+export const syncPulseHistoryFromServer = async (days = 7): Promise<ThailandPulseSnapshot[]> => {
+  const local = getPulseSnapshotHistory();
+  try {
+    const remote = await fetchPulseSnapshotHistoryFromServer(days);
+    if (remote.length === 0) return local;
+    const merged = trimHistory([...remote, ...local]);
+    writeSnapshotHistory(merged);
+    return merged;
+  } catch {
+    return local;
+  }
 };
 
 const buildFallbackSnapshot = (interests: string[]): ThailandPulseSnapshot => {

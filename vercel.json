@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron-thailand-pulse",
+      "schedule": "0 */12 * * *"
+    }
+  ]
+}

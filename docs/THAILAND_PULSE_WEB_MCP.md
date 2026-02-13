@@ -6,6 +6,14 @@ Last updated: 2026-02-13
 - Improve freshness and trust of daily updates by layering `EXA` discovery + `Firecrawl` extraction on top of RSS fallback.
 - Keep one-page UI simple while exposing citations and evidence for fast verification.
 
+## Phase Status
+- Phase 1: completed
+- Phase 1.1: completed
+- Phase 1.2: completed
+  - Snapshot history is persisted in Supabase table `pulse_snapshots`.
+  - API route `GET /api/thailand-pulse?mode=history&days=7` serves cross-device history.
+  - Cron route `/api/cron-thailand-pulse` is available and scheduled every 12 hours via `vercel.json`.
+
 ## Runtime Provider Strategy
 1. `EXA_API_KEY` available:
    - Use Exa Search as primary discovery (`api.exa.ai/search`) for fresh links.
@@ -34,9 +42,9 @@ Each article should include:
 UI shows up to 3 citations per story.
 
 ## Recommended Next Steps
-1. Move snapshot storage from browser localStorage to Supabase table (`pulse_snapshots`) for cross-device sync.
-2. Run scheduled ingestion every 12 hours using cron endpoint.
-3. Add source allow/deny list UI for user-controlled trust policy.
+1. Add source allow/deny list UI for user-controlled trust policy.
+2. Add per-topic confidence scoring with transparent formula (source tier + corroboration + freshness).
+3. Add user feedback loop (`relevant`/`not relevant`) to improve ranking over time.
 
 ## Reference URLs
 - MCP specification: https://modelcontextprotocol.io/specification/2025-06-18

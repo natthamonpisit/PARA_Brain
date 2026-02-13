@@ -3,6 +3,11 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import { runWithRetry } from './network_policy.mjs';
+import {
+  CANONICAL_AREAS,
+  ROUTING_RULES_VERSION,
+  summarizeAreaCoverage
+} from '../../shared/routingRules.js';
 
 function dateInTimeZone(timeZone, date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -188,6 +193,7 @@ export async function runDailyBrief(options = {}) {
     const tasks = tasksRes.data || [];
     const resources = resourcesRes.data || [];
     const recentLogs = historyRes.data || [];
+    const routingCoverage = summarizeAreaCoverage(areas);
 
     const nowIso = new Date().toISOString();
     const todayItems = tasks
@@ -257,6 +263,11 @@ export async function runDailyBrief(options = {}) {
         preferences: getJson(profile.preferences, {})
       },
       para_snapshot: paraSnapshot,
+      routing_reference: {
+        rules_version: ROUTING_RULES_VERSION,
+        canonical_areas: CANONICAL_AREAS.map((a) => a.name),
+        coverage: routingCoverage
+      },
       today_items: todayItems,
       memory_retrieval: memoryRetrieval.map((m) => ({
         id: m.id,
@@ -306,6 +317,13 @@ export async function runDailyBrief(options = {}) {
         recent_logs: recentLogs.length,
         memory_hits: memoryRetrieval.length
       },
+      routing: {
+        rules_version: ROUTING_RULES_VERSION,
+        matched_configured_areas: routingCoverage.matchedConfigured,
+        total_configured_areas: routingCoverage.totalConfigured,
+        missing_core_areas: routingCoverage.missingCanonicalNames,
+        unknown_area_names: routingCoverage.unknownAreaNames
+      },
       retrieval: retrievalDiagnostics || {
         query_chars: 0,
         requested_k: 8,
@@ -321,7 +339,12 @@ export async function runDailyBrief(options = {}) {
         output_chars: outputMarkdown.length,
         llm_ms: llmMs
       },
-      warnings: ragWarning ? { rag: ragWarning } : {}
+      warnings: {
+        ...(ragWarning ? { rag: ragWarning } : {}),
+        ...(routingCoverage.missingCanonicalNames.length > 0
+          ? { missing_core_areas: routingCoverage.missingCanonicalNames }
+          : {})
+      }
     };
 
     if (!dryRun) {

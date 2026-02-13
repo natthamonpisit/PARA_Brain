@@ -1,6 +1,11 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { v4 as uuidv4 } from 'uuid';
 import { runWithRetry } from './externalPolicy.js';
+import {
+  ROUTING_RULES_VERSION,
+  findExplicitAreaMentionInAreas,
+  resolveTravelAreaRecommendation
+} from '../../shared/routingRules.js';
 
 export type CaptureSource = 'WEB' | 'TELEGRAM';
 export type CaptureOperation = 'CREATE' | 'TRANSACTION' | 'MODULE_ITEM' | 'COMPLETE' | 'CHAT';
@@ -39,6 +44,7 @@ interface CaptureContext {
 interface AreaRoutingDecision {
   applied: boolean;
   reason: string;
+  ruleVersion?: string;
   areaName?: string;
   suggestedProjectTitle?: string;
   ensureProjectLink?: boolean;
@@ -124,11 +130,6 @@ const CONFIDENCE_CONFIRM_THRESHOLD = Number(process.env.CAPTURE_CONFIRM_THRESHOL
 const SEMANTIC_DEDUP_THRESHOLD = Number(process.env.CAPTURE_SEMANTIC_DEDUP_THRESHOLD || 0.9);
 const ALFRED_AUTO_CAPTURE_ENABLED = process.env.ALFRED_AUTO_CAPTURE_ENABLED !== 'false';
 const CAPTURE_MODEL_NAME = process.env.CAPTURE_MODEL_NAME || 'gemini-3-flash-preview';
-const TRAVEL_SIGNAL_RE =
-  /(เที่ยว|ทริป|เดินป่า|แคมป์|camp|camping|hike|hiking|trek|trekking|backpack|vacation|holiday|road\s*trip|itinerary)/i;
-const TRAVEL_HEALTH_ROUTINE_RE =
-  /(ทุกวัน|ทุกสัปดาห์|ทุกอาทิตย์|เป็นประจำ|routine|habit|สุขภาพ|ฟิต|ออกกำลังกาย|workout|training)/i;
-const TRAVEL_FAMILY_RE = /(ครอบครัว|family|แฟน|คู่รัก|ภรรยา|สามี|ลูก|พ่อแม่|parents|wife|husband|partner|เพื่อน|friend)/i;
 
 const truncate = (value: string, max = 180): string => {
   if (!value) return '';
@@ -303,20 +304,6 @@ const buildPlanningTaskContent = (params: {
   return ['Summary', summary, '', 'Starter Direction', guidance].join('\n');
 };
 
-const findExplicitAreaMention = (areas: any[], message: string): any | null => {
-  const haystack = normalizeMessage(message).toLowerCase();
-  if (!haystack) return null;
-  for (const area of areas) {
-    const candidates = [area?.name, area?.title]
-      .map((v) => String(v || '').trim().toLowerCase())
-      .filter((v) => v.length >= 4);
-    for (const needle of candidates) {
-      if (haystack.includes(needle)) return area;
-    }
-  }
-  return null;
-};
-
 const toTripProjectTitle = (seed: string): string => {
   const cleaned = normalizeMessage(seed).replace(/^trip\s*[:\-]?\s*/i, '');
   if (!cleaned) return 'Trip Plan';
@@ -329,41 +316,27 @@ const resolveTravelAreaRouting = (params: {
   context: CaptureContext;
 }): AreaRoutingDecision => {
   const { message, modelOutput, context } = params;
-  const normalized = normalizeMessage(message).toLowerCase();
-  if (!normalized) return { applied: false, reason: 'empty_message' };
-  if (!TRAVEL_SIGNAL_RE.test(normalized)) {
-    return { applied: false, reason: 'no_travel_signal' };
-  }
-
-  const explicitArea = findExplicitAreaMention(context.areas, message);
-  if (explicitArea) {
-    return { applied: false, reason: 'explicit_area_in_message' };
-  }
-
-  const isFamilyTrip = TRAVEL_FAMILY_RE.test(normalized);
-  const isHealthRoutineTrip = TRAVEL_HEALTH_ROUTINE_RE.test(normalized);
-  let areaName = 'Side Projects & Experiments';
-  let reason = 'travel_default_side_projects';
-  let extraTags = ['travel', 'outdoor'];
-
-  if (isFamilyTrip) {
-    areaName = 'Family & Relationships';
-    reason = 'travel_family_signal';
-    extraTags = ['travel', 'family'];
-  } else if (isHealthRoutineTrip) {
-    areaName = 'Health & Energy';
-    reason = 'travel_health_routine_signal';
-    extraTags = ['travel', 'health', 'fitness'];
+  const explicitArea = findExplicitAreaMentionInAreas(context.areas, message);
+  const decision = resolveTravelAreaRecommendation(message, {
+    explicitAreaMentioned: Boolean(explicitArea)
+  });
+  if (!decision.applied) {
+    return {
+      applied: false,
+      reason: decision.reason,
+      ruleVersion: ROUTING_RULES_VERSION
+    };
   }
 
   const projectSeed = String(modelOutput.title || modelOutput.goal || modelOutput.summary || message);
   return {
     applied: true,
-    reason,
-    areaName,
+    reason: decision.reason,
+    areaName: decision.areaName,
     suggestedProjectTitle: toTripProjectTitle(projectSeed),
     ensureProjectLink: true,
-    extraTags
+    extraTags: decision.extraTags || [],
+    ruleVersion: ROUTING_RULES_VERSION
   };
 };
 
@@ -620,6 +593,7 @@ PARA constraints:
 - Travel/Hiking rule intent: one-off trip defaults to "Side Projects & Experiments".
 - Travel with family signal should map to "Family & Relationships".
 - Travel with routine/fitness signal should map to "Health & Energy".
+Routing rules source of truth: shared/routingRules.js (version ${ROUTING_RULES_VERSION}).
 
 Existing Areas:
 ${areasText || '(none)'}

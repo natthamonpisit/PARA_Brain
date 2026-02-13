@@ -612,6 +612,30 @@ Checklist:
 Expected:
 - Release candidate approved.
 
+### RES-011 Deterministic routing (travel baseline)
+Steps:
+1. Send capture: `เดือนหน้าอยากไปเดินป่ากับเพื่อนที่เชียงดาว ช่วยแตกงานให้หน่อย`
+2. Open created task/project detail.
+Expected:
+- Area auto-routed to `Family & Relationships` (family/friend travel signal).
+- Routing tags include `travel` + `family`.
+
+### RES-012 Deterministic routing (health routine)
+Steps:
+1. Send capture: `ตั้งใจเดินป่าทุกสัปดาห์เพื่อเพิ่มความฟิต ช่วยวางแผน`
+2. Open created task/project detail.
+Expected:
+- Area auto-routed to `Health & Energy`.
+- Routing tags include `travel` + `health` (or `fitness`).
+
+### RES-013 Deterministic routing (explicit area override)
+Steps:
+1. Send capture: `ทริปเดินป่าเดือนหน้า บันทึกเข้า Side Projects & Experiments เลย`
+2. Open created task/project detail.
+Expected:
+- System respects explicit area mention and does not override.
+- Item remains in explicitly requested area.
+
 ## 5. Test Run Log Template
 Use this template per cycle.
 
@@ -639,4 +663,4 @@ Signoff:
 5. MOR-001..008
 6. TP-001..014
 7. AG-001..008
-8. RES-001..010
+8. RES-001..013

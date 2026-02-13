@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
+import { ROUTING_RULES_VERSION, summarizeAreaCoverage } from '../shared/routingRules.js';
 
 function loadEnvFromFile(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -57,25 +58,28 @@ export async function runWeeklyOpsReview(options = {}) {
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const staleBefore = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [historyRes, tasksRes, projectsRes, txRes, runRes, extRes] = await Promise.all([
+  const [historyRes, tasksRes, projectsRes, areasRes, txRes, runRes, extRes] = await Promise.all([
     db.from('history').select('*').gte('timestamp', since7d).order('timestamp', { ascending: false }),
     db.from('tasks').select('*'),
     db.from('projects').select('*'),
+    db.from('areas').select('*'),
     db.from('transactions').select('*').gte('transaction_date', since30d),
     db.from('agent_runs').select('*').gte('started_at', since7d),
     db.from('external_agent_jobs').select('*').gte('requested_at', since7d)
   ]);
 
-  for (const r of [historyRes, tasksRes, projectsRes, txRes, runRes, extRes]) {
+  for (const r of [historyRes, tasksRes, projectsRes, areasRes, txRes, runRes, extRes]) {
     if (r.error) throw new Error(r.error.message);
   }
 
   const history = historyRes.data || [];
   const tasks = tasksRes.data || [];
   const projects = projectsRes.data || [];
+  const areas = areasRes.data || [];
   const txs = txRes.data || [];
   const runs = runRes.data || [];
   const extJobs = extRes.data || [];
+  const routingCoverage = summarizeAreaCoverage(areas);
 
   const completed7d = history.filter((h) => h.action === 'COMPLETE').length;
   const created7d = history.filter((h) => h.action === 'CREATE').length;
@@ -146,7 +150,13 @@ export async function runWeeklyOpsReview(options = {}) {
     `- External jobs: done=${extDone}, failed=${extFailed}`,
     '',
     '## Source References',
-    '- history, tasks, projects, transactions, agent_runs, external_agent_jobs'
+    '- history, tasks, projects, areas, transactions, agent_runs, external_agent_jobs',
+    '',
+    '## Routing Rule Baseline',
+    `- Routing rules version: ${ROUTING_RULES_VERSION}`,
+    `- Core areas coverage: ${routingCoverage.matchedConfigured}/${routingCoverage.totalConfigured}`,
+    `- Missing core areas: ${routingCoverage.missingCanonicalNames.join(', ') || 'None'}`,
+    `- Unknown custom areas: ${routingCoverage.unknownAreaNames.join(', ') || 'None'}`
   ].join('\n');
 
   const outputDir = path.join(process.cwd(), 'memory', 'weekly');
@@ -182,7 +192,8 @@ export async function runWeeklyOpsReview(options = {}) {
       net30d,
       runSuccessRate,
       extDone,
-      extFailed
+      extFailed,
+      routingCoverage
     }
   };
 }

@@ -14,6 +14,7 @@ import { ItemDetailModal } from './components/ItemDetailModal'; // New Import
 import { FocusDock } from './components/FocusDock';
 import { MissionControlBoard } from './components/MissionControlBoard';
 import { LifeOverviewBoard } from './components/LifeOverviewBoard';
+import { ThailandPulseBoard } from './components/ThailandPulseBoard';
 import { ParaType, AppModule, ViewMode, ParaItem } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network, Minimize2, Maximize2, Undo2 } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
@@ -22,6 +23,7 @@ import { useModuleData } from './hooks/useModuleData';
 import { useAIChat } from './hooks/useAIChat';
 import { useAgentData } from './hooks/useAgentData';
 import { classifyQuickCapture } from './services/geminiService';
+import type { PulseArticle } from './services/thailandPulseService';
 import { generateId } from './utils/helpers';
 
 const ChatPanel = React.lazy(() => import('./components/ChatPanel').then((m) => ({ default: m.ChatPanel })));
@@ -54,7 +56,7 @@ export default function App() {
   } = useAgentData();
 
   // --- UI STATE ---
-  const [activeType, setActiveType] = useState<ParaType | 'All' | 'LifeOverview' | 'Finance' | 'Review' | 'Agent' | string>('All');
+  const [activeType, setActiveType] = useState<ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | string>('All');
   const [viewMode, setViewMode] = useState<ViewMode>('GRID');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatCompact, setIsChatCompact] = useState(() => {
@@ -138,7 +140,7 @@ export default function App() {
   // --- VIEW LOGIC ---
   useEffect(() => {
       // Load modules when selected
-      if (typeof activeType === 'string' && !['All', 'LifeOverview', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+      if (typeof activeType === 'string' && !['All', 'LifeOverview', 'ThailandPulse', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
           loadModuleItems(activeType);
       }
       // Clear selection when changing tabs
@@ -311,7 +313,7 @@ export default function App() {
       const ids = Array.from(selectedIds) as string[];
       for (const id of ids) {
           try {
-             if (typeof activeType === 'string' && !['All', 'LifeOverview', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+             if (typeof activeType === 'string' && !['All', 'LifeOverview', 'ThailandPulse', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
                  await deleteModuleItem(id, activeType as string);
              } else {
                  await deleteItem(id);
@@ -425,7 +427,7 @@ export default function App() {
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
     try {
-        if (typeof activeType === 'string' && !['All', 'LifeOverview', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+        if (typeof activeType === 'string' && !['All', 'LifeOverview', 'ThailandPulse', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
             await deleteModuleItem(id, activeType as string);
         } else {
             await deleteItem(id);
@@ -440,6 +442,57 @@ export default function App() {
      } catch {
          showNotification('Failed to archive', 'error');
      }
+  };
+
+  const handleSavePulseArticle = async (article: PulseArticle) => {
+    const normalizedUrl = article.url.trim();
+    const duplicate = items.find((item) => (
+      item.type === ParaType.RESOURCE &&
+      (
+        item.content.includes(normalizedUrl) ||
+        item.title.toLowerCase() === article.title.toLowerCase()
+      )
+    ));
+
+    if (duplicate) {
+      showNotification('Resource already saved', 'error', {
+        durationMs: 4000,
+        action: {
+          label: 'Open',
+          onClick: () => {
+            dismissNotification();
+            handleViewDetail(duplicate.id);
+          }
+        }
+      });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextItem: ParaItem = {
+      id: generateId(),
+      title: article.title,
+      content: `${article.summary || ''}\n\nSource: ${article.source}\nPublished: ${article.publishedAt}\nLink: ${article.url}`.trim(),
+      type: ParaType.RESOURCE,
+      category: article.category || 'News',
+      tags: Array.from(
+        new Set([
+          'news',
+          'thailand-pulse',
+          `tier-${article.trustTier.toLowerCase()}`,
+          ...(article.keywords || []).slice(0, 5)
+        ])
+      ),
+      relatedItemIds: [],
+      isAiGenerated: true,
+      isCompleted: false,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    await addItem(nextItem);
+    const shortTitle = article.title.length > 46 ? `${article.title.slice(0, 46)}...` : article.title;
+    showNotification(`Saved: ${shortTitle}`, 'success');
   };
 
   // --- MODAL HANDLERS ---
@@ -524,9 +577,11 @@ export default function App() {
       ? 'Dashboard'
       : activeType === 'LifeOverview'
         ? 'Life Overview'
+        : activeType === 'ThailandPulse'
+          ? 'Thailand Pulse'
         : activeType
   );
-  const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview';
+  const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse';
   const boardFallback = (
     <div className="h-48 flex items-center justify-center text-slate-400">
       <Loader2 className="w-5 h-5 animate-spin" />
@@ -590,7 +645,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && activeType !== 'LifeOverview' && !activeModule && activeType !== 'All' && (
+            {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse' && !activeModule && activeType !== 'All' && (
                 <div className="hidden md:flex bg-slate-900 p-1 rounded-lg border border-slate-700">
                     <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="List"><List className="w-4 h-4" /></button>
@@ -737,6 +792,8 @@ export default function App() {
                           items={items}
                           onOpenItem={handleViewDetail}
                         />
+                    ) : activeType === 'ThailandPulse' ? (
+                        <ThailandPulseBoard onSaveArticle={handleSavePulseArticle} />
                     ) : viewMode === 'CALENDAR' ? (
                         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
                           <CalendarBoard 

@@ -43,6 +43,7 @@ export interface TelegramPhotoData {
 const CAPTURE_IMAGE_MODEL = process.env.CAPTURE_IMAGE_MODEL || process.env.AGENT_MODEL || 'gemini-2.0-flash';
 const CAPTURE_IMAGE_MAX_BYTES = Number(process.env.CAPTURE_IMAGE_MAX_BYTES || 2_500_000);
 const IMAGE_FINANCE_CONFIDENCE_THRESHOLD = Number(process.env.IMAGE_FINANCE_CONFIDENCE_THRESHOLD || 0.55);
+const CAPTURE_IMAGE_ATTACHMENTS_BUCKET = process.env.CAPTURE_IMAGE_ATTACHMENTS_BUCKET || 'attachments';
 const DEFAULT_DEDUP = {
   isDuplicate: false,
   reason: 'Image capture path',
@@ -76,6 +77,200 @@ const inferMimeTypeFromPath = (path: string): string => {
   if (lower.endsWith('.heic')) return 'image/heic';
   return 'image/jpeg';
 };
+
+const inferFileExtension = (mimeType: string): string => {
+  const lower = String(mimeType || '').toLowerCase();
+  if (lower.includes('png')) return 'png';
+  if (lower.includes('webp')) return 'webp';
+  if (lower.includes('gif')) return 'gif';
+  if (lower.includes('heic')) return 'heic';
+  if (lower.includes('jpeg') || lower.includes('jpg')) return 'jpg';
+  return 'jpg';
+};
+
+const inferParaTableFromType = (type: string): 'tasks' | 'projects' | 'areas' | 'resources' | 'archives' | null => {
+  const normalized = String(type || '').toLowerCase();
+  if (normalized === 'tasks' || normalized === 'task') return 'tasks';
+  if (normalized === 'projects' || normalized === 'project') return 'projects';
+  if (normalized === 'areas' || normalized === 'area') return 'areas';
+  if (normalized === 'resources' || normalized === 'resource') return 'resources';
+  if (normalized === 'archives' || normalized === 'archive') return 'archives';
+  return null;
+};
+
+async function uploadImageAttachment(params: {
+  supabase: any;
+  source: CaptureSource;
+  imageBase64: string;
+  mimeType: string;
+}): Promise<string | null> {
+  try {
+    const ext = inferFileExtension(params.mimeType);
+    const day = new Date().toISOString().slice(0, 10);
+    const filePath = `capture/${String(params.source || 'WEB').toLowerCase()}/${day}/${uuidv4()}.${ext}`;
+    const imageBuffer = Buffer.from(params.imageBase64, 'base64');
+
+    const { error: uploadError } = await params.supabase.storage
+      .from(CAPTURE_IMAGE_ATTACHMENTS_BUCKET)
+      .upload(filePath, imageBuffer, {
+        contentType: params.mimeType || 'image/jpeg',
+        upsert: false
+      });
+
+    if (uploadError) {
+      console.warn('[imageCapturePipeline] attachment upload failed:', uploadError.message);
+      return null;
+    }
+
+    const { data } = params.supabase.storage
+      .from(CAPTURE_IMAGE_ATTACHMENTS_BUCKET)
+      .getPublicUrl(filePath);
+
+    const publicUrl = String(data?.publicUrl || '').trim();
+    return publicUrl || null;
+  } catch (error: any) {
+    console.warn('[imageCapturePipeline] attachment upload failed:', error?.message || error);
+    return null;
+  }
+}
+
+async function appendAttachmentToParaRow(params: {
+  supabase: any;
+  row: any;
+  attachmentUrl: string;
+  nowIso: string;
+}): Promise<any> {
+  const table = inferParaTableFromType(params.row?.type);
+  const id = String(params.row?.id || '').trim();
+  if (!table || !id) return params.row;
+
+  const existing = Array.isArray(params.row?.attachments)
+    ? params.row.attachments.map((entry: any) => String(entry || '').trim()).filter(Boolean)
+    : [];
+
+  if (existing.includes(params.attachmentUrl)) return params.row;
+  const nextAttachments = Array.from(new Set([...existing, params.attachmentUrl])).slice(0, 30);
+
+  const { data, error } = await params.supabase
+    .from(table)
+    .update({ attachments: nextAttachments, updated_at: params.nowIso })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.warn('[imageCapturePipeline] append attachment failed:', error.message);
+    return params.row;
+  }
+
+  return data || { ...params.row, attachments: nextAttachments };
+}
+
+async function appendAttachmentToTransactionRow(params: {
+  supabase: any;
+  row: any;
+  attachmentUrl: string;
+}): Promise<any> {
+  const id = String(params.row?.id || '').trim();
+  if (!id) return params.row;
+
+  const currentDesc = String(params.row?.description || '').trim();
+  if (currentDesc.includes(params.attachmentUrl)) return params.row;
+  const nextDesc = currentDesc
+    ? `${currentDesc}\nReceipt: ${params.attachmentUrl}`
+    : `Receipt: ${params.attachmentUrl}`;
+
+  const { data, error } = await params.supabase
+    .from('transactions')
+    .update({ description: nextDesc })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.warn('[imageCapturePipeline] append receipt link failed:', error.message);
+    return params.row;
+  }
+
+  return data || { ...params.row, description: nextDesc };
+}
+
+async function attachImageToCaptureResult(params: {
+  supabase: any;
+  result: CapturePipelineResult;
+  attachmentUrl: string | null;
+  nowIso: string;
+}): Promise<CapturePipelineResult> {
+  if (!params.attachmentUrl) return params.result;
+
+  if (params.result.itemType === 'TRANSACTION' && params.result.createdItem) {
+    const updatedTx = await appendAttachmentToTransactionRow({
+      supabase: params.supabase,
+      row: params.result.createdItem,
+      attachmentUrl: params.attachmentUrl
+    });
+    return {
+      ...params.result,
+      createdItem: updatedTx,
+      meta: {
+        ...(params.result.meta || {}),
+        imageAttachmentUrl: params.attachmentUrl,
+        attachmentPatchedItems: 1
+      }
+    };
+  }
+
+  if (params.result.itemType !== 'PARA') {
+    return {
+      ...params.result,
+      meta: {
+        ...(params.result.meta || {}),
+        imageAttachmentUrl: params.attachmentUrl
+      }
+    };
+  }
+
+  let patchedCount = 0;
+  let nextCreatedItem = params.result.createdItem || null;
+  let nextCreatedItems = params.result.createdItems;
+
+  if (nextCreatedItem) {
+    const patched = await appendAttachmentToParaRow({
+      supabase: params.supabase,
+      row: nextCreatedItem,
+      attachmentUrl: params.attachmentUrl,
+      nowIso: params.nowIso
+    });
+    nextCreatedItem = patched;
+    patchedCount += 1;
+  }
+
+  if (Array.isArray(nextCreatedItems) && nextCreatedItems.length > 0) {
+    const patchedItems: Record<string, any>[] = [];
+    for (const row of nextCreatedItems) {
+      const patched = await appendAttachmentToParaRow({
+        supabase: params.supabase,
+        row,
+        attachmentUrl: params.attachmentUrl,
+        nowIso: params.nowIso
+      });
+      patchedItems.push(patched);
+      patchedCount += 1;
+    }
+    nextCreatedItems = patchedItems;
+  }
+
+  return {
+    ...params.result,
+    createdItem: nextCreatedItem,
+    createdItems: nextCreatedItems,
+    meta: {
+      ...(params.result.meta || {}),
+      imageAttachmentUrl: params.attachmentUrl,
+      attachmentPatchedItems: patchedCount
+    }
+  };
+}
 
 const toIsoDate = (value: string, fallbackIso: string): string => {
   const raw = normalizeSpace(String(value || ''));
@@ -271,6 +466,12 @@ export async function processImageCapture(input: ProcessImageCaptureInput): Prom
 
   const nowIso = new Date().toISOString();
   const timezone = input.timezone || process.env.AGENT_DEFAULT_TIMEZONE || 'Asia/Bangkok';
+  const attachmentUrl = await uploadImageAttachment({
+    supabase: input.supabase,
+    source: input.source,
+    imageBase64,
+    mimeType: input.mimeType || 'image/jpeg'
+  });
 
   try {
     const analysis = await analyzeImageWithGemini({
@@ -316,9 +517,13 @@ export async function processImageCapture(input: ProcessImageCaptureInput): Prom
         };
       }
 
+      const txDescription = attachmentUrl
+        ? `${analysis.description || analysis.merchant || caption || 'Telegram Receipt/Slip'}\nReceipt: ${attachmentUrl}`
+        : analysis.description || analysis.merchant || caption || 'Telegram Receipt/Slip';
+
       const txPayload = {
         id: uuidv4(),
-        description: analysis.description || analysis.merchant || caption || 'Telegram Receipt/Slip',
+        description: txDescription,
         amount: Number(analysis.amount),
         type: toTransactionType(analysis.transactionType),
         category: analysis.category || 'General',
@@ -350,6 +555,7 @@ export async function processImageCapture(input: ProcessImageCaptureInput): Prom
           financeSignal,
           hasAmount,
           ocrPreview: analysis.ocrText.slice(0, 500),
+          imageAttachmentUrl: attachmentUrl,
           ...(input.imageMeta || {})
         }
       };
@@ -367,15 +573,23 @@ export async function processImageCapture(input: ProcessImageCaptureInput): Prom
         excludeLogId: input.excludeLogId
       });
 
+      const resultWithAttachment = await attachImageToCaptureResult({
+        supabase: input.supabase,
+        result: pipelineResult,
+        attachmentUrl,
+        nowIso
+      });
+
       return {
-        ...pipelineResult,
+        ...resultWithAttachment,
         meta: {
-          ...(pipelineResult.meta || {}),
+          ...(resultWithAttachment.meta || {}),
           imageCapture: true,
           parseSource: 'GEMINI_VISION',
           analysisConfidence: analysis.confidence,
           financeSignal,
           ocrPreview: analysis.ocrText.slice(0, 500),
+          imageAttachmentUrl: attachmentUrl,
           ...(input.imageMeta || {})
         }
       };
@@ -397,6 +611,7 @@ export async function processImageCapture(input: ProcessImageCaptureInput): Prom
         parseSource: 'GEMINI_VISION',
         analysisConfidence: analysis.confidence,
         financeSignal,
+        imageAttachmentUrl: attachmentUrl,
         ...(input.imageMeta || {})
       }
     };
@@ -412,13 +627,21 @@ export async function processImageCapture(input: ProcessImageCaptureInput): Prom
         excludeLogId: input.excludeLogId
       });
 
+      const fallbackWithAttachment = await attachImageToCaptureResult({
+        supabase: input.supabase,
+        result: fallbackResult,
+        attachmentUrl,
+        nowIso
+      });
+
       return {
-        ...fallbackResult,
+        ...fallbackWithAttachment,
         meta: {
-          ...(fallbackResult.meta || {}),
+          ...(fallbackWithAttachment.meta || {}),
           imageCapture: true,
           parseSource: 'CAPTION_FALLBACK',
           imageError: error?.message || 'unknown',
+          imageAttachmentUrl: attachmentUrl,
           ...(input.imageMeta || {})
         }
       };
@@ -437,6 +660,7 @@ export async function processImageCapture(input: ProcessImageCaptureInput): Prom
       dedup: DEFAULT_DEDUP,
       meta: {
         imageError: error?.message || 'unknown',
+        imageAttachmentUrl: attachmentUrl,
         ...(input.imageMeta || {})
       }
     };

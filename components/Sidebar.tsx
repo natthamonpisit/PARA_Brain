@@ -43,14 +43,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { type: 'All', label: 'Mission', icon: Box, color: 'text-cyan-300' },
     { type: 'LifeOverview', label: 'Life Overview', icon: Target, color: 'text-cyan-200' },
     { type: 'ThailandPulse', label: 'World Pulse', icon: Newspaper, color: 'text-sky-300' },
-    { type: 'Agent', label: 'Agent', icon: BrainCircuit, color: 'text-indigo-600' },
-    { type: 'AIConfig', label: 'AI Config', icon: FileText, color: 'text-teal-300' },
     { type: 'Review', label: 'Review', icon: ClipboardCheck, color: 'text-violet-500' },
     { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },
     { type: ParaType.PROJECT, label: 'Projects', icon: FolderKanban, color: 'text-red-500' },
     { type: ParaType.AREA, label: 'Areas', icon: LayoutGrid, color: 'text-orange-500' },
     { type: ParaType.RESOURCE, label: 'Resources', icon: Library, color: 'text-blue-500' },
     { type: ParaType.ARCHIVE, label: 'Archives', icon: Archive, color: 'text-gray-500' },
+  ];
+  const setupItems = [
+    { type: 'Agent', label: 'Agent', icon: BrainCircuit, color: 'text-indigo-400' },
+    { type: 'AIConfig', label: 'AI Config', icon: FileText, color: 'text-teal-300' }
   ];
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -215,7 +217,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Footer Actions */}
         <div className="p-3 border-t border-slate-800 bg-slate-950/95 space-y-1">
-          
           {/* Analyze Life Button (Highlighted) */}
           <button
             onClick={onAnalyzeLife}
@@ -225,6 +226,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
              <BrainCircuit className="w-5 h-5" />
              {!isCollapsed && <span>Analyze My Life</span>}
           </button>
+
+          <div className={`py-2 ${isCollapsed ? 'space-y-1' : 'space-y-1 border-t border-slate-800'}`}>
+            {!isCollapsed && (
+              <p className="px-3 pt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Setup</p>
+            )}
+            {setupItems.map((item) => {
+              const isActive = activeType === item.type;
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.type}
+                  onClick={() => handleMenuClick(item.type)}
+                  title={isCollapsed ? item.label : ''}
+                  className={`
+                    w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium transition-colors
+                    ${isActive
+                      ? 'bg-cyan-500/12 text-cyan-200 border border-cyan-400/35'
+                      : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100'}
+                  `}
+                >
+                  <Icon className={`w-5 h-5 ${item.color}`} />
+                  {!isCollapsed && <span>{item.label}</span>}
+                </button>
+              );
+            })}
+          </div>
 
           <button
             onClick={onOpenTelegram}

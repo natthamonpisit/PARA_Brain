@@ -6,6 +6,7 @@ import { ParaItem, ParaType, FinanceAccount, AppModule, AIAnalysisResult, Histor
 const getApiKey = (): string => {
     try {
         if (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
+        if (typeof process !== 'undefined' && process.env?.VITE_GEMINI_API_KEY) return process.env.VITE_GEMINI_API_KEY;
     } catch (e) {}
     try {
         // @ts-ignore
@@ -14,6 +15,13 @@ const getApiKey = (): string => {
         if (typeof import.meta !== 'undefined' && import.meta.env?.GEMINI_API_KEY) return import.meta.env.GEMINI_API_KEY;
     } catch (e) {}
     return '';
+};
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+const toMillis = (value: unknown): number => {
+    const ts = new Date(String(value || '')).getTime();
+    return Number.isFinite(ts) ? ts : 0;
 };
 
 export const analyzeLifeOS = async (
@@ -157,12 +165,42 @@ export const performLifeAnalysis = async (
     const apiKey = getApiKey();
     if (!apiKey) return "Error: API Key missing.";
 
+    const nowMs = Date.now();
+    const cutoffMs = nowMs - THIRTY_DAYS_MS;
+    const rangeStartIso = new Date(cutoffMs).toISOString();
+    const rangeEndIso = new Date(nowMs).toISOString();
+
+    const recentLogs = (logs || [])
+        .filter((log) => toMillis(log?.timestamp) >= cutoffMs)
+        .sort((a, b) => toMillis(b.timestamp) - toMillis(a.timestamp))
+        .slice(0, 50);
+
+    const recentTransactions = (transactions || [])
+        .filter((tx) => toMillis(tx?.transactionDate) >= cutoffMs)
+        .sort((a, b) => toMillis(b.transactionDate) - toMillis(a.transactionDate))
+        .slice(0, 20);
+
+    if (recentLogs.length === 0 && recentTransactions.length === 0) {
+        return [
+            "# Life OS Status Report",
+            `**Date Range:** ${rangeStartIso} - ${rangeEndIso}`,
+            "",
+            "ยังไม่มีข้อมูลกิจกรรมหรือการเงินในช่วง 30 วันล่าสุด",
+            "",
+            "สิ่งที่แนะนำให้ทำต่อ:",
+            "1. เพิ่ม/อัปเดตงาน (Tasks/Projects) อย่างน้อย 3-5 รายการ",
+            "2. บันทึกรายรับรายจ่ายอย่างน้อย 5 รายการ",
+            "3. กด Analyze My Life อีกครั้งเพื่อรับรายงานเชิงลึก"
+        ].join("\n");
+    }
+
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `
-        Analyze logs and transactions (Last 30 days). Give a "Life OS Status Report" (Markdown).
+        Analyze logs and transactions (Last 30 days only: ${rangeStartIso} to ${rangeEndIso}). Give a "Life OS Status Report" (Markdown).
         Focus on: Productivity Pulse, Financial Health, Focus Areas, Recommendations.
-        Logs: ${JSON.stringify(logs.slice(0, 50))}
-        Transactions: ${JSON.stringify(transactions.slice(0, 20))}
+        If data is sparse, state assumptions briefly and avoid fabricating facts.
+        Logs: ${JSON.stringify(recentLogs)}
+        Transactions: ${JSON.stringify(recentTransactions)}
     `;
 
     const response = await ai.models.generateContent({

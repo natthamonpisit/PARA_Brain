@@ -212,7 +212,7 @@ export default function App() {
 
 
   // --- AI INTEGRATION ---
-  const { messages, isProcessing, handleSendMessage, handleChatCompletion, analyzeLife } = useAIChat({
+  const { messages, isProcessing, handleSendMessage, handleSendImage, handleChatCompletion, analyzeLife } = useAIChat({
     items, 
     accounts,
     modules,
@@ -898,6 +898,7 @@ export default function App() {
           <ChatPanel
             messages={messages}
             onSendMessage={handleSendMessage}
+            onSendImage={handleSendImage}
             onCompleteTask={handleChatCompletion}
             isProcessing={isProcessing}
             onClose={() => setIsChatOpen(false)}

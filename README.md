@@ -66,9 +66,11 @@ Generate a mock daily brief:
   - `POST /api/capture-intake` (`{ source, message, eventId? }`)
   - Optional auth with `x-capture-key` when `CAPTURE_API_SECRET` is set
   - Supports semantic dedup (vector retrieval) and low-confidence confirmation gate before DB create
+  - `POST /api/capture-image` (`{ source, caption?, mimeType, imageBase64, eventId? }`) for receipt/slip OCR + image capture
 - Telegram endpoints:
   - `POST /api/telegram-webhook` (set as bot webhook URL)
   - `POST /api/telegram-push` (manual push helper)
+  - `telegram-webhook` now accepts both text and photo updates (photo path triggers image analysis before capture)
 - External agent queue APIs (OpenClaw integration):
   - `POST /api/agent-jobs` create job (`requestText`, optional `payload`, `priority`, `dedupeKey`)
   - `GET /api/agent-jobs?status=REQUESTED|APPROVED|RUNNING|DONE|FAILED|CANCELLED`

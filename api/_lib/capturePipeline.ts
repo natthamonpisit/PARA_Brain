@@ -30,6 +30,9 @@ interface DedupHints {
   matchedTitle?: string;
   matchedLink?: string;
   matchedLogId?: string;
+  matchedActionType?: string;
+  matchedStatus?: string;
+  exactMessageNoWriteIgnored?: boolean;
 }
 
 interface CaptureContext {
@@ -130,6 +133,7 @@ const CONFIDENCE_CONFIRM_THRESHOLD = Number(process.env.CAPTURE_CONFIRM_THRESHOL
 const SEMANTIC_DEDUP_THRESHOLD = Number(process.env.CAPTURE_SEMANTIC_DEDUP_THRESHOLD || 0.9);
 const ALFRED_AUTO_CAPTURE_ENABLED = process.env.ALFRED_AUTO_CAPTURE_ENABLED !== 'false';
 const CAPTURE_MODEL_NAME = process.env.CAPTURE_MODEL_NAME || 'gemini-3-flash-preview';
+const WRITE_ACTION_TYPES = new Set(['CREATE_PARA', 'CREATE_TX', 'CREATE_MODULE', 'COMPLETE_TASK']);
 
 const truncate = (value: string, max = 180): string => {
   if (!value) return '';
@@ -137,6 +141,67 @@ const truncate = (value: string, max = 180): string => {
 };
 
 const normalizeMessage = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+const parseLogPayload = (raw: any): any => {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  if (!text || !text.startsWith('{')) return null;
+  try {
+    const first = JSON.parse(text);
+    if (typeof first === 'string' && first.trim().startsWith('{')) {
+      return JSON.parse(first);
+    }
+    return first;
+  } catch {
+    return null;
+  }
+};
+
+const hasCommittedWrite = (row: any): boolean => {
+  const actionType = String(row?.action_type || '').toUpperCase();
+  if (WRITE_ACTION_TYPES.has(actionType)) return true;
+
+  const payload = parseLogPayload(row?.ai_response);
+  if (!payload || typeof payload !== 'object') return false;
+  if (payload.createdItem) return true;
+  if (Array.isArray(payload.createdItems) && payload.createdItems.length > 0) return true;
+  return false;
+};
+
+const responseHasExplicitNoWrite = (text: string): boolean => {
+  const lower = String(text || '').toLowerCase();
+  return [
+    /ยังไม่บันทึก/,
+    /ยังไม่ได้บันทึก/,
+    /ไม่ได้บันทึก/,
+    /ยังไม่สร้าง/,
+    /ยังไม่ได้สร้าง/,
+    /not saved/,
+    /not created/,
+    /did not save/,
+    /without saving/
+  ].some((re) => re.test(lower));
+};
+
+const responseClaimsWrite = (text: string): boolean => {
+  const lower = String(text || '').toLowerCase();
+  if (!lower.trim()) return false;
+  if (responseHasExplicitNoWrite(lower)) return false;
+  return [
+    /บันทึก.*เรียบร้อย/,
+    /เก็บ.*เรียบร้อย/,
+    /สร้าง.*เรียบร้อย/,
+    /บันทึก.*ให้แล้ว/,
+    /เก็บ.*ให้แล้ว/,
+    /เพิ่ม.*ให้แล้ว/,
+    /saved/,
+    /stored/,
+    /created/,
+    /added.*to/
+  ].some((re) => re.test(lower));
+};
 
 const parseConfirmCommand = (rawMessage: string): ConfirmCommand => {
   const text = normalizeMessage(rawMessage);
@@ -466,21 +531,30 @@ async function detectDuplicateHints(params: {
   excludeLogId?: string;
 }): Promise<DedupHints> {
   const { supabase, message, urls, excludeLogId, geminiApiKey } = params;
+  let exactNoWriteIgnored = false;
+  let exactNoWriteReason = '';
 
   const recentLogRes = await supabase
     .from('system_logs')
-    .select('id,event_source,created_at,user_message')
+    .select('id,event_source,created_at,user_message,ai_response,action_type,status')
     .eq('user_message', message)
     .order('created_at', { ascending: false })
     .limit(5);
 
-  const recentLog = (recentLogRes.data || []).find((row: any) => row.id !== excludeLogId);
-  if (recentLog) {
+  const recentLogs = (recentLogRes.data || []).filter((row: any) => row.id !== excludeLogId);
+  for (const row of recentLogs) {
+    if (!hasCommittedWrite(row)) {
+      exactNoWriteIgnored = true;
+      exactNoWriteReason = `Exact message seen but prior run had no write (action=${String(row?.action_type || 'unknown')}, status=${String(row?.status || 'unknown')})`;
+      continue;
+    }
     return {
       isDuplicate: true,
-      reason: 'Exact same message already captured in system_logs',
+      reason: 'Exact same message already created previously',
       method: 'EXACT_MESSAGE',
-      matchedLogId: recentLog.id
+      matchedLogId: row.id,
+      matchedActionType: String(row?.action_type || ''),
+      matchedStatus: String(row?.status || '')
     };
   }
 
@@ -541,8 +615,9 @@ async function detectDuplicateHints(params: {
 
   return {
     isDuplicate: false,
-    reason: 'No duplicate signal from exact/url/semantic checks',
-    method: 'NONE'
+    reason: exactNoWriteReason || 'No duplicate signal from exact/url/semantic checks',
+    method: 'NONE',
+    exactMessageNoWriteIgnored: exactNoWriteIgnored
   };
 }
 
@@ -580,6 +655,8 @@ Core behavior:
 5. If task has no matching project but user clearly implies a project, propose relatedProjectTitle and createProjectIfMissing=true.
 6. Use dedup hints: if likely duplicate, avoid new create unless user explicitly asks to create another.
 7. Keep assistant response concise in Thai.
+7.1 If operation=CHAT, explicitly communicate that no database write was executed in this turn.
+7.2 Never claim "saved/created/completed" when operation=CHAT.
 8. If confidence is low (< ${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}) for write operation, keep operation but provide data that can be confirmed.
 9. Alfred planning mode: when user asks "how to / what should I know / direction / framework", provide starter guidance fields:
    - goal, prerequisites[], starterTasks[], nextActions[], riskNotes[], clarifyingQuestions[]
@@ -788,6 +865,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
   const isActionable = modelOutput.isActionable === true;
   let operation = toOperation(modelOutput.operation);
   let chatResponse = String(modelOutput.chatResponse || '').trim() || 'รับทราบครับ';
+  let chatWriteClaimSanitized = false;
   const planningRequest = looksLikePlanningRequest(message);
   const autoCapturePlan = ALFRED_AUTO_CAPTURE_ENABLED && planningRequest && wantsAutoCapturePlan(message);
 
@@ -841,6 +919,20 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     chatResponse = `${chatResponse}\n\n${alfredGuidance}`;
   }
 
+  if (operation === 'CHAT' && responseClaimsWrite(chatResponse)) {
+    const saveHint =
+      intent === 'RESOURCE_CAPTURE'
+        ? 'บันทึกเรื่องนี้เป็น Resource'
+        : intent === 'PROJECT_IDEA'
+        ? 'สร้าง Project: <ชื่อโปรเจกต์>'
+        : 'สร้าง Task: <ชื่องาน>';
+    chatResponse = [
+      'รับทราบครับ ผมยังไม่ได้บันทึกลงฐานข้อมูลในรอบนี้',
+      `ถ้าต้องการให้บันทึกทันที ให้พิมพ์: ${saveHint}`
+    ].join('\n');
+    chatWriteClaimSanitized = true;
+  }
+
   if (dedup.isDuplicate && operation !== 'CHAT' && !forceConfirmed) {
     operation = 'CHAT';
     chatResponse = `ข้อมูลนี้ดูเหมือนเคยมีแล้ว (${dedup.reason}) ผมยังไม่สร้างรายการซ้ำให้นะครับ`;
@@ -857,7 +949,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       dedup,
       meta: {
         dedupRecommendation: modelOutput.dedupRecommendation || 'DUPLICATE',
-        requiresConfirmation: false
+        requiresConfirmation: false,
+        writeExecuted: false,
+        dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
       }
     };
   }
@@ -889,7 +983,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       meta: {
         requiresConfirmation: true,
         suggestedTitle,
-        confirmThreshold: CONFIDENCE_CONFIRM_THRESHOLD
+        confirmThreshold: CONFIDENCE_CONFIRM_THRESHOLD,
+        writeExecuted: false,
+        dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
       }
     };
   }
@@ -908,7 +1004,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       status: 'PENDING',
       dedup,
       meta: {
-        requestedOperation: operation
+        requestedOperation: operation,
+        writeExecuted: false,
+        dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
       }
     };
   }
@@ -935,7 +1033,10 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         meta: {
           planningRequest,
           guidanceIncluded: Boolean(alfredGuidance),
-          travelRouting
+          travelRouting,
+          writeExecuted: false,
+          chatWriteClaimSanitized,
+          dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
         }
       };
     }
@@ -1033,7 +1134,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
             planningRequest,
             autoCapturePlan,
             guidanceIncluded: Boolean(alfredGuidance),
-            travelRouting
+            travelRouting,
+            writeExecuted: true,
+            dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
           }
         };
       }
@@ -1077,7 +1180,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
           forceConfirmed,
           planningRequest,
           guidanceIncluded: Boolean(alfredGuidance),
-          travelRouting
+          travelRouting,
+          writeExecuted: true,
+          dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
         }
       };
     }
@@ -1096,7 +1201,11 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
           actionType: 'ERROR',
           status: 'FAILED',
           dedup,
-          meta: { reason: 'ACCOUNT_NOT_FOUND' }
+          meta: {
+            reason: 'ACCOUNT_NOT_FOUND',
+            writeExecuted: false,
+            dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
+          }
         };
       }
 
@@ -1128,7 +1237,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         dedup,
         meta: {
           table: 'transactions',
-          forceConfirmed
+          forceConfirmed,
+          writeExecuted: true,
+          dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
         }
       };
     }
@@ -1146,7 +1257,11 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
           actionType: 'ERROR',
           status: 'FAILED',
           dedup,
-          meta: { reason: 'MODULE_TARGET_MISSING' }
+          meta: {
+            reason: 'MODULE_TARGET_MISSING',
+            writeExecuted: false,
+            dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
+          }
         };
       }
 
@@ -1189,7 +1304,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         dedup,
         meta: {
           table: 'module_items',
-          forceConfirmed
+          forceConfirmed,
+          writeExecuted: true,
+          dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
         }
       };
     }
@@ -1215,7 +1332,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
           status: 'SUCCESS',
           dedup,
           meta: {
-            requestedOperation: 'COMPLETE'
+            requestedOperation: 'COMPLETE',
+            writeExecuted: false,
+            dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
           }
         };
       }
@@ -1244,7 +1363,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         dedup,
         meta: {
           table: 'tasks',
-          forceConfirmed
+          forceConfirmed,
+          writeExecuted: true,
+          dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
         }
       };
     }
@@ -1259,7 +1380,12 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       chatResponse,
       actionType: 'CHAT',
       status: 'SUCCESS',
-      dedup
+      dedup,
+      meta: {
+        writeExecuted: false,
+        chatWriteClaimSanitized,
+        dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
+      }
     };
   } catch (error: any) {
     return {
@@ -1275,7 +1401,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       dedup,
       meta: {
         reason: 'PIPELINE_EXCEPTION',
-        error: error?.message || 'Unknown error'
+        error: error?.message || 'Unknown error',
+        writeExecuted: false,
+        dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
       }
     };
   }

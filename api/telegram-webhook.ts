@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendTelegramText } from './_lib/telegram.js';
 import { runCapturePipeline, toCaptureLogPayload } from './_lib/capturePipeline.js';
+import { fetchTelegramPhotoData, processImageCapture } from './_lib/imageCapturePipeline.js';
 import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
 
 export const config = {
@@ -11,6 +12,16 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const PROCESSING_STALE_MS = Number(process.env.TELEGRAM_PROCESSING_STALE_MS || 90000);
 
+interface IncomingTelegramMessage {
+  updateId: string;
+  messageId: number;
+  chatId: string;
+  userId: string;
+  text: string;
+  caption: string;
+  photoFileId: string;
+}
+
 function verifyTelegramSecret(req: any): boolean {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (!expected) return true;
@@ -18,15 +29,25 @@ function verifyTelegramSecret(req: any): boolean {
   return String(provided || '') === expected;
 }
 
-function getTextMessage(update: any) {
+function getIncomingMessage(update: any): IncomingTelegramMessage | null {
   const message = update?.message || update?.edited_message;
-  if (!message || typeof message?.text !== 'string') return null;
+  if (!message) return null;
+  const photos = Array.isArray(message.photo) ? message.photo : [];
+  const largestPhoto = photos.reduce((best: any, current: any) => {
+    const bestSize = Number(best?.file_size || 0);
+    const currentSize = Number(current?.file_size || 0);
+    if (currentSize > bestSize) return current;
+    return best;
+  }, null);
+
   return {
     updateId: String(update?.update_id || ''),
     messageId: Number(message?.message_id || 0),
     chatId: String(message?.chat?.id || ''),
     userId: String(message?.from?.id || ''),
-    text: String(message.text || '').trim()
+    text: String(message?.text || '').trim(),
+    caption: String(message?.caption || '').trim(),
+    photoFileId: String(largestPhoto?.file_id || '')
   };
 }
 
@@ -80,6 +101,40 @@ async function sendTelegramReply(params: {
   }
 }
 
+function normalizeTelegramPhotoMessage(caption: string): string {
+  const safeCaption = String(caption || '').trim();
+  return safeCaption ? `[PHOTO] ${safeCaption}` : '[PHOTO] (no caption)';
+}
+
+async function processTelegramPhoto(params: {
+  supabase: any;
+  incoming: IncomingTelegramMessage;
+  botToken: string;
+  geminiKey: string;
+  logId: string;
+}) {
+  const { imageBase64, mimeType, filePath, byteLength } = await fetchTelegramPhotoData({
+    botToken: params.botToken,
+    fileId: params.incoming.photoFileId
+  });
+
+  return processImageCapture({
+    supabase: params.supabase,
+    source: 'TELEGRAM',
+    geminiApiKey: params.geminiKey,
+    imageBase64,
+    mimeType,
+    caption: params.incoming.caption,
+    timezone: process.env.AGENT_DEFAULT_TIMEZONE || 'Asia/Bangkok',
+    excludeLogId: params.logId,
+    imageMeta: {
+      telegramPhoto: true,
+      filePath,
+      byteLength
+    }
+  });
+}
+
 export default async function handler(req: any, res: any) {
   const obs = startApiObservation(req, '/api/telegram-webhook', { source: 'TELEGRAM' });
   const respond = async (status: number, body: any, meta?: Record<string, any>) => {
@@ -110,9 +165,12 @@ export default async function handler(req: any, res: any) {
       return respond(401, { error: 'Invalid webhook secret' }, { reason: 'invalid_secret' });
     }
 
-    const incoming = getTextMessage(req.body);
+    const incoming = getIncomingMessage(req.body);
     if (!incoming) {
-      return respond(200, { success: true, message: 'Ignored non-text update' }, { ignored: 'non_text' });
+      return respond(200, { success: true, message: 'Ignored unsupported update' }, { ignored: 'unsupported' });
+    }
+    if (!incoming.text && !incoming.photoFileId) {
+      return respond(200, { success: true, message: 'Ignored empty message update' }, { ignored: 'empty_message' });
     }
 
     if (allowedUserId && incoming.userId !== String(allowedUserId)) {
@@ -126,7 +184,7 @@ export default async function handler(req: any, res: any) {
       auth: { persistSession: false, autoRefreshToken: false }
     });
 
-    if (incoming.text.toLowerCase() === 'id') {
+    if (!incoming.photoFileId && incoming.text.toLowerCase() === 'id') {
       await sendTelegramReply({
         botToken,
         chatId: incoming.chatId,
@@ -146,6 +204,10 @@ export default async function handler(req: any, res: any) {
 
     let logId = '';
     let recoveredFromStale = false;
+    const logUserMessage = incoming.photoFileId
+      ? normalizeTelegramPhotoMessage(incoming.caption)
+      : incoming.text;
+
     if (existingLog?.id) {
       const currentStatus = String(existingLog.status || '').toUpperCase();
 
@@ -229,7 +291,7 @@ export default async function handler(req: any, res: any) {
         .insert({
           event_source: 'TELEGRAM',
           event_id: eventId,
-          user_message: incoming.text,
+          user_message: logUserMessage,
           status: 'PROCESSING',
           action_type: 'THINKING'
         })
@@ -246,15 +308,23 @@ export default async function handler(req: any, res: any) {
       logId = logRow.id;
     }
 
-    const result = await runCapturePipeline({
-      supabase,
-      userMessage: incoming.text,
-      source: 'TELEGRAM',
-      geminiApiKey: geminiKey,
-      approvalGatesEnabled: process.env.ENABLE_APPROVAL_GATES === 'true',
-      timezone: process.env.AGENT_DEFAULT_TIMEZONE || 'Asia/Bangkok',
-      excludeLogId: logId
-    });
+    const result = incoming.photoFileId
+      ? await processTelegramPhoto({
+          supabase,
+          incoming,
+          botToken,
+          geminiKey,
+          logId
+        })
+      : await runCapturePipeline({
+          supabase,
+          userMessage: incoming.text,
+          source: 'TELEGRAM',
+          geminiApiKey: geminiKey,
+          approvalGatesEnabled: process.env.ENABLE_APPROVAL_GATES === 'true',
+          timezone: process.env.AGENT_DEFAULT_TIMEZONE || 'Asia/Bangkok',
+          excludeLogId: logId
+        });
 
     const payload = toCaptureLogPayload(result);
 
@@ -282,6 +352,7 @@ export default async function handler(req: any, res: any) {
       operation: result.operation,
       status: result.status,
       actionType: result.actionType,
+      updateType: incoming.photoFileId ? 'PHOTO' : 'TEXT',
       recoveredFromStale,
       eventId
     });

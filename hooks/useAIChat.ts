@@ -249,6 +249,44 @@ export const useAIChat = ({
         return body;
     };
 
+    const fileToBase64 = (file: File): Promise<string> =>
+        new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const raw = String(reader.result || '');
+                const cleaned = raw.replace(/^data:[^;]+;base64,/i, '');
+                if (!cleaned) {
+                    reject(new Error('Failed to encode image file'));
+                    return;
+                }
+                resolve(cleaned);
+            };
+            reader.onerror = () => reject(new Error('Failed to read image file'));
+            reader.readAsDataURL(file);
+        });
+
+    const callCaptureImageIntake = async (file: File, caption: string): Promise<any> => {
+        const imageBase64 = await fileToBase64(file);
+        const response = await fetch('/api/capture-image', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                source: 'WEB',
+                caption,
+                mimeType: file.type || 'image/jpeg',
+                imageBase64
+            })
+        });
+
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(body.error || `Capture image API failed (${response.status})`);
+        }
+        return body;
+    };
+
     const handleSendMessage = async (text: string) => {
         if (!text.trim()) return;
 
@@ -434,6 +472,61 @@ export const useAIChat = ({
         }
     };
 
+    const handleSendImage = async (file: File, caption = '') => {
+        if (!file) return;
+        const safeCaption = String(caption || '').trim();
+        const userText = safeCaption
+            ? `[Image] ${safeCaption}`
+            : `[Image] Uploaded image: ${file.name || 'image'}`;
+
+        addMessage({
+            id: generateId(),
+            role: 'user',
+            text: userText,
+            source: 'WEB',
+            timestamp: new Date()
+        });
+
+        setIsProcessing(true);
+        try {
+            const apiResult = await callCaptureImageIntake(file, safeCaption);
+            addMessage({
+                id: generateId(),
+                role: 'assistant',
+                text: String(apiResult.chatResponse || 'รับรูปเรียบร้อยครับ'),
+                source: 'WEB',
+                itemType: apiResult.itemType as ChatCreatedItemType | undefined,
+                createdItem: apiResult.createdItem || undefined,
+                createdItems: Array.isArray(apiResult.createdItems) && apiResult.createdItems.length > 0
+                    ? apiResult.createdItems
+                    : undefined,
+                timestamp: new Date()
+            });
+
+            if (apiResult.itemType === 'TRANSACTION' && onRefreshFinance) {
+                await onRefreshFinance();
+            }
+
+            if (apiResult.itemType === 'MODULE' && onRefreshModuleItems) {
+                const moduleId = apiResult?.createdItem?.moduleId || apiResult?.createdItem?.module_id;
+                if (moduleId) {
+                    await onRefreshModuleItems(String(moduleId));
+                }
+            }
+        } catch (error: any) {
+            console.error('Image capture error:', error);
+            addMessage({
+                id: generateId(),
+                role: 'assistant',
+                text: `Error: ${error?.message || 'Failed to process image'}`,
+                source: 'WEB',
+                timestamp: new Date()
+            });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     const handleChatCompletion = async (item: ParaItem) => {
         await onToggleComplete(item.id, !!item.isCompleted);
     };
@@ -446,6 +539,7 @@ export const useAIChat = ({
         messages,
         isProcessing,
         handleSendMessage,
+        handleSendImage,
         handleChatCompletion,
         analyzeLife
     };

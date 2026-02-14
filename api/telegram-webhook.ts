@@ -62,8 +62,8 @@ function parseMillis(value: any): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-function isProcessingStale(log: { created_at?: any; updated_at?: any }): boolean {
-  const ts = parseMillis(log?.updated_at) || parseMillis(log?.created_at);
+function isProcessingStale(log: { created_at?: any }): boolean {
+  const ts = parseMillis(log?.created_at);
   if (!ts) return true;
   return Date.now() - ts >= PROCESSING_STALE_MS;
 }
@@ -197,7 +197,7 @@ export default async function handler(req: any, res: any) {
     const eventId = incoming.updateId || `${incoming.chatId}:${incoming.messageId}`;
     const { data: existingLog } = await supabase
       .from('system_logs')
-      .select('id,status,action_type,ai_response,created_at,updated_at')
+      .select('id,status,action_type,ai_response,created_at')
       .eq('event_source', 'TELEGRAM')
       .eq('event_id', eventId)
       .maybeSingle();
@@ -300,7 +300,45 @@ export default async function handler(req: any, res: any) {
 
       if (logError || !logRow?.id) {
         if (isUniqueViolation(logError)) {
-          return respond(200, { success: true, message: 'Duplicate race ignored' }, { duplicateEvent: true, eventId });
+          const { data: duplicateLog } = await supabase
+            .from('system_logs')
+            .select('id,status,ai_response')
+            .eq('event_source', 'TELEGRAM')
+            .eq('event_id', eventId)
+            .maybeSingle();
+
+          if (duplicateLog?.id) {
+            const replayText =
+              extractChatResponse(duplicateLog.ai_response) ||
+              'ข้อความนี้ถูกประมวลผลไปแล้วครับ';
+            await sendTelegramReply({
+              botToken,
+              chatId: incoming.chatId,
+              text: replayText,
+              replyToMessageId: incoming.messageId
+            });
+
+            return respond(200, {
+              success: true,
+              duplicateEvent: true,
+              message: 'Duplicate replayed',
+              status: duplicateLog.status || null
+            }, {
+              duplicateEvent: true,
+              replayed: true,
+              eventId,
+              status: duplicateLog.status || null
+            });
+          }
+
+          return respond(200, {
+            success: true,
+            duplicateEvent: true,
+            message: 'Duplicate race ignored'
+          }, {
+            duplicateEvent: true,
+            eventId
+          });
         }
         return respond(500, { error: logError?.message || 'Failed to create log row' }, { reason: 'log_insert_failed', eventId });
       }

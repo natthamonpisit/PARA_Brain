@@ -30,6 +30,32 @@ const ChatPanel = React.lazy(() => import('./components/ChatPanel').then((m) => 
 const FinanceBoard = React.lazy(() => import('./components/FinanceBoard').then((m) => ({ default: m.FinanceBoard })));
 const ReviewBoard = React.lazy(() => import('./components/ReviewBoard').then((m) => ({ default: m.ReviewBoard })));
 const AgentBoard = React.lazy(() => import('./components/AgentBoard').then((m) => ({ default: m.AgentBoard })));
+const AIConfigBoard = React.lazy(() => import('./components/AIConfigBoard').then((m) => ({ default: m.AIConfigBoard })));
+
+type ActiveView =
+  | ParaType
+  | 'All'
+  | 'LifeOverview'
+  | 'ThailandPulse'
+  | 'Finance'
+  | 'Review'
+  | 'Agent'
+  | 'AIConfig'
+  | string;
+
+const BUILTIN_VIEW_TYPES = new Set<string>([
+  'All',
+  'LifeOverview',
+  'ThailandPulse',
+  'Finance',
+  'Review',
+  'Agent',
+  'AIConfig',
+  ...Object.values(ParaType)
+]);
+
+const isModuleViewType = (value: ActiveView): value is string =>
+  typeof value === 'string' && !BUILTIN_VIEW_TYPES.has(value);
 
 export default function App() {
   // --- CORE HOOKS ---
@@ -56,7 +82,7 @@ export default function App() {
   } = useAgentData();
 
   // --- UI STATE ---
-  const [activeType, setActiveType] = useState<ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | string>('All');
+  const [activeType, setActiveType] = useState<ActiveView>('All');
   const [viewMode, setViewMode] = useState<ViewMode>('GRID');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatCompact, setIsChatCompact] = useState(() => {
@@ -140,7 +166,7 @@ export default function App() {
   // --- VIEW LOGIC ---
   useEffect(() => {
       // Load modules when selected
-      if (typeof activeType === 'string' && !['All', 'LifeOverview', 'ThailandPulse', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+      if (isModuleViewType(activeType)) {
           loadModuleItems(activeType);
       }
       // Clear selection when changing tabs
@@ -313,7 +339,7 @@ export default function App() {
       const ids = Array.from(selectedIds) as string[];
       for (const id of ids) {
           try {
-             if (typeof activeType === 'string' && !['All', 'LifeOverview', 'ThailandPulse', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+             if (isModuleViewType(activeType)) {
                  await deleteModuleItem(id, activeType as string);
              } else {
                  await deleteItem(id);
@@ -427,7 +453,7 @@ export default function App() {
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
     try {
-        if (typeof activeType === 'string' && !['All', 'LifeOverview', 'ThailandPulse', 'Finance', 'Review', 'Agent', ...Object.values(ParaType)].includes(activeType as any)) {
+        if (isModuleViewType(activeType)) {
             await deleteModuleItem(id, activeType as string);
         } else {
             await deleteItem(id);
@@ -581,11 +607,13 @@ export default function App() {
       ? 'Dashboard'
       : activeType === 'LifeOverview'
         ? 'Life Overview'
-        : activeType === 'ThailandPulse'
-          ? 'World Pulse'
+      : activeType === 'ThailandPulse'
+        ? 'World Pulse'
+      : activeType === 'AIConfig'
+        ? 'AI Config'
         : activeType
   );
-  const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse';
+  const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse' && activeType !== 'AIConfig';
   const boardFallback = (
     <div className="h-48 flex items-center justify-center text-slate-400">
       <Loader2 className="w-5 h-5 animate-spin" />
@@ -649,7 +677,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse' && !activeModule && activeType !== 'All' && (
+            {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse' && activeType !== 'AIConfig' && !activeModule && activeType !== 'All' && (
                 <div className="hidden md:flex bg-slate-900 p-1 rounded-lg border border-slate-700">
                     <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
                     <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="List"><List className="w-4 h-4" /></button>
@@ -804,6 +832,12 @@ export default function App() {
                         />
                     ) : activeType === 'ThailandPulse' ? (
                         <ThailandPulseBoard onSaveArticle={handleSavePulseArticle} />
+                    ) : activeType === 'AIConfig' ? (
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <Suspense fallback={boardFallback}>
+                              <AIConfigBoard />
+                          </Suspense>
+                        </div>
                     ) : viewMode === 'CALENDAR' ? (
                         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
                           <CalendarBoard 

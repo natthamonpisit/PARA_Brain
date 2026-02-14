@@ -2,6 +2,10 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { v4 as uuidv4 } from 'uuid';
 import { runWithRetry } from './externalPolicy.js';
 import {
+  extractCustomInstructionsFromPreferences,
+  toRuntimeInstructionSnippets
+} from './aiConfig.js';
+import {
   ROUTING_RULES_VERSION,
   findExplicitAreaMentionInAreas,
   resolveTravelAreaRecommendation
@@ -523,6 +527,28 @@ async function loadCaptureContext(supabase: any): Promise<CaptureContext> {
   };
 }
 
+async function loadRuntimeCustomInstructions(params: {
+  supabase: any;
+  ownerKey: string;
+}): Promise<string[]> {
+  try {
+    const { data, error } = await params.supabase
+      .from('user_profile')
+      .select('preferences')
+      .eq('owner_key', params.ownerKey)
+      .maybeSingle();
+    if (error) {
+      console.warn('[capturePipeline] load custom instructions failed:', error.message);
+      return [];
+    }
+    const custom = extractCustomInstructionsFromPreferences(data?.preferences || {});
+    return toRuntimeInstructionSnippets(custom, 12);
+  } catch (error: any) {
+    console.warn('[capturePipeline] load custom instructions failed:', error?.message || error);
+    return [];
+  }
+}
+
 async function detectDuplicateHints(params: {
   supabase: any;
   message: string;
@@ -628,8 +654,9 @@ function buildCapturePrompt(params: {
   context: CaptureContext;
   dedup: DedupHints;
   urls: string[];
+  customInstructions: string[];
 }): string {
-  const { message, source, timezone, context, dedup, urls } = params;
+  const { message, source, timezone, context, dedup, urls, customInstructions } = params;
   const now = new Date();
   const nowText = now.toLocaleString('en-US', { timeZone: timezone });
 
@@ -686,6 +713,9 @@ ${accountsText || '(none)'}
 
 Modules:
 ${modulesText || '(none)'}
+
+Runtime custom instructions:
+${customInstructions.length ? customInstructions.map((line, idx) => `${idx + 1}. ${line}`).join('\n') : '(none)'}
 
 Return strict JSON only.`;
 }
@@ -834,11 +864,12 @@ async function analyzeCapture(params: {
 export async function runCapturePipeline(input: CapturePipelineInput): Promise<CapturePipelineResult> {
   const timezone = input.timezone || 'Asia/Bangkok';
   const approvalGatesEnabled = input.approvalGatesEnabled === true;
+  const ownerKey = process.env.AGENT_OWNER_KEY || 'default';
   const confirmCommand = parseConfirmCommand(input.userMessage);
   const forceConfirmed = confirmCommand.force;
   const message = normalizeMessage(confirmCommand.message);
 
-  const [context, dedup] = await Promise.all([
+  const [context, dedup, runtimeCustomInstructions] = await Promise.all([
     loadCaptureContext(input.supabase),
     detectDuplicateHints({
       supabase: input.supabase,
@@ -846,6 +877,10 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       urls: extractUrls(message),
       geminiApiKey: input.geminiApiKey,
       excludeLogId: input.excludeLogId
+    }),
+    loadRuntimeCustomInstructions({
+      supabase: input.supabase,
+      ownerKey
     })
   ]);
 
@@ -855,7 +890,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     timezone,
     context,
     dedup,
-    urls: extractUrls(message)
+    urls: extractUrls(message),
+    customInstructions: runtimeCustomInstructions
   });
 
   const modelOutput = await analyzeCapture({ apiKey: input.geminiApiKey, prompt });

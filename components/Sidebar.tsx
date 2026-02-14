@@ -1,12 +1,12 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck, Target, Newspaper } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck, Target, Newspaper, FileText } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
-  activeType: ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | string;
-  onSelectType: (type: ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | string) => void;
+  activeType: ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | 'AIConfig' | string;
+  onSelectType: (type: ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | 'AIConfig' | string) => void;
   stats: Record<string, number>;
   onExport?: () => void;
   onImport?: (file: File) => void;
@@ -44,6 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { type: 'LifeOverview', label: 'Life Overview', icon: Target, color: 'text-cyan-200' },
     { type: 'ThailandPulse', label: 'World Pulse', icon: Newspaper, color: 'text-sky-300' },
     { type: 'Agent', label: 'Agent', icon: BrainCircuit, color: 'text-indigo-600' },
+    { type: 'AIConfig', label: 'AI Config', icon: FileText, color: 'text-teal-300' },
     { type: 'Review', label: 'Review', icon: ClipboardCheck, color: 'text-violet-500' },
     { type: ParaType.TASK, label: 'Tasks', icon: CheckSquare, color: 'text-emerald-500' },
     { type: ParaType.PROJECT, label: 'Projects', icon: FolderKanban, color: 'text-red-500' },

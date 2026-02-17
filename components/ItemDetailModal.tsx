@@ -127,10 +127,10 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
       
       {/* Container */}
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col relative z-10 overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
+      <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col relative z-10 overflow-hidden border border-slate-700 animate-in zoom-in-95 duration-200">
         
         {/* Header Area */}
-        <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/80 backdrop-blur flex justify-between items-start shrink-0">
+        <div className="px-8 py-6 border-b border-slate-700 bg-slate-800/60 backdrop-blur flex justify-between items-start shrink-0">
             <div className="flex-1 mr-8">
                 {/* Breadcrumbs / Parent Link */}
                 {parentItem ? (
@@ -141,13 +141,13 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                         {getIcon(parentItem.type, "w-3.5 h-3.5 grayscale group-hover:grayscale-0")}
                         <span>{parentItem.title}</span>
                         <ChevronRight className="w-3 h-3" />
-                        <span className="text-slate-800">{item.title}</span>
+                        <span className="text-slate-200">{item.title}</span>
                     </button>
                 ) : (
                     <div className="flex items-center gap-2 mb-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-white ${
-                            item.type === ParaType.AREA ? 'text-orange-600 border-orange-200' : 
-                            item.type === ParaType.PROJECT ? 'text-red-600 border-red-200' : 'text-slate-500 border-slate-200'
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-slate-800 ${
+                            item.type === ParaType.AREA ? 'text-orange-400 border-orange-600' :
+                            item.type === ParaType.PROJECT ? 'text-red-400 border-red-600' : 'text-slate-400 border-slate-600'
                         }`}>
                             {item.type}
                         </span>
@@ -159,7 +159,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                     </div>
                 )}
 
-                <h2 className={`text-3xl font-bold text-slate-900 leading-tight ${item.isCompleted ? 'line-through text-slate-400' : ''}`}>
+                <h2 className={`text-3xl font-bold text-slate-100 leading-tight ${item.isCompleted ? 'line-through text-slate-500' : ''}`}>
                     {item.title}
                 </h2>
             </div>
@@ -170,31 +170,31 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                         onClick={() => onToggleComplete(item.id, !!item.isCompleted)}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all shadow-sm ${
                             item.isCompleted
-                                ? 'bg-white border-slate-200 text-slate-600 hover:text-amber-600 hover:border-amber-200'
-                                : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                                ? 'bg-slate-800 border-slate-600 text-slate-300 hover:text-amber-400 hover:border-amber-600'
+                                : 'bg-emerald-900/30 border-emerald-700 text-emerald-400 hover:bg-emerald-900/50'
                         }`}
                     >
                         {item.isCompleted ? <Circle className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
                         <span className="hidden sm:inline">{item.isCompleted ? 'Reopen' : 'Mark Done'}</span>
                     </button>
                 )}
-                <button onClick={() => onEdit(item.id)} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm">
+                <button onClick={() => onEdit(item.id)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-sm font-medium text-slate-300 hover:text-indigo-400 hover:border-indigo-600 transition-all shadow-sm">
                     <Pencil className="w-4 h-4" />
                     <span className="hidden sm:inline">Edit</span>
                 </button>
-                <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-slate-400 hover:text-slate-200 transition-colors">
                     <X className="w-6 h-6" />
                 </button>
             </div>
         </div>
 
         {/* Main Content Layout */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
+        <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-900">
             <div className="flex flex-col md:flex-row min-h-full">
-                
-                {/* Left Column: Content & Metadata (40%) */}
-                <div className="w-full md:w-5/12 p-8 border-b md:border-b-0 md:border-r border-slate-100 bg-white flex flex-col">
-                    <div className="prose prose-slate prose-p:text-slate-600 prose-headings:text-slate-800 max-w-none mb-6">
+
+                {/* Left Column: Content & Metadata (60%) */}
+                <div className="w-full md:w-7/12 p-8 border-b md:border-b-0 md:border-r border-slate-700 bg-slate-900 flex flex-col">
+                    <div className="prose prose-invert max-w-none mb-6">
                         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Description</h3>
                         {item.content ? (
                             <ReactMarkdown>{item.content}</ReactMarkdown>
@@ -205,26 +205,26 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
 
                     {/* Attachments */}
                     {item.attachments && item.attachments.length > 0 && (
-                        <div className="mt-2 pt-6 border-t border-slate-50">
+                        <div className="mt-2 pt-6 border-t border-slate-700">
                             <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2"><Paperclip className="w-3 h-3"/> Attachments</h4>
                             <div className="flex flex-col gap-2">
                                 {item.attachments.map((url, i) => {
                                     const isImg = isImageFile(url);
                                     return (
                                         <a key={i} href={url} target="_blank" rel="noopener noreferrer" 
-                                        className="flex items-center gap-3 p-2 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-100 hover:border-indigo-200 transition-all group"
+                                        className="flex items-center gap-3 p-2 bg-slate-800 border border-slate-700 rounded-xl hover:bg-slate-700 hover:border-indigo-600 transition-all group"
                                         >
                                             {isImg ? (
-                                                <div className="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 shrink-0">
+                                                <div className="w-10 h-10 rounded-lg overflow-hidden border border-slate-600 shrink-0">
                                                     <img src={url} className="w-full h-full object-cover" alt="attachment" />
                                                 </div>
                                             ) : (
-                                                <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0 text-indigo-500">
+                                                <div className="w-10 h-10 rounded-lg bg-indigo-900/30 flex items-center justify-center shrink-0 text-indigo-400">
                                                     <FileText className="w-5 h-5" />
                                                 </div>
                                             )}
                                             <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-medium text-slate-700 truncate group-hover:text-indigo-700">Attachment {i+1}</p>
+                                                <p className="text-xs font-medium text-slate-300 truncate group-hover:text-indigo-400">Attachment {i+1}</p>
                                                 <p className="text-[10px] text-slate-400">Click to view</p>
                                             </div>
                                             <ExternalLink className="w-4 h-4 text-slate-300 group-hover:text-indigo-400" />
@@ -236,10 +236,10 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                     )}
 
                     {/* Metadata */}
-                    <div className="mt-8 pt-6 border-t border-slate-50 grid grid-cols-2 gap-4">
+                    <div className="mt-8 pt-6 border-t border-slate-700 grid grid-cols-2 gap-4">
                         <div>
                             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Created</span>
-                            <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                            <div className="flex items-center gap-1.5 text-sm text-slate-300">
                                 <Calendar className="w-4 h-4 text-slate-400" />
                                 {new Date(item.createdAt).toLocaleDateString()}
                             </div>
@@ -257,7 +257,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Tags</span>
                             <div className="flex flex-wrap gap-2">
                                 {item.tags.length > 0 ? item.tags.map(tag => (
-                                    <span key={tag} className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs font-medium border border-slate-200">
+                                    <span key={tag} className="px-2 py-1 bg-slate-800 text-slate-300 rounded text-xs font-medium border border-slate-700">
                                         #{tag}
                                     </span>
                                 )) : <span className="text-sm text-slate-400">-</span>}
@@ -267,23 +267,23 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
 
                     {/* NEW SECTION: ALL RESOURCES (Moved up per user request) */}
                     {aggregatedResources.length > 0 && (
-                        <div className="mt-6 pt-6 border-t border-slate-50">
+                        <div className="mt-6 pt-6 border-t border-slate-700">
                             <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
                                 <Book className="w-3 h-3 text-blue-500" />
-                                All Related Resources <span className="bg-blue-50 text-blue-600 px-1.5 rounded-full text-[10px]">{aggregatedResources.length}</span>
+                                All Related Resources <span className="bg-blue-900/30 text-blue-400 px-1.5 rounded-full text-[10px]">{aggregatedResources.length}</span>
                             </h4>
                             <div className="space-y-2">
                                 {aggregatedResources.map(res => (
                                      <div 
                                         key={res.id} 
                                         onClick={() => onNavigate(res.id)}
-                                        className="flex items-center gap-3 p-2.5 bg-blue-50/30 border border-blue-100 rounded-lg hover:bg-blue-50 hover:border-blue-200 cursor-pointer transition-all group"
+                                        className="flex items-center gap-3 p-2.5 bg-blue-900/20 border border-blue-800 rounded-lg hover:bg-blue-900/40 hover:border-blue-600 cursor-pointer transition-all group"
                                     >
-                                        <div className="p-1.5 bg-white rounded-md text-blue-500 shadow-sm border border-blue-50">
+                                        <div className="p-1.5 bg-slate-800 rounded-md text-blue-400 shadow-sm border border-blue-800">
                                             <Book className="w-3.5 h-3.5" />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-medium text-slate-700 truncate group-hover:text-blue-700">{res.title}</p>
+                                            <p className="text-sm font-medium text-slate-300 truncate group-hover:text-blue-400">{res.title}</p>
                                             <p className="text-[10px] text-slate-400 truncate">{res.category}</p>
                                         </div>
                                         <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-400" />
@@ -294,9 +294,9 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                     )}
                 </div>
 
-                {/* Right Column: Hierarchy Tree (60%) */}
-                <div className="w-full md:w-7/12 p-8 bg-slate-50/30">
-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+                {/* Right Column: Hierarchy Tree (40%) */}
+                <div className="w-full md:w-5/12 p-8 bg-slate-800/30">
+                    <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
                         <Layers className="w-4 h-4 text-indigo-500" />
                         Hierarchy & Contents
                     </h3>
@@ -304,16 +304,16 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                     {/* Area Stats (Bottom-Up) */}
                     {item.type === ParaType.AREA && areaStats && (
                         <div className="grid grid-cols-3 gap-3 mb-6">
-                            <div className="bg-white border border-slate-200 p-3 rounded-xl text-center shadow-sm">
-                                <div className="text-xl font-bold text-red-600">{areaStats.projects}</div>
+                            <div className="bg-slate-800 border border-slate-700 p-3 rounded-xl text-center shadow-sm">
+                                <div className="text-xl font-bold text-red-400">{areaStats.projects}</div>
                                 <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Projects</div>
                             </div>
-                            <div className="bg-white border border-slate-200 p-3 rounded-xl text-center shadow-sm">
-                                <div className="text-xl font-bold text-emerald-600">{areaStats.tasks}</div>
+                            <div className="bg-slate-800 border border-slate-700 p-3 rounded-xl text-center shadow-sm">
+                                <div className="text-xl font-bold text-emerald-400">{areaStats.tasks}</div>
                                 <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Tasks</div>
                             </div>
-                            <div className="bg-white border border-slate-200 p-3 rounded-xl text-center shadow-sm">
-                                <div className="text-xl font-bold text-blue-600">{areaStats.resources}</div>
+                            <div className="bg-slate-800 border border-slate-700 p-3 rounded-xl text-center shadow-sm">
+                                <div className="text-xl font-bold text-blue-400">{areaStats.resources}</div>
                                 <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Res</div>
                             </div>
                         </div>
@@ -335,14 +335,14 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                                                 {/* Project Card */}
                                                 <div 
                                                     onClick={() => onNavigate(project.id)}
-                                                    className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md hover:border-red-200 cursor-pointer transition-all z-10 relative"
+                                                    className="flex items-center justify-between p-3 bg-slate-800 border border-slate-700 rounded-xl shadow-sm hover:shadow-md hover:border-red-600 cursor-pointer transition-all z-10 relative"
                                                 >
                                                     <div className="flex items-center gap-3">
-                                                        <div className="p-2 bg-red-50 text-red-600 rounded-lg">
+                                                        <div className="p-2 bg-red-900/30 text-red-400 rounded-lg">
                                                             <Folder className="w-5 h-5" />
                                                         </div>
                                                         <div>
-                                                            <span className="text-sm font-bold text-slate-800 block">{project.title}</span>
+                                                            <span className="text-sm font-bold text-slate-200 block">{project.title}</span>
                                                             <div className="flex gap-2 text-[10px] text-slate-400">
                                                                 <span>{projectTasks.length} tasks</span>
                                                                 {projectResources.length > 0 && <span>• {projectResources.length} res</span>}
@@ -354,20 +354,20 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
 
                                                 {/* NESTED CONTENTS (Tasks & Resources) */}
                                                 {hasContent && (
-                                                    <div className="ml-6 pl-4 border-l-2 border-slate-200 pt-2 pb-1 space-y-2 mt-[-4px]">
+                                                    <div className="ml-6 pl-4 border-l-2 border-slate-600 pt-2 pb-1 space-y-2 mt-[-4px]">
                                                         
                                                         {/* Resources first (usually static) */}
                                                         {projectResources.map(res => (
                                                              <div 
                                                                 key={res.id} 
                                                                 onClick={() => onNavigate(res.id)}
-                                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors group"
+                                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-900/30 cursor-pointer transition-colors group"
                                                             >
-                                                                <div className="w-4 h-px bg-slate-200 group-hover:bg-blue-200"></div>
+                                                                <div className="w-4 h-px bg-slate-600 group-hover:bg-blue-600"></div>
                                                                 <div className="w-4 h-4 flex items-center justify-center">
-                                                                    <Book className="w-3.5 h-3.5 text-blue-500" />
+                                                                    <Book className="w-3.5 h-3.5 text-blue-400" />
                                                                 </div>
-                                                                <span className="text-sm text-slate-600 group-hover:text-blue-700">
+                                                                <span className="text-sm text-slate-300 group-hover:text-blue-400">
                                                                     {res.title}
                                                                 </span>
                                                             </div>
@@ -378,13 +378,13 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                                                             <div 
                                                                 key={task.id} 
                                                                 onClick={() => onNavigate(task.id)}
-                                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 cursor-pointer transition-colors group"
+                                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-700 cursor-pointer transition-colors group"
                                                             >
-                                                                <div className="w-4 h-px bg-slate-200 group-hover:bg-slate-300"></div>
-                                                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${task.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 bg-white'}`}>
+                                                                <div className="w-4 h-px bg-slate-600 group-hover:bg-slate-500"></div>
+                                                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${task.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-slate-500 bg-slate-800'}`}>
                                                                     {task.isCompleted && <CheckSquare className="w-3 h-3 text-white" />}
                                                                 </div>
-                                                                <span className={`text-sm ${task.isCompleted ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+                                                                <span className={`text-sm ${task.isCompleted ? 'text-slate-500 line-through' : 'text-slate-300'}`}>
                                                                     {task.title}
                                                                 </span>
                                                             </div>
@@ -402,20 +402,20 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                          {childResources.length > 0 && (
                             <div>
                                 <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 ml-1 flex items-center gap-2">
-                                    Direct Resources <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[10px]">{childResources.length}</span>
+                                    Direct Resources <span className="bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded text-[10px]">{childResources.length}</span>
                                 </h4>
                                 <div className="space-y-2">
                                     {childResources.map(res => (
                                          <div 
                                             key={res.id} 
                                             onClick={() => onNavigate(res.id)}
-                                            className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl hover:shadow-sm hover:border-blue-200 cursor-pointer transition-all"
+                                            className="flex items-center justify-between p-3 bg-slate-800 border border-slate-700 rounded-xl hover:shadow-sm hover:border-blue-600 cursor-pointer transition-all"
                                         >
                                             <div className="flex items-center gap-3">
-                                                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                                                <div className="p-2 bg-blue-900/30 text-blue-400 rounded-lg">
                                                     <Book className="w-4 h-4" />
                                                 </div>
-                                                <span className="text-sm font-medium text-slate-700">{res.title}</span>
+                                                <span className="text-sm font-medium text-slate-300">{res.title}</span>
                                             </div>
                                             <ExternalLink className="w-3.5 h-3.5 text-slate-300" />
                                         </div>
@@ -428,16 +428,16 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                         {childTasks.length > 0 && (
                             <div>
                                 <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 ml-1 flex items-center gap-2">
-                                    Tasks <span className="bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded text-[10px]">{childTasks.length}</span>
+                                    Tasks <span className="bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded text-[10px]">{childTasks.length}</span>
                                 </h4>
-                                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                                <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden divide-y divide-slate-700">
                                     {childTasks.map(child => (
-                                        <div key={child.id} onClick={() => onNavigate(child.id)} className="flex items-center p-3 hover:bg-slate-50 cursor-pointer transition-colors group">
-                                            <div className={`mr-3 p-1 rounded-md ${child.isCompleted ? 'text-emerald-500 bg-emerald-50' : 'text-slate-300 bg-slate-50 group-hover:text-slate-500'}`}>
+                                        <div key={child.id} onClick={() => onNavigate(child.id)} className="flex items-center p-3 hover:bg-slate-700 cursor-pointer transition-colors group">
+                                            <div className={`mr-3 p-1 rounded-md ${child.isCompleted ? 'text-emerald-400 bg-emerald-900/30' : 'text-slate-400 bg-slate-700 group-hover:text-slate-300'}`}>
                                                 {child.isCompleted ? <CheckSquare className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
                                             </div>
                                             <div className="flex-1">
-                                                <span className={`text-sm font-medium block ${child.isCompleted ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                                                <span className={`text-sm font-medium block ${child.isCompleted ? 'line-through text-slate-500' : 'text-slate-300'}`}>
                                                     {child.title}
                                                 </span>
                                                 {child.dueDate && (
@@ -455,12 +455,12 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                         
                         {/* Empty State */}
                         {childProjects.length === 0 && childTasks.length === 0 && childResources.length === 0 && (
-                            <div className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-                                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm mb-3">
-                                    <Folder className="w-6 h-6 text-slate-300" />
+                            <div className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-700 rounded-xl bg-slate-800/50">
+                                <div className="w-12 h-12 bg-slate-700 rounded-full flex items-center justify-center shadow-sm mb-3">
+                                    <Folder className="w-6 h-6 text-slate-500" />
                                 </div>
-                                <p className="text-sm font-medium text-slate-500">Empty Item</p>
-                                <p className="text-xs text-slate-400 mt-1">No sub-projects, tasks, or resources found.</p>
+                                <p className="text-sm font-medium text-slate-400">Empty Item</p>
+                                <p className="text-xs text-slate-500 mt-1">No sub-projects, tasks, or resources found.</p>
                             </div>
                         )}
                     </div>

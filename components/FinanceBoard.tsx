@@ -17,6 +17,24 @@ import { generateId } from '../utils/helpers';
 import { db } from '../services/db';
 import { classifyFinanceDocumentWithAi, parseFinanceDocument } from '../services/financeIntakeService';
 
+const DEFAULT_EXPENSE_CATEGORIES = [
+  'Food', 'Transport', 'Shopping', 'Utilities', 'Housing', 'Health',
+  'Entertainment', 'Education', 'Travel', 'Subscriptions', 'General'
+] as const;
+
+const DEFAULT_INCOME_CATEGORIES = [
+  'Salary', 'Freelance', 'Investment', 'Gift', 'Refund', 'General'
+] as const;
+
+const CATEGORY_COLORS: Record<string, string> = {
+  Food: '#f87171', Transport: '#fb923c', Shopping: '#fbbf24', Utilities: '#a3e635',
+  Housing: '#34d399', Health: '#22d3ee', Entertainment: '#818cf8', Education: '#c084fc',
+  Travel: '#f472b6', Subscriptions: '#94a3b8', Salary: '#34d399', Freelance: '#22d3ee',
+  Investment: '#818cf8', Gift: '#f472b6', Refund: '#fbbf24', General: '#64748b'
+};
+
+const getCategoryColor = (cat: string) => CATEGORY_COLORS[cat] || '#64748b';
+
 interface FinanceBoardProps {
   accounts: FinanceAccount[];
   transactions: Transaction[];
@@ -407,6 +425,72 @@ export const FinanceBoard: React.FC<FinanceBoardProps> = ({
         </div>
       </div>
 
+      {/* Spending Breakdown Donut */}
+      {(() => {
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const expenseThisMonth = transactions.filter(
+          (tx) => tx.type === 'EXPENSE' && new Date(tx.transactionDate) >= monthStart
+        );
+        const totalExpense = expenseThisMonth.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+        const byCategory = expenseThisMonth.reduce((acc, tx) => {
+          const cat = tx.category || 'General';
+          acc[cat] = (acc[cat] || 0) + Math.abs(tx.amount);
+          return acc;
+        }, {} as Record<string, number>);
+        const sorted = Object.entries(byCategory).sort((a, b) => b[1] - a[1]);
+
+        if (sorted.length === 0) return null;
+
+        // Build conic-gradient segments
+        let cumPct = 0;
+        const segments = sorted.map(([cat, amount]) => {
+          const pct = (amount / totalExpense) * 100;
+          const start = cumPct;
+          cumPct += pct;
+          return { cat, amount, pct, start, end: cumPct, color: getCategoryColor(cat) };
+        });
+        const gradient = segments.map((s) => `${s.color} ${s.start}% ${s.end}%`).join(', ');
+
+        return (
+          <div className="rounded-xl border border-slate-700/80 bg-slate-900/70 p-4">
+            <h2 className="text-sm font-bold text-slate-100 mb-3 flex items-center gap-2">
+              <PieChart className="w-4 h-4 text-cyan-300" /> Spending Breakdown
+              <span className="text-[10px] text-slate-500 font-normal ml-auto">
+                {now.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}
+              </span>
+            </h2>
+            <div className="flex items-center gap-5">
+              {/* Donut */}
+              <div className="relative shrink-0">
+                <div
+                  className="w-28 h-28 rounded-full"
+                  style={{ background: `conic-gradient(${gradient})` }}
+                />
+                <div className="absolute inset-3 rounded-full bg-slate-900 flex items-center justify-center">
+                  <div className="text-center">
+                    <p className="text-[10px] text-slate-400">Total</p>
+                    <p className="text-sm font-bold text-slate-100">฿{totalExpense.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+              {/* Legend */}
+              <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-1.5">
+                {segments.map((s) => (
+                  <div key={s.cat} className="flex items-center gap-1.5 min-w-0">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                    <span className="text-[11px] text-slate-300 truncate">{s.cat}</span>
+                    <span className="text-[10px] text-slate-500 ml-auto shrink-0">
+                      {Math.round(s.pct)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Recent Transactions */}
       <div>
         <h2 className="text-lg font-bold text-slate-100 mb-4 flex items-center gap-2">
@@ -528,11 +612,40 @@ export const FinanceBoard: React.FC<FinanceBoardProps> = ({
 
               <label className="text-xs text-slate-400">
                 Category
-                <input
-                  value={txDraft.category}
-                  onChange={(event) => setTxDraft((prev) => ({ ...prev, category: event.target.value }))}
+                <select
+                  value={
+                    (txDraft.type === 'EXPENSE'
+                      ? [...DEFAULT_EXPENSE_CATEGORIES]
+                      : [...DEFAULT_INCOME_CATEGORIES]
+                    ).includes(txDraft.category as any)
+                      ? txDraft.category
+                      : '_custom'
+                  }
+                  onChange={(event) => {
+                    if (event.target.value === '_custom') {
+                      setTxDraft((prev) => ({ ...prev, category: '' }));
+                    } else {
+                      setTxDraft((prev) => ({ ...prev, category: event.target.value }));
+                    }
+                  }}
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/45"
-                />
+                >
+                  {(txDraft.type === 'EXPENSE' ? DEFAULT_EXPENSE_CATEGORIES : DEFAULT_INCOME_CATEGORIES).map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                  <option value="_custom">Other...</option>
+                </select>
+                {!(txDraft.type === 'EXPENSE'
+                  ? [...DEFAULT_EXPENSE_CATEGORIES]
+                  : [...DEFAULT_INCOME_CATEGORIES]
+                ).includes(txDraft.category as any) && (
+                  <input
+                    placeholder="Custom category"
+                    value={txDraft.category}
+                    onChange={(event) => setTxDraft((prev) => ({ ...prev, category: event.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/45"
+                  />
+                )}
               </label>
 
               <label className="text-xs text-slate-400">

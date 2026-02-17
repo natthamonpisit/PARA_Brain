@@ -1,8 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron-thailand-pulse",
-      "schedule": "0 */12 * * *"
+      "path": "/api/cron-dispatcher",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

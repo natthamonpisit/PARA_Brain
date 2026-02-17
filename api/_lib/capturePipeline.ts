@@ -689,6 +689,15 @@ Core behavior:
    - goal, prerequisites[], starterTasks[], nextActions[], riskNotes[], clarifyingQuestions[]
 10. If the user asks to "จัดให้/วางให้/ช่วยแตกงาน", keep response practical and suggest concrete starter tasks that can be executed today.
 11. Prefer a single master task with clear checklist when user has broad goal and low detail.
+12. Reminder handling: When user says "remind me", "เตือนฉัน", "เตือนผม", "แจ้งเตือน", "reminder", or similar:
+   - Classify as TASK_CAPTURE with operation=CREATE, type=Tasks.
+   - Extract reminder time as dueDate in ISO 8601 with timezone offset (e.g., "2026-02-18T15:00:00+07:00").
+   - Use current time and timezone (${timezone}) to compute correct absolute datetime.
+   - Relative time: "tomorrow" = next day, "in 2 hours" = now+2h, "next Monday" = coming Monday, "วันศุกร์" = this Friday, etc.
+   - Title = the action being reminded, NOT "remind me to..." (e.g., "remind me to call Mom" → title="Call Mom").
+   - Add "reminder" to suggestedTags.
+   - Default to 09:00 in user's timezone if no specific time given.
+   - chatResponse should confirm what and when in human-readable format in user's timezone (e.g., "ตั้งเตือนเรียบร้อย! จะเตือนเรื่อง 'โทรหาแม่' พรุ่งนี้ 15:00 น.").
 
 PARA constraints:
 - Task should belong to a project when possible.

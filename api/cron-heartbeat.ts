@@ -1,15 +1,13 @@
 import { sendTelegramText } from './_lib/telegram.js';
+import { requireAuth } from './_lib/authGuard.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const cronSecret = process.env.CRON_SECRET;
-  const providedKey = req.query?.key || req.headers?.['x-cron-key'];
-  if (cronSecret && providedKey !== cronSecret) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+  const auth = requireAuth(req, [process.env.CRON_SECRET]);
+  if (!auth.ok) return res.status(auth.status).json(auth.body);
 
   try {
     const { runHeartbeat } = await import('../scripts/run_heartbeat.mjs');

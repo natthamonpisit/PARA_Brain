@@ -4,12 +4,9 @@ import {
   normalizeCustomAiInstructions
 } from './_lib/aiConfig.js';
 import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
+import { requireAuth } from './_lib/authGuard.js';
 
 const OWNER_KEY = process.env.AGENT_OWNER_KEY || 'default';
-
-function getCaptureKey(req: any): string {
-  return req.headers?.['x-capture-key'] || req.headers?.authorization?.replace('Bearer ', '') || req.query?.key || '';
-}
 
 function getServiceClient() {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -27,11 +24,8 @@ export default async function handler(req: any, res: any) {
     return res.status(status).json(body);
   };
 
-  const captureSecret = process.env.CAPTURE_API_SECRET;
-  const providedCaptureKey = getCaptureKey(req);
-  if (captureSecret && providedCaptureKey && providedCaptureKey !== captureSecret) {
-    return respond(401, { error: 'Unauthorized' }, { reason: 'auth_failed' });
-  }
+  const auth = requireAuth(req, [process.env.CAPTURE_API_SECRET, process.env.CRON_SECRET]);
+  if (!auth.ok) return respond(auth.status, auth.body, { reason: 'auth_failed' });
 
   if (!['GET', 'POST'].includes(String(req.method || '').toUpperCase())) {
     return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });

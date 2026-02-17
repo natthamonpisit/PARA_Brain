@@ -280,10 +280,15 @@ export const classifyFinanceDocumentWithAi = async (payload: {
   qrRaw: string | null;
   hint: FinanceDraftSuggestion;
 }): Promise<FinanceDraftSuggestion | null> => {
+  const captureKey = (() => {
+    try { return String((import.meta as any)?.env?.VITE_CAPTURE_API_SECRET || '').trim(); }
+    catch { return ''; }
+  })();
   const response = await fetch('/api/finance-classify', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'x-capture-key': captureKey
     },
     body: JSON.stringify(payload)
   });

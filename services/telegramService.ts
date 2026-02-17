@@ -1,10 +1,19 @@
+const getCaptureKey = (): string => {
+  try {
+    return String((import.meta as any)?.env?.VITE_CAPTURE_API_SECRET || '').trim();
+  } catch {
+    return '';
+  }
+};
+
 export const telegramService = {
   async sendPushMessage(message: string): Promise<any> {
     try {
       const response = await fetch('/api/telegram-push', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-capture-key': getCaptureKey()
         },
         body: JSON.stringify({ message })
       });

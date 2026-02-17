@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
+import { requireAuth } from './_lib/authGuard.js';
 
 const normalizeType = (value: unknown) => {
   const candidate = String(value || '').toUpperCase();
@@ -17,6 +18,9 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });
   }
+
+  const auth = requireAuth(req, [process.env.CAPTURE_API_SECRET, process.env.CRON_SECRET]);
+  if (!auth.ok) return respond(auth.status, auth.body, { reason: 'auth_failed' });
 
   try {
     const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;

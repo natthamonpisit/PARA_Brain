@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { sendTelegramText } from './_lib/telegram.js';
+import { requireAuth } from './_lib/authGuard.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
@@ -69,11 +70,8 @@ Don't forget to complete it!`;
 }
 
 export default async function handler(req: any, res: any) {
-  const cronSecret = process.env.CRON_SECRET;
-  const providedKey = req.query?.key || req.headers?.['x-cron-key'];
-  if (cronSecret && providedKey !== cronSecret) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  const auth = requireAuth(req, [process.env.CRON_SECRET]);
+  if (!auth.ok) return res.status(auth.status).json(auth.body);
 
   try {
     const result = await checkAndSendReminders();

@@ -1,11 +1,12 @@
 
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, Bot, User, Loader2, ArrowRight, Database, FileJson, CheckCircle2, X } from 'lucide-react';
-import { ChatMessage, ParaType, ParaItem, Transaction, ModuleItem } from '../types';
+import { Bot, Loader2, ArrowRight, Database, FileJson, CheckCircle2, X, ImagePlus } from 'lucide-react';
+import { ChatMessage, ParaItem, Transaction, ModuleItem } from '../types';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
+  onSendImage?: (file: File, caption: string) => void;
   // JAY'S NOTE: New prop to handle completion click from chat
   onCompleteTask?: (item: ParaItem) => void; 
   isProcessing: boolean;
@@ -16,6 +17,7 @@ interface ChatPanelProps {
 export const ChatPanel: React.FC<ChatPanelProps> = ({ 
     messages, 
     onSendMessage, 
+    onSendImage,
     onCompleteTask,
     isProcessing, 
     onClose,
@@ -23,6 +25,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -36,6 +39,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     if (!input.trim() || isProcessing) return;
     onSendMessage(input);
     setInput('');
+  };
+
+  const handlePickImage = () => {
+    if (isProcessing || !onSendImage) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleImageSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !onSendImage || isProcessing) {
+      if (event.target) event.target.value = '';
+      return;
+    }
+    onSendImage(file, input.trim());
+    setInput('');
+    event.target.value = '';
   };
 
   const isJsonInput = input.trim().startsWith('{');
@@ -111,7 +130,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               {msg.role === 'assistant' ? (
                  <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Gemini</span>
               ) : (
-                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">You</span>
+                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                   {msg.source === 'TELEGRAM' ? 'Telegram' : 'You'}
+                 </span>
               )}
             </div>
 
@@ -205,6 +226,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       {/* Input Area */}
       <div className="p-4 bg-white border-t border-slate-100 flex-shrink-0">
         <form onSubmit={handleSubmit} className="relative">
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageSelected}
+            />
             {isJsonInput && (
                 <div className="absolute -top-8 left-0 text-[10px] bg-orange-100 text-orange-700 px-2 py-1 rounded flex items-center gap-1">
                     <FileJson className="w-3 h-3" />
@@ -217,8 +245,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             onChange={(e) => setInput(e.target.value)}
             disabled={isProcessing}
             placeholder="Type your thought..."
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-12 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-[5.2rem] py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
           />
+          <button
+            type="button"
+            onClick={handlePickImage}
+            disabled={isProcessing || !onSendImage}
+            className={`
+              absolute right-11 top-2 p-1.5 rounded-lg transition-colors
+              ${!isProcessing && onSendImage
+                ? 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                : 'bg-slate-100 text-slate-300 cursor-not-allowed'}
+            `}
+            title="Upload image"
+          >
+            <ImagePlus className="w-4 h-4" />
+          </button>
           <button
             type="submit"
             disabled={!input.trim() || isProcessing}

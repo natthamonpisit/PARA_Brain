@@ -15,6 +15,66 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vRVh2cBTUcaOIZ9-0Hlasb
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Create `.env.local` from `.env.example` and fill required values.
+3. For local AI chat in the browser, set `VITE_GEMINI_API_KEY`.
+4. For serverless APIs (`/api/*`), set secrets in Vercel env:
+   - `GEMINI_API_KEY`
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_CHAT_ID`
+   - `TELEGRAM_USER_ID` (optional but recommended)
+   - `TELEGRAM_WEBHOOK_SECRET` (optional but recommended)
+   - `CRON_SECRET`
+   - `CAPTURE_API_SECRET` (optional)
+   - `CAPTURE_CONFIRM_THRESHOLD` (optional, default `0.72`)
+   - `CAPTURE_SEMANTIC_DEDUP_THRESHOLD` (optional, default `0.9`)
+   - `EXA_API_KEY` (optional, enables fresher web discovery for Thailand Pulse)
+   - `FIRECRAWL_API_KEY` (optional, enables citation enrichment for Thailand Pulse)
+   - `THAILAND_PULSE_DEFAULT_INTERESTS` (optional, comma-separated)
+5. Run the app:
    `npm run dev`
+
+## Agent Foundation (Phase 1)
+
+- Prompt contract: `agents/prompt_v1.md`
+- Templates: `memory/templates/daily.md`, `memory/templates/weekly.md`
+- Migration: `supabase/migrations/20260212_phase1_agent_memory.sql`
+- State tracker: `docs/IMPLEMENTATION_STATE.md`
+
+Generate a mock daily brief:
+`npm run agent:mock-daily`
+
+## Agent Pipeline (Phases 2-5)
+
+- Ingest memory chunks: `npm run agent:ingest`
+- Run orchestrator (CLI): `npm run agent:daily`
+- Run orchestrator dry-run: `npm run agent:daily -- --dry-run`
+- Benchmark vector index latency: `npm run agent:benchmark:indexes`
+- Run heartbeat check: `npm run agent:heartbeat`
+- Run weekly ops review: `npm run agent:weekly-review`
+- API trigger: `POST /api/agent-daily`
+  - If `CRON_SECRET` is set, provide `x-cron-key: <CRON_SECRET>`
+  - If `force=true` and `APPROVAL_SECRET` is set, provide `x-approval-key: <APPROVAL_SECRET>`
+- Cron endpoints:
+  - `POST /api/cron-agent-daily` (requires `x-cron-key` only when `CRON_SECRET` is set)
+  - `POST /api/cron-heartbeat` (requires `x-cron-key` only when `CRON_SECRET` is set)
+  - `POST /api/cron-weekly-review` (requires `x-cron-key` only when `CRON_SECRET` is set)
+  - `GET|POST /api/cron-thailand-pulse` (every 12h via `vercel.json`, supports bearer `CRON_SECRET`)
+- Thailand Pulse APIs:
+  - `GET /api/thailand-pulse?interests=Technology,AI,...` (fetch latest snapshot and persist)
+  - `GET /api/thailand-pulse?mode=history&days=7` (read persisted snapshot history)
+- Unified capture endpoint (web + telegram behavior parity):
+  - `POST /api/capture-intake` (`{ source, message, eventId? }`)
+  - Optional auth with `x-capture-key` when `CAPTURE_API_SECRET` is set
+  - Supports semantic dedup (vector retrieval) and low-confidence confirmation gate before DB create
+  - `POST /api/capture-image` (`{ source, caption?, mimeType, imageBase64, eventId? }`) for receipt/slip OCR + image capture
+- Telegram endpoints:
+  - `POST /api/telegram-webhook` (set as bot webhook URL)
+  - `POST /api/telegram-push` (manual push helper)
+  - `telegram-webhook` now accepts both text and photo updates (photo path triggers image analysis before capture)
+- External agent queue APIs (OpenClaw integration):
+  - `POST /api/agent-jobs` create job (`requestText`, optional `payload`, `priority`, `dedupeKey`)
+  - `GET /api/agent-jobs?status=REQUESTED|APPROVED|RUNNING|DONE|FAILED|CANCELLED`
+  - `POST /api/agent-jobs-approve` (`jobId`, `approve`, `note`)
+  - `POST /api/agent-jobs-claim` (`agentName`)
+  - `POST /api/agent-jobs-finish` (`jobId`, `agentName`, `success`, `result`, `errorText`)
+  - Auth: `x-agent-key` (uses `AGENT_JOB_SECRET`, fallback `CRON_SECRET`)

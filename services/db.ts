@@ -173,12 +173,16 @@ export const db = {
     }));
   },
 
-  async getTransactions(limit = 20): Promise<Transaction[]> {
-    const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .order('transaction_date', { ascending: false })
-        .limit(limit);
+  async getTransactions(limit?: number): Promise<Transaction[]> {
+    let query = supabase
+      .from('transactions')
+      .select('*')
+      .order('transaction_date', { ascending: false });
+    if (typeof limit === 'number') {
+      query = query.limit(limit);
+    }
+
+    const { data, error } = await query;
         
     if (error) {
         // console.warn("Could not fetch transactions:", error.message);
@@ -222,6 +226,36 @@ export const db = {
       };
       const { error } = await supabase.from('accounts').upsert(dbAcc);
       if (error) throw new Error(error.message);
+  },
+
+  async bulkAddAccounts(accounts: FinanceAccount[]): Promise<void> {
+    const dbAccounts = accounts.map(account => ({
+      id: account.id,
+      name: account.name,
+      type: account.type,
+      balance: account.balance,
+      currency: account.currency,
+      is_include_net_worth: account.isIncludeNetWorth
+    }));
+    if (dbAccounts.length === 0) return;
+    const { error } = await supabase.from('accounts').upsert(dbAccounts);
+    if (error) throw new Error(error.message);
+  },
+
+  async bulkAddTransactions(transactions: Transaction[]): Promise<void> {
+    const dbTransactions = transactions.map(tx => ({
+      id: tx.id,
+      description: tx.description,
+      amount: tx.amount,
+      type: tx.type,
+      category: tx.category,
+      account_id: tx.accountId,
+      project_id: tx.projectId,
+      transaction_date: tx.transactionDate
+    }));
+    if (dbTransactions.length === 0) return;
+    const { error } = await supabase.from('transactions').insert(dbTransactions);
+    if (error) throw new Error(error.message);
   },
 
   // --- DYNAMIC MODULES (PLATFORM ENGINE) ---
@@ -296,9 +330,8 @@ export const db = {
 
   // --- COMMON & UTILS ---
 
-  async clear(): Promise<void> {
-    // Only clears PARA tables for import/export safety, leaving dynamic tables manual for now
-    const tables = ['projects', 'areas', 'tasks', 'resources', 'archives', 'history', 'transactions', 'accounts'];
+  async clearParaAndHistory(): Promise<void> {
+    const tables = ['projects', 'areas', 'tasks', 'resources', 'archives', 'history'];
     const results = await Promise.all(
       tables.map(table => 
         supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000')
@@ -312,6 +345,34 @@ export const db = {
   async bulkAdd(items: ParaItem[]): Promise<void> {
     const promises = items.map(item => this.add(item).catch(e => console.error(`Failed to add item ${item.title}:`, e)));
     await Promise.all(promises);
+  },
+
+  async bulkAddLogs(logs: HistoryLog[]): Promise<void> {
+    const dbLogs = logs.map(log => ({
+      id: log.id,
+      action: log.action,
+      item_title: log.itemTitle,
+      item_type: log.itemType,
+      timestamp: log.timestamp
+    }));
+    if (dbLogs.length === 0) return;
+    const { error } = await supabase.from('history').insert(dbLogs);
+    if (error) throw new Error(error.message);
+  },
+
+  async getExportSnapshot(): Promise<{
+    items: ParaItem[];
+    history: HistoryLog[];
+    accounts: FinanceAccount[];
+    transactions: Transaction[];
+  }> {
+    const [items, history, accounts, transactions] = await Promise.all([
+      this.getAll(),
+      this.getLogs(),
+      this.getAccounts(),
+      this.getTransactions()
+    ]);
+    return { items, history, accounts, transactions };
   },
   
   async seedIfEmpty(initialItems: ParaItem[]): Promise<ParaItem[]> {

@@ -95,6 +95,30 @@ export interface DailySummary {
   completedTasksCount: number;
 }
 
+export interface AgentRun {
+  id: string;
+  runType: 'DAILY_BRIEF' | 'WEEKLY_REVIEW' | 'ACTION_PLAN';
+  status: 'STARTED' | 'SUCCESS' | 'FAILED';
+  promptVersion: string;
+  model?: string;
+  outputFile?: string;
+  errorText?: string;
+  metrics?: Record<string, any>;
+  startedAt: string;
+  completedAt?: string;
+}
+
+export interface MemorySummary {
+  id: string;
+  summaryType: 'DAILY' | 'WEEKLY' | 'MONTHLY';
+  summaryDate: string;
+  title: string;
+  contentMd: string;
+  inputRefs: any[];
+  createdBy: string;
+  createdAt: string;
+}
+
 export interface SystemLog {
   id: string;
   event_source: string;
@@ -104,6 +128,35 @@ export interface SystemLog {
   action_type?: string;
   status: string;
   created_at: string;
+}
+
+export type ChatMessageSource = 'WEB' | 'TELEGRAM';
+export type ChatCreatedItemType = 'PARA' | 'TRANSACTION' | 'MODULE';
+
+export interface TelegramLogPayloadV1 {
+  contract: 'telegram_chat_v1';
+  version: 1;
+  source: ChatMessageSource;
+  intent?: string;
+  confidence?: number;
+  isActionable?: boolean;
+  operation: 'CREATE' | 'TRANSACTION' | 'MODULE_ITEM' | 'COMPLETE' | 'CHAT' | 'ERROR' | 'PENDING_APPROVAL';
+  chatResponse: string;
+  itemType?: ChatCreatedItemType;
+  createdItem?: ParaItem | Transaction | ModuleItem;
+  createdItems?: ParaItem[];
+  dedup?: {
+    isDuplicate?: boolean;
+    reason?: string;
+    method?: 'EXACT_MESSAGE' | 'URL_MATCH' | 'SEMANTIC_VECTOR' | 'NONE';
+    similarity?: number;
+    matchedItemId?: string;
+    matchedTable?: string;
+    matchedTitle?: string;
+    matchedLink?: string;
+    matchedLogId?: string;
+  };
+  meta?: Record<string, any>;
 }
 
 export interface AIAnalysisResult {
@@ -152,8 +205,9 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   timestamp: Date;
+  source?: ChatMessageSource;
   createdItem?: ParaItem | Transaction | ModuleItem;
   createdItems?: ParaItem[]; // For batch
   suggestedCompletionItems?: ParaItem[];
-  itemType?: 'PARA' | 'TRANSACTION' | 'MODULE';
+  itemType?: ChatCreatedItemType;
 }

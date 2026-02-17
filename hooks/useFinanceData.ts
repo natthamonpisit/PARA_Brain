@@ -12,7 +12,7 @@ export const useFinanceData = () => {
     setIsLoading(true);
     try {
       const accs = await db.getAccounts();
-      const txs = await db.getTransactions();
+      const txs = await db.getTransactions(50);
       setAccounts(accs);
       setTransactions(txs);
     } catch (e) {

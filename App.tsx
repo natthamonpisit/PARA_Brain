@@ -1,26 +1,61 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { ChatPanel } from './components/ChatPanel';
 import { ParaBoard } from './components/ParaBoard';
-import { FinanceBoard } from './components/FinanceBoard'; 
 import { DynamicModuleBoard } from './components/DynamicModuleBoard'; 
 import { ModuleBuilderModal } from './components/ModuleBuilderModal'; 
 import { HistoryModal } from './components/HistoryModal'; 
 import { ManualEntryModal } from './components/ManualEntryModal';
-import { LineConnectModal } from './components/LineConnectModal';
+import { TelegramConnectModal } from './components/TelegramConnectModal';
 import { LifeAnalysisModal } from './components/LifeAnalysisModal'; 
 import { CalendarBoard } from './components/CalendarBoard'; 
 import { HabitBoard } from './components/HabitBoard'; 
 import { ItemDetailModal } from './components/ItemDetailModal'; // New Import
-import { ParaType, AppModule, ModuleItem, ViewMode, ParaItem } from './types';
-import { CheckCircle2, AlertCircle, Loader2, Menu, LayoutDashboard, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, PanelRightClose, PanelRightOpen, Sparkles, Search, Calendar as CalendarIcon, Flame, Archive, Network } from 'lucide-react';
+import { FocusDock } from './components/FocusDock';
+import { MissionControlBoard } from './components/MissionControlBoard';
+import { LifeOverviewBoard } from './components/LifeOverviewBoard';
+import { ThailandPulseBoard } from './components/ThailandPulseBoard';
+import { ParaType, AppModule, ViewMode, ParaItem } from './types';
+import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network, Minimize2, Maximize2, Undo2 } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData'; 
 import { useModuleData } from './hooks/useModuleData'; 
 import { useAIChat } from './hooks/useAIChat';
+import { useAgentData } from './hooks/useAgentData';
+import { classifyQuickCapture } from './services/geminiService';
+import type { PulseArticle } from './services/thailandPulseService';
+import { generateId } from './utils/helpers';
 
-type MobileTab = 'board' | 'chat';
+const ChatPanel = React.lazy(() => import('./components/ChatPanel').then((m) => ({ default: m.ChatPanel })));
+const FinanceBoard = React.lazy(() => import('./components/FinanceBoard').then((m) => ({ default: m.FinanceBoard })));
+const ReviewBoard = React.lazy(() => import('./components/ReviewBoard').then((m) => ({ default: m.ReviewBoard })));
+const AgentBoard = React.lazy(() => import('./components/AgentBoard').then((m) => ({ default: m.AgentBoard })));
+const AIConfigBoard = React.lazy(() => import('./components/AIConfigBoard').then((m) => ({ default: m.AIConfigBoard })));
+
+type ActiveView =
+  | ParaType
+  | 'All'
+  | 'LifeOverview'
+  | 'ThailandPulse'
+  | 'Finance'
+  | 'Review'
+  | 'Agent'
+  | 'AIConfig'
+  | string;
+
+const BUILTIN_VIEW_TYPES = new Set<string>([
+  'All',
+  'LifeOverview',
+  'ThailandPulse',
+  'Finance',
+  'Review',
+  'Agent',
+  'AIConfig',
+  ...Object.values(ParaType)
+]);
+
+const isModuleViewType = (value: ActiveView): value is string =>
+  typeof value === 'string' && !BUILTIN_VIEW_TYPES.has(value);
 
 export default function App() {
   // --- CORE HOOKS ---
@@ -35,13 +70,33 @@ export default function App() {
   const {
       modules, moduleItems, loadModules, loadModuleItems, createModule, addModuleItem, deleteModuleItem
   } = useModuleData();
+  const {
+      isLoading: isLoadingAgentData,
+      isRunning: isRunningAgent,
+      lastError: agentError,
+      runs: agentRuns,
+      captureKpis,
+      latestSummary,
+      refresh: refreshAgentData,
+      triggerDailyRun
+  } = useAgentData();
 
   // --- UI STATE ---
-  const [activeType, setActiveType] = useState<ParaType | 'All' | 'Finance' | string>('All');
+  const [activeType, setActiveType] = useState<ActiveView>('All');
   const [viewMode, setViewMode] = useState<ViewMode>('GRID');
-  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isChatCompact, setIsChatCompact] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('para-chat-compact') === '1';
+  });
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.matchMedia('(min-width: 768px)').matches;
+  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState(''); 
+  const [quickCaptureText, setQuickCaptureText] = useState('');
+  const [isCapturing, setIsCapturing] = useState(false);
   const [calendarDate, setCalendarDate] = useState(new Date()); 
 
   // Modals
@@ -49,15 +104,19 @@ export default function App() {
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ParaItem | null>(null); 
   const [isModuleBuilderOpen, setIsModuleBuilderOpen] = useState(false);
-  const [isLineModalOpen, setIsLineModalOpen] = useState(false);
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState('');
   
   // NEW: Detail Modal State
   const [detailItem, setDetailItem] = useState<ParaItem | null>(null);
   
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
-  const [mobileTab, setMobileTab] = useState<MobileTab>('board');
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error';
+    action?: { label: string; onClick: () => void };
+  } | null>(null);
+  const notificationTimerRef = useRef<number | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // --- INITIAL LOAD ---
@@ -66,10 +125,48 @@ export default function App() {
     loadModules();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia('(min-width: 768px)');
+    const syncViewport = () => setIsDesktopViewport(media.matches);
+    syncViewport();
+    media.addEventListener('change', syncViewport);
+    return () => media.removeEventListener('change', syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopViewport && isChatCompact) {
+      setIsChatCompact(false);
+    }
+  }, [isDesktopViewport, isChatCompact]);
+
+  useEffect(() => {
+    if (!isChatOpen || typeof window === 'undefined') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsChatOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isChatOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('para-chat-compact', isChatCompact ? '1' : '0');
+  }, [isChatCompact]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !isChatOpen || isDesktopViewport) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isChatOpen, isDesktopViewport]);
+
   // --- VIEW LOGIC ---
   useEffect(() => {
       // Load modules when selected
-      if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
+      if (isModuleViewType(activeType)) {
           loadModuleItems(activeType);
       }
       // Clear selection when changing tabs
@@ -102,6 +199,28 @@ export default function App() {
     );
   }, [transactions, searchQuery]);
 
+  const triageItems = useMemo(() => {
+    return items.filter(i => (i.tags || []).includes('triage-pending'));
+  }, [items]);
+
+  const opsKpis = useMemo(() => {
+    const nowIso = new Date().toISOString();
+    const since30 = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const since7 = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    const overdueTasks = items.filter(i => i.type === ParaType.TASK && !i.isCompleted && !!i.dueDate && i.dueDate < nowIso).length;
+    const triagePending = triageItems.length;
+    const net30d = transactions
+      .filter(t => new Date(t.transactionDate).getTime() >= since30)
+      .reduce((acc, t) => acc + (t.type === 'INCOME' ? t.amount : (t.type === 'EXPENSE' ? -t.amount : 0)), 0);
+    const recentRuns = agentRuns.filter(r => new Date(r.startedAt).getTime() >= since7);
+    const automationSuccessRate7d = recentRuns.length
+      ? (recentRuns.filter(r => r.status === 'SUCCESS').length / recentRuns.length) * 100
+      : 0;
+
+    return { overdueTasks, triagePending, net30d, automationSuccessRate7d };
+  }, [items, triageItems, transactions, agentRuns]);
+
   // For active module
   const activeModule = modules.find(m => m.id === activeType);
   const filteredModuleItems = useMemo(() => {
@@ -119,19 +238,83 @@ export default function App() {
 
 
   // --- AI INTEGRATION ---
-  const { messages, isProcessing, handleSendMessage, handleChatCompletion, analyzeLife } = useAIChat({
+  const { messages, isProcessing, handleSendMessage, handleSendImage, handleChatCompletion, analyzeLife } = useAIChat({
     items, 
     accounts,
     modules,
     onAddItem: addItem, 
     onToggleComplete: toggleComplete, 
     onAddTransaction: addTransaction,
-    onAddModuleItem: addModuleItem
+    onAddModuleItem: addModuleItem,
+    onRefreshFinance: loadFinanceData,
+    onRefreshModuleItems: loadModuleItems
   });
   
-  const showNotification = (message: string, type: 'success' | 'error') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
+  const clearNotificationTimer = () => {
+    if (notificationTimerRef.current !== null) {
+      window.clearTimeout(notificationTimerRef.current);
+      notificationTimerRef.current = null;
+    }
+  };
+
+  const showNotification = (
+    message: string,
+    type: 'success' | 'error',
+    options?: { durationMs?: number; action?: { label: string; onClick: () => void } }
+  ) => {
+    clearNotificationTimer();
+    setNotification({ message, type, action: options?.action });
+    const durationMs = options?.durationMs ?? 3000;
+    if (durationMs > 0) {
+      notificationTimerRef.current = window.setTimeout(() => {
+        setNotification(null);
+        notificationTimerRef.current = null;
+      }, durationMs);
+    }
+  };
+
+  const dismissNotification = () => {
+    clearNotificationTimer();
+    setNotification(null);
+  };
+
+  useEffect(() => () => clearNotificationTimer(), []);
+
+  const handleToggleComplete = async (id: string, currentStatus: boolean) => {
+    const item = items.find(i => i.id === id);
+    if (!item) {
+      showNotification('Task not found', 'error');
+      return;
+    }
+
+    const wasCompleted = !!currentStatus;
+    try {
+      await toggleComplete(id, currentStatus);
+      if (!wasCompleted) {
+        const shortTitle = item.title.length > 44 ? `${item.title.slice(0, 44)}...` : item.title;
+        showNotification(`Completed: ${shortTitle}`, 'success', {
+          durationMs: 5000,
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              dismissNotification();
+              void (async () => {
+                try {
+                  await toggleComplete(id, true);
+                  showNotification(`Reopened: ${shortTitle}`, 'success');
+                } catch {
+                  showNotification('Undo failed', 'error');
+                }
+              })();
+            }
+          }
+        });
+      } else {
+        showNotification(`Reopened: ${item.title}`, 'success');
+      }
+    } catch {
+      showNotification('Failed to update task status', 'error');
+    }
   };
 
   // --- ACTIONS ---
@@ -156,7 +339,7 @@ export default function App() {
       const ids = Array.from(selectedIds) as string[];
       for (const id of ids) {
           try {
-             if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
+             if (isModuleViewType(activeType)) {
                  await deleteModuleItem(id, activeType as string);
              } else {
                  await deleteItem(id);
@@ -202,11 +385,75 @@ export default function App() {
       }
   };
 
+  const handleQuickCapture = async () => {
+      const input = quickCaptureText.trim();
+      if (!input || isCapturing) return;
+      setIsCapturing(true);
+      try {
+          const result = await classifyQuickCapture(input, items);
+          const baseTags = Array.from(new Set([...(result.suggestedTags || []), 'capture']));
+          const now = new Date().toISOString();
+
+          if (result.confidence >= 0.75) {
+              const newItem: ParaItem = {
+                  id: generateId(),
+                  title: result.title,
+                  content: result.summary,
+                  type: result.type,
+                  category: result.category || 'Inbox',
+                  tags: baseTags,
+                  relatedItemIds: [],
+                  isAiGenerated: true,
+                  isCompleted: false,
+                  createdAt: now,
+                  updatedAt: now
+              };
+              await addItem(newItem);
+              showNotification(`Captured as ${result.type}`, 'success');
+          } else {
+              const triageItem: ParaItem = {
+                  id: generateId(),
+                  title: result.title || input.slice(0, 60),
+                  content: `[Quick Capture]\nOriginal: ${input}\nSuggested: ${result.type} / ${result.category}\nConfidence: ${Math.round(result.confidence * 100)}%`,
+                  type: ParaType.TASK,
+                  category: result.category || 'Inbox',
+                  tags: [...baseTags, 'triage-pending'],
+                  relatedItemIds: [],
+                  isAiGenerated: true,
+                  isCompleted: false,
+                  createdAt: now,
+                  updatedAt: now
+              };
+              await addItem(triageItem);
+              setActiveType('Agent');
+              showNotification(`Needs triage (${Math.round(result.confidence * 100)}%)`, 'error');
+          }
+          setQuickCaptureText('');
+      } catch (e: any) {
+          showNotification(`Capture failed: ${e.message || 'unknown error'}`, 'error');
+      } finally {
+          setIsCapturing(false);
+      }
+  };
+
+  const handleResolveTriage = async (itemId: string, type: ParaType) => {
+      const item = items.find(i => i.id === itemId);
+      if (!item) return;
+      const next: ParaItem = {
+          ...item,
+          type,
+          tags: (item.tags || []).filter(t => t !== 'triage-pending'),
+          updatedAt: new Date().toISOString()
+      };
+      await updateItem(next);
+      showNotification(`Triage resolved as ${type}`, 'success');
+  };
+
   // Wrapper Functions
   const handleDeleteWrapper = async (id: string) => {
     if (!window.confirm('Delete this item?')) return;
     try {
-        if (typeof activeType === 'string' && !['All', 'Finance', ...Object.values(ParaType)].includes(activeType as any)) {
+        if (isModuleViewType(activeType)) {
             await deleteModuleItem(id, activeType as string);
         } else {
             await deleteItem(id);
@@ -221,6 +468,61 @@ export default function App() {
      } catch {
          showNotification('Failed to archive', 'error');
      }
+  };
+
+  const handleSavePulseArticle = async (article: PulseArticle) => {
+    const normalizedUrl = article.url.trim();
+    const duplicate = items.find((item) => (
+      item.type === ParaType.RESOURCE &&
+      (
+        item.content.includes(normalizedUrl) ||
+        item.title.toLowerCase() === article.title.toLowerCase()
+      )
+    ));
+
+    if (duplicate) {
+      showNotification('Resource already saved', 'error', {
+        durationMs: 4000,
+        action: {
+          label: 'Open',
+          onClick: () => {
+            dismissNotification();
+            handleViewDetail(duplicate.id);
+          }
+        }
+      });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const citationLines = (article.citations || [])
+      .slice(0, 3)
+      .map((citation, index) => `${index + 1}. ${citation.label}: ${citation.url}`);
+    const nextItem: ParaItem = {
+      id: generateId(),
+      title: article.title,
+      content: `${article.summary || ''}\n\nSource: ${article.source}\nPublished: ${article.publishedAt}\nProvider: ${article.provider || 'RSS'}\nLink: ${article.url}${citationLines.length ? `\n\nCitations:\n${citationLines.join('\n')}` : ''}`.trim(),
+      type: ParaType.RESOURCE,
+      category: article.category || 'News',
+      tags: Array.from(
+        new Set([
+          'news',
+          'world-pulse',
+          'thailand-pulse',
+          `tier-${article.trustTier.toLowerCase()}`,
+          ...(article.keywords || []).slice(0, 5)
+        ])
+      ),
+      relatedItemIds: [],
+      isAiGenerated: true,
+      isCompleted: false,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    await addItem(nextItem);
+    const shortTitle = article.title.length > 46 ? `${article.title.slice(0, 46)}...` : article.title;
+    showNotification(`Saved: ${shortTitle}`, 'success');
   };
 
   // --- MODAL HANDLERS ---
@@ -242,6 +544,18 @@ export default function App() {
           setDetailItem(item);
       }
   };
+
+  useEffect(() => {
+      if (!detailItem) return;
+      const latestDetailItem = items.find(i => i.id === detailItem.id);
+      if (!latestDetailItem) {
+          setDetailItem(null);
+          return;
+      }
+      if (latestDetailItem !== detailItem) {
+          setDetailItem(latestDetailItem);
+      }
+  }, [items, detailItem]);
 
   const handleManualSave = async (data: any, mode: 'PARA' | 'TRANSACTION' | 'ACCOUNT' | 'MODULE') => {
       try {
@@ -288,12 +602,28 @@ export default function App() {
       setEditingItem(null);
   };
 
-  const pageTitle = activeModule ? activeModule.name : (activeType === 'All' ? 'Dashboard' : activeType);
+  const pageTitle = activeModule ? activeModule.name : (
+    activeType === 'All'
+      ? 'Dashboard'
+      : activeType === 'LifeOverview'
+        ? 'Life Overview'
+      : activeType === 'ThailandPulse'
+        ? 'World Pulse'
+      : activeType === 'AIConfig'
+        ? 'AI Config'
+        : activeType
+  );
+  const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse' && activeType !== 'AIConfig';
+  const boardFallback = (
+    <div className="h-48 flex items-center justify-center text-slate-400">
+      <Loader2 className="w-5 h-5 animate-spin" />
+    </div>
+  );
 
   if (isLoadingDB) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
+    <div className="flex h-screen bg-slate-950 font-sans text-slate-100 overflow-hidden">
       
       <Sidebar 
         activeType={activeType} onSelectType={setActiveType}
@@ -302,78 +632,125 @@ export default function App() {
         onShowHistory={() => setIsHistoryOpen(true)}
         isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)}
         modules={modules} onCreateModule={() => setIsModuleBuilderOpen(true)}
-        onOpenLine={() => setIsLineModalOpen(true)}
+        onOpenTelegram={() => setIsTelegramModalOpen(true)}
         onAnalyzeLife={handleAnalyzeLife}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 relative h-full transition-all duration-300">
+      <div className="flex-1 flex flex-col min-w-0 relative h-full transition-all duration-300 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
         
         {/* Header */}
-        <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 md:px-6 py-3 flex justify-between items-center shrink-0 gap-4">
+        <header className="sticky top-0 z-20 bg-slate-950/85 backdrop-blur-md border-b border-slate-800 px-4 md:px-6 py-3 flex justify-between items-center shrink-0 gap-4">
           <div className="flex items-center gap-3 shrink-0">
-             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-slate-600"><Menu className="w-6 h-6" /></button>
-             <h2 className="text-xl font-bold tracking-tight text-slate-900 hidden xs:block">{pageTitle}</h2>
+             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-slate-300"><Menu className="w-6 h-6" /></button>
+             <h2 className="text-xl font-bold tracking-tight text-slate-100 hidden xs:block">{activeType === 'All' ? 'Mission Control' : pageTitle}</h2>
           </div>
 
           <div className="flex-1 max-w-lg mx-auto hidden md:block relative">
              <div className="relative group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-cyan-300 transition-colors" />
                 <input 
                   type="text" 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search titles, tags, content..." 
-                  className="w-full pl-9 pr-4 py-1.5 bg-slate-100 hover:bg-slate-200/70 focus:bg-white border border-transparent focus:border-indigo-200 focus:ring-4 focus:ring-indigo-500/10 rounded-full text-sm transition-all duration-200 outline-none placeholder:text-slate-400"
+                  placeholder="Search command, task, context..." 
+                  className="w-full pl-9 pr-4 py-1.5 bg-slate-900 hover:bg-slate-800 focus:bg-slate-900 border border-slate-700 focus:border-cyan-400/50 focus:ring-4 focus:ring-cyan-500/10 rounded-full text-sm text-slate-200 transition-all duration-200 outline-none placeholder:text-slate-500"
                 />
              </div>
           </div>
 
+          <div className="hidden lg:flex items-center gap-2 min-w-[320px] max-w-[440px] w-full">
+            <input
+              type="text"
+              value={quickCaptureText}
+              onChange={(e) => setQuickCaptureText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleQuickCapture(); }}
+              placeholder="Command capture: idea, task, project..."
+              className="w-full bg-slate-900 border border-amber-400/40 text-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-300/30"
+            />
+            <button
+              onClick={handleQuickCapture}
+              disabled={isCapturing || !quickCaptureText.trim()}
+              className="px-3 py-2 text-xs font-semibold rounded-lg bg-amber-500 text-slate-950 disabled:opacity-50"
+            >
+              {isCapturing ? 'Saving...' : 'Capture'}
+            </button>
+          </div>
+
           <div className="flex items-center gap-3 shrink-0">
-            {activeType !== 'Finance' && !activeModule && activeType !== 'All' && (
-                <div className="hidden md:flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                    <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
-                    <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List"><List className="w-4 h-4" /></button>
-                    <button onClick={() => setViewMode('TABLE')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'TABLE' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Table"><TableIcon className="w-4 h-4" /></button>
-                    <div className="w-px h-4 bg-slate-300 mx-1 self-center"></div>
-                    <button onClick={() => setViewMode('CALENDAR')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'CALENDAR' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Calendar"><CalendarIcon className="w-4 h-4" /></button>
-                    <button onClick={() => setViewMode('HABIT')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'HABIT' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Habit Tracker"><Flame className="w-4 h-4" /></button>
-                    <button onClick={() => setViewMode('HIERARCHY')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'HIERARCHY' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Tree View"><Network className="w-4 h-4" /></button>
+            {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse' && activeType !== 'AIConfig' && !activeModule && activeType !== 'All' && (
+                <div className="hidden md:flex bg-slate-900 p-1 rounded-lg border border-slate-700">
+                    <button onClick={() => setViewMode('GRID')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'GRID' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="Grid"><LayoutGrid className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'LIST' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="List"><List className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('TABLE')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'TABLE' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="Table"><TableIcon className="w-4 h-4" /></button>
+                    <div className="w-px h-4 bg-slate-700 mx-1 self-center"></div>
+                    <button onClick={() => setViewMode('CALENDAR')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'CALENDAR' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="Calendar"><CalendarIcon className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('HABIT')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'HABIT' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="Habit Tracker"><Flame className="w-4 h-4" /></button>
+                    <button onClick={() => setViewMode('HIERARCHY')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'HIERARCHY' ? 'bg-cyan-500/15 text-cyan-200 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`} title="Tree View"><Network className="w-4 h-4" /></button>
                 </div>
             )}
 
-            <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+            <div className="h-6 w-px bg-slate-700 hidden md:block"></div>
 
-            <button onClick={() => setIsManualModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 shadow-sm transition-colors">
+            <button onClick={() => setIsManualModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500 text-slate-950 text-xs font-bold rounded-lg hover:bg-cyan-400 shadow-sm transition-colors">
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden md:inline">New Item</span>
             </button>
 
-            <button 
-                onClick={() => setIsChatOpen(!isChatOpen)}
-                className={`hidden md:flex items-center gap-1 px-2 py-1.5 rounded-lg border transition-colors ${isChatOpen ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-500'}`}
-                title="Toggle Chat"
+            <button
+              onClick={() => setIsChatOpen((prev) => !prev)}
+              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${isChatOpen ? 'bg-cyan-500/10 border-cyan-400/40 text-cyan-200' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+              title={isChatOpen ? 'Close AI Copilot' : 'Open AI Copilot'}
             >
-                {isChatOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+              <MessageSquare className="w-4 h-4" />
+              <span className="text-xs font-semibold">{isChatOpen ? 'Close' : 'Chat'}</span>
             </button>
           </div>
         </header>
 
         {/* Mobile Search Bar */}
-        <div className="md:hidden px-4 py-2 bg-white border-b border-slate-100 sticky top-[60px] z-10">
-            <input 
-                type="text" 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search..."
-                className="w-full bg-slate-100 border-none rounded-lg py-2 pl-4 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none"
-            />
+        <div className="md:hidden px-4 py-2 bg-slate-950 border-b border-slate-800 sticky top-[60px] z-10">
+            <div className="space-y-2">
+              <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 pl-4 pr-4 text-sm text-slate-200 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={quickCaptureText}
+                  onChange={(e) => setQuickCaptureText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleQuickCapture(); }}
+                  placeholder="Quick Capture..."
+                  className="flex-1 bg-slate-900 border border-amber-400/40 rounded-lg py-2 px-3 text-sm text-slate-200 outline-none"
+                />
+                <button
+                  onClick={handleQuickCapture}
+                  disabled={isCapturing || !quickCaptureText.trim()}
+                  className="px-3 py-2 text-xs font-semibold rounded-lg bg-amber-500 text-slate-950 disabled:opacity-50"
+                >
+                  {isCapturing ? '...' : 'Go'}
+                </button>
+              </div>
+            </div>
         </div>
 
         {/* Notification Toast */}
         {notification && (
-            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg animate-in slide-in-from-top-4 fade-in duration-300 border backdrop-blur-md bg-white/90 border-slate-200">
-                {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-red-500" />}
-                <span className={`text-sm font-semibold ${notification.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>{notification.message}</span>
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg animate-in slide-in-from-top-4 fade-in duration-300 border backdrop-blur-md bg-slate-900/95 border-slate-700">
+                {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-300" /> : <AlertCircle className="w-5 h-5 text-rose-300" />}
+                <span className={`text-sm font-semibold ${notification.type === 'success' ? 'text-emerald-200' : 'text-rose-200'}`}>{notification.message}</span>
+                {notification.action && (
+                  <button
+                    onClick={notification.action.onClick}
+                    className="ml-2 inline-flex items-center gap-1 rounded-md border border-emerald-200/40 bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                  >
+                    <Undo2 className="w-3 h-3" />
+                    <span>{notification.action.label}</span>
+                  </button>
+                )}
             </div>
         )}
 
@@ -381,70 +758,124 @@ export default function App() {
         <div className="flex-1 overflow-hidden relative flex">
             
             {/* Main Board */}
-            <div className={`flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 transition-all duration-300 ${mobileTab === 'board' ? 'block' : 'hidden md:block'}`}>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 sm:p-4 lg:p-8 transition-all duration-300">
                 <div className="w-full pb-24 md:pb-0 max-w-[1600px] mx-auto">
+                    {shouldShowFocusDock && (
+                        <FocusDock
+                          items={items}
+                          onOpenItem={handleViewDetail}
+                          onGoTasks={() => setActiveType(ParaType.TASK)}
+                        />
+                    )}
                     {activeModule ? (
-                        <DynamicModuleBoard 
-                            module={activeModule}
-                            items={filteredModuleItems}
-                            onDelete={handleDeleteWrapper}
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <DynamicModuleBoard 
+                              module={activeModule}
+                              items={filteredModuleItems}
+                              onDelete={handleDeleteWrapper}
+                          />
+                        </div>
+                    ) : activeType === 'All' ? (
+                        <MissionControlBoard
+                          items={items}
+                          runs={agentRuns}
+                          triageItems={triageItems}
+                          onOpenItem={handleViewDetail}
+                          onGoAgent={() => setActiveType('Agent')}
                         />
                     ) : activeType === 'Finance' ? (
-                        <FinanceBoard accounts={accounts} transactions={filteredTransactions} projects={items.filter(i => i.type === ParaType.PROJECT)} />
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <Suspense fallback={boardFallback}>
+                              <FinanceBoard
+                                accounts={accounts}
+                                transactions={filteredTransactions}
+                                projects={items.filter(i => i.type === ParaType.PROJECT)}
+                                onAddTransaction={addTransaction}
+                                onAddAccount={addAccount}
+                              />
+                          </Suspense>
+                        </div>
+                    ) : activeType === 'Review' ? (
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <Suspense fallback={boardFallback}>
+                              <ReviewBoard items={items} onOpenItem={handleViewDetail} />
+                          </Suspense>
+                        </div>
+                    ) : activeType === 'Agent' ? (
+                        <Suspense fallback={boardFallback}>
+                            <AgentBoard
+                                isLoading={isLoadingAgentData}
+                                isRunning={isRunningAgent}
+                                lastError={agentError}
+                                latestSummary={latestSummary}
+                                runs={agentRuns}
+                                triageItems={triageItems}
+                                opsKpis={opsKpis}
+                                captureKpis={captureKpis}
+                                onRefresh={refreshAgentData}
+                                onRunDaily={async (opts) => {
+                                    try {
+                                        await triggerDailyRun({ force: !!opts?.force });
+                                        showNotification('Daily agent run completed', 'success');
+                                    } catch {
+                                        showNotification('Daily agent run failed', 'error');
+                                    }
+                                }}
+                                onResolveTriage={handleResolveTriage}
+                                onOpenTriageItem={handleViewDetail}
+                            />
+                        </Suspense>
+                    ) : activeType === 'LifeOverview' ? (
+                        <LifeOverviewBoard
+                          items={items}
+                          onOpenItem={handleViewDetail}
+                        />
+                    ) : activeType === 'ThailandPulse' ? (
+                        <ThailandPulseBoard onSaveArticle={handleSavePulseArticle} />
+                    ) : activeType === 'AIConfig' ? (
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <Suspense fallback={boardFallback}>
+                              <AIConfigBoard />
+                          </Suspense>
+                        </div>
                     ) : viewMode === 'CALENDAR' ? (
-                        <CalendarBoard 
-                            items={items} 
-                            currentDate={calendarDate}
-                            onDateChange={setCalendarDate}
-                            onSelectItem={handleViewDetail}
-                        />
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <CalendarBoard 
+                              items={items} 
+                              currentDate={calendarDate}
+                              onDateChange={setCalendarDate}
+                              onSelectItem={handleViewDetail}
+                          />
+                        </div>
                     ) : viewMode === 'HABIT' ? (
-                        <HabitBoard items={items} />
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <HabitBoard items={items} />
+                        </div>
                     ) : (
-                        <ParaBoard 
-                            items={filteredParaItems} 
-                            allItems={items} // Pass FULL list for finding children/relations
-                            allItemsMap={allItemsMap} // Pass MAP for quick lookup
-                            activeType={activeType as any} 
-                            viewMode={viewMode}
-                            selectedIds={selectedIds}
-                            onSelect={handleSelect}
-                            onSelectAll={handleSelectAll}
-                            onDelete={handleDeleteWrapper} 
-                            onArchive={handleArchiveWrapper}
-                            onToggleComplete={(id, s) => toggleComplete(id, s)}
-                            onEdit={handleEditItem} 
-                            onItemClick={handleViewDetail} // Connect Detail View
-                        />
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <ParaBoard 
+                              items={filteredParaItems} 
+                              allItems={items} // Pass FULL list for finding children/relations
+                              allItemsMap={allItemsMap} // Pass MAP for quick lookup
+                              activeType={activeType as any} 
+                              viewMode={viewMode}
+                              selectedIds={selectedIds}
+                              onSelect={handleSelect}
+                              onSelectAll={handleSelectAll}
+                              onDelete={handleDeleteWrapper} 
+                              onArchive={handleArchiveWrapper}
+                              onToggleComplete={handleToggleComplete}
+                              onEdit={handleEditItem} 
+                              onItemClick={handleViewDetail} // Connect Detail View
+                          />
+                        </div>
                     )}
                 </div>
             </div>
 
-            {/* Chat Panel */}
-            <div className={`
-                hidden md:block border-l border-slate-200 bg-white transition-all duration-300 ease-in-out relative z-10
-                ${isChatOpen ? 'w-96 translate-x-0' : 'w-0 translate-x-full overflow-hidden border-none'}
-            `}>
-                <div className="w-96 h-full absolute right-0 top-0">
-                    <ChatPanel 
-                        messages={messages} 
-                        onSendMessage={handleSendMessage} 
-                        onCompleteTask={handleChatCompletion} 
-                        isProcessing={isProcessing} 
-                        onClose={() => setIsChatOpen(false)}
-                        className="h-full w-full" 
-                    />
-                </div>
-            </div>
-
-            {/* Mobile Chat */}
-            <div className={`md:hidden absolute inset-0 bg-white z-20 pb-14 ${mobileTab === 'chat' ? 'block' : 'hidden'}`}>
-               <ChatPanel messages={messages} onSendMessage={handleSendMessage} onCompleteTask={handleChatCompletion} isProcessing={isProcessing} className="w-full h-full" />
-            </div>
-
             {/* Batch Action Bar */}
             {selectedIds.size > 0 && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-6 duration-300">
+                <div className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-4 md:px-6 py-3 rounded-2xl shadow-2xl flex items-center justify-between gap-4 w-[calc(100%-1.5rem)] max-w-xl animate-in slide-in-from-bottom-6 duration-300">
                     <div className="flex items-center gap-2 border-r border-slate-700 pr-4">
                         <div className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">{selectedIds.size}</div>
                         <span className="text-sm font-medium">Selected</span>
@@ -463,11 +894,64 @@ export default function App() {
         </div>
       </div>
 
-      {/* Mobile Bottom Nav */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-white border-t flex justify-around items-center z-50 safe-area-bottom">
-        <button onClick={() => setMobileTab('board')} className={`flex flex-col items-center gap-0.5 p-1 ${mobileTab === 'board' ? 'text-indigo-600' : 'text-slate-400'}`}><LayoutDashboard className="w-5 h-5" /><span className="text-[9px] font-semibold">Board</span></button>
-        <button onClick={() => setMobileTab('chat')} className={`flex flex-col items-center gap-0.5 p-1 ${mobileTab === 'chat' ? 'text-indigo-600' : 'text-slate-400'}`}><MessageSquare className="w-5 h-5" /><span className="text-[9px] font-semibold">Chat</span></button>
+      {isChatOpen && (
+        <button
+          onClick={() => setIsChatOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/60 md:bg-slate-950/45 backdrop-blur-[1px]"
+          aria-label="Close chat overlay"
+        />
+      )}
+
+      <div className={`
+        fixed z-50 transition-all duration-200 ease-out
+        left-0 right-0 top-0 bottom-0
+        md:left-auto md:top-auto md:right-6 md:bottom-6
+        ${isDesktopViewport ? (isChatCompact ? 'md:w-[320px] md:h-[420px]' : 'md:w-[390px] md:h-[min(72vh,640px)]') : ''}
+        ${isChatOpen ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-6 md:translate-y-4 opacity-0 pointer-events-none'}
+      `}>
+        {isChatOpen && isDesktopViewport && (
+          <div className="absolute -top-10 right-0 flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/95 px-2 py-1 shadow-xl">
+            <button
+              onClick={() => setIsChatCompact((prev) => !prev)}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-cyan-200"
+              title={isChatCompact ? 'Expand chat' : 'Compact chat'}
+            >
+              {isChatCompact ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+              <span>{isChatCompact ? 'Expand' : 'Compact'}</span>
+            </button>
+            <button
+              onClick={() => setIsChatOpen(false)}
+              className="rounded-full px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-rose-200"
+              title="Close chat"
+            >
+              Close
+            </button>
+          </div>
+        )}
+        <Suspense fallback={boardFallback}>
+          <ChatPanel
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            onSendImage={handleSendImage}
+            onCompleteTask={handleChatCompletion}
+            isProcessing={isProcessing}
+            onClose={() => setIsChatOpen(false)}
+            className={`h-full w-full shadow-2xl overflow-hidden ${isDesktopViewport ? 'rounded-2xl border border-slate-700' : 'rounded-none border-x-0 border-b-0 border-t border-slate-700'}`}
+          />
+        </Suspense>
       </div>
+
+      {!isChatOpen && (
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="fixed z-50 right-4 bottom-4 md:right-6 md:bottom-6 inline-flex items-center gap-2 rounded-full border border-cyan-400/50 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-cyan-200 shadow-xl hover:bg-cyan-500/10"
+          title="Open AI Copilot"
+          aria-expanded={isChatOpen}
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span>AI Copilot</span>
+        </button>
+      )}
 
       {/* Modals */}
       <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} logs={historyLogs} />
@@ -492,10 +976,11 @@ export default function App() {
         allItems={items}
         onNavigate={handleViewDetail}
         onEdit={handleEditItem}
+        onToggleComplete={handleToggleComplete}
       />
 
       <ModuleBuilderModal isOpen={isModuleBuilderOpen} onClose={() => setIsModuleBuilderOpen(false)} onSave={handleCreateModule} />
-      <LineConnectModal isOpen={isLineModalOpen} onClose={() => setIsLineModalOpen(false)} />
+      <TelegramConnectModal isOpen={isTelegramModalOpen} onClose={() => setIsTelegramModalOpen(false)} />
     </div>
   );
 }

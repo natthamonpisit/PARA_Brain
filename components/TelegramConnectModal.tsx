@@ -1,18 +1,18 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Send, AlertTriangle, CheckCircle2, Server, Lock, Zap, Copy, Globe, MessageSquare, Terminal, RefreshCw, Activity, PauseCircle, PlayCircle } from 'lucide-react';
-import { lineService } from '../services/lineService';
+import { telegramService } from '../services/telegramService';
 import { supabase } from '../services/supabase';
 import { SystemLog } from '../types';
 
-interface LineConnectModalProps {
+interface TelegramConnectModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onClose }) => {
+export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<'SETUP' | 'LOGS'>('SETUP');
-  const [testMessage, setTestMessage] = useState('Test Message: Vercel Function is working! 🚀');
+  const [testMessage, setTestMessage] = useState('Test message from PARA Brain via Telegram.');
   const [status, setStatus] = useState<'IDLE' | 'SENDING' | 'SUCCESS' | 'ERROR'>('IDLE');
   const [errorMessage, setErrorMessage] = useState('');
   const [webhookUrl, setWebhookUrl] = useState('');
@@ -26,7 +26,7 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-        setWebhookUrl(`${window.location.origin}/api/line-webhook`);
+        setWebhookUrl(`${window.location.origin}/api/telegram-webhook`);
     }
   }, []);
 
@@ -86,7 +86,7 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
     setErrorMessage('');
     
     try {
-        await lineService.sendPushMessage(testMessage);
+        await telegramService.sendPushMessage(testMessage);
         setStatus('SUCCESS');
     } catch (error: any) {
         console.error(error);
@@ -126,10 +126,10 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl relative z-10 overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
         
         {/* Header */}
-        <div className="bg-[#06C755] px-6 py-4 flex justify-between items-center text-white shrink-0">
+        <div className="bg-[#229ED9] px-6 py-4 flex justify-between items-center text-white shrink-0">
             <div className="flex items-center gap-2 font-bold">
-                <MessageSquare className="w-6 h-6 fill-white text-[#06C755]" />
-                <span>LINE Integration Console</span>
+                <MessageSquare className="w-6 h-6" />
+                <span>Telegram Integration Console</span>
             </div>
             <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-full transition-colors">
                 <X className="w-5 h-5" />
@@ -140,7 +140,7 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
         <div className="flex border-b border-slate-100 bg-slate-50">
             <button 
                 onClick={() => setActiveTab('SETUP')}
-                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'SETUP' ? 'bg-white text-[#06C755] border-t-2 border-[#06C755]' : 'text-slate-400'}`}
+                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'SETUP' ? 'bg-white text-[#229ED9] border-t-2 border-[#229ED9]' : 'text-slate-400'}`}
             >
                 <Zap className="w-4 h-4" /> Setup & Test
             </button>
@@ -158,15 +158,15 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
             {activeTab === 'SETUP' && (
                 <>
                     {/* IMPORTANT WARNING */}
-                    <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex gap-3">
-                        <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+                    <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-4 flex gap-3">
+                        <AlertTriangle className="w-5 h-5 text-cyan-600 flex-shrink-0 mt-0.5" />
                         <div>
-                            <h4 className="font-bold text-orange-700 text-sm">Critical Setting: Webhook Redelivery</h4>
-                            <p className="text-xs text-orange-600 mt-1 leading-relaxed">
-                                Because AI takes time to think (5-10s), LINE might timeout and resend messages, causing duplicates.
+                            <h4 className="font-bold text-cyan-800 text-sm">Telegram Webhook Setup</h4>
+                            <p className="text-xs text-cyan-700 mt-1 leading-relaxed">
+                                Set this webhook URL in Telegram using `setWebhook` and use `TELEGRAM_WEBHOOK_SECRET` for header validation.
                             </p>
-                            <p className="text-xs font-bold text-orange-700 mt-2">
-                                👉 Go to LINE Developers Console &gt; Messaging API &gt; Webhook settings and DISABLE "Webhook redelivery".
+                            <p className="text-xs font-bold text-cyan-800 mt-2">
+                                👉 Example: `https://api.telegram.org/bot&lt;TOKEN&gt;/setWebhook?url=&lt;YOUR_URL&gt;&secret_token=&lt;YOUR_SECRET&gt;`
                             </p>
                         </div>
                     </div>
@@ -178,17 +178,15 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
                         </div>
                         
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                            <p className="text-xs text-slate-500 mb-2">
-                                Paste into <b>LINE Developers Console &gt; Webhook URL</b>
-                            </p>
+                            <p className="text-xs text-slate-500 mb-2">Use this as your Telegram webhook URL</p>
                             <div className="flex gap-2">
                                 <div className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 truncate flex items-center gap-2">
                                     <Globe className="w-3 h-3 text-slate-400 flex-shrink-0" />
                                     {webhookUrl}
                                 </div>
-                                <button onClick={handleCopy} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1">
-                                    {copied ? <CheckCircle2 className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
-                                    Copy
+                            <button onClick={handleCopy} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1">
+                                {copied ? <CheckCircle2 className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                                Copy
                                 </button>
                             </div>
                         </div>
@@ -213,7 +211,7 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
                             <button 
                                 onClick={handleTestSend}
                                 disabled={status === 'SENDING'}
-                                className="w-full py-2 bg-[#06C755] hover:bg-[#05b34c] text-white font-bold rounded-lg shadow-sm"
+                                className="w-full py-2 bg-[#229ED9] hover:bg-[#1b89bd] text-white font-bold rounded-lg shadow-sm"
                             >
                                 {status === 'SENDING' ? 'Sending...' : 'Send Test'}
                             </button>
@@ -228,7 +226,7 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
                     <div className="flex justify-between items-center mb-4 px-1">
                         <div>
                             <p className="text-sm font-bold text-slate-800">System Logs</p>
-                            <p className="text-[10px] text-slate-500">Real-time interactions from the webhook.</p>
+                            <p className="text-[10px] text-slate-500">Real-time interactions from Telegram webhook.</p>
                         </div>
                         <div className="flex gap-2">
                             <button 
@@ -252,7 +250,7 @@ export const LineConnectModal: React.FC<LineConnectModalProps> = ({ isOpen, onCl
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-xl py-10 bg-slate-50/50">
                             <Activity className="w-10 h-10 mb-2 opacity-20" />
                             <p className="text-sm">No logs found.</p>
-                            <p className="text-xs mt-1">Try chatting with your LINE bot first.</p>
+                            <p className="text-xs mt-1">Try chatting with your Telegram bot first.</p>
                             <div className="mt-4 p-3 bg-red-50 text-red-500 rounded-lg text-[10px] max-w-xs text-center border border-red-100">
                                 Warning: Ensure 'system_logs' table exists in Supabase.
                             </div>

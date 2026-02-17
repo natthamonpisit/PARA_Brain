@@ -466,7 +466,11 @@ export const useAIChat = ({
 
         } catch (error: any) {
             console.error("AI Error:", error);
-            addMessage({ id: generateId(), role: 'assistant', text: `Error: ${error.message}`, source: 'WEB', timestamp: new Date() });
+            const msg = String(error?.message || '');
+            const userFriendly = msg.includes('API Key not found') || msg.includes('Missing server configuration')
+                ? 'Capture failed: API Key ไม่พบ — กรุณาตั้งค่า GEMINI_API_KEY ใน environment variables ของ Vercel'
+                : `Error: ${msg}`;
+            addMessage({ id: generateId(), role: 'assistant', text: userFriendly, source: 'WEB', timestamp: new Date() });
         } finally {
             setIsProcessing(false);
         }

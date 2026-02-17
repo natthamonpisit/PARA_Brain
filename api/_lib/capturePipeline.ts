@@ -698,6 +698,11 @@ Core behavior:
    - Add "reminder" to suggestedTags.
    - Default to 09:00 in user's timezone if no specific time given.
    - chatResponse should confirm what and when in human-readable format in user's timezone (e.g., "ตั้งเตือนเรียบร้อย! จะเตือนเรื่อง 'โทรหาแม่' พรุ่งนี้ 15:00 น.").
+13. Due date inference for all tasks: When creating a Task (type=Tasks), always try to extract or infer a dueDate:
+   - If user mentions a deadline ("by Friday", "before next week", "ภายในวันศุกร์"), compute the ISO 8601 datetime.
+   - If context implies urgency ("urgent", "ด่วน", "ASAP"), set dueDate to today or tomorrow.
+   - If no time clue at all, leave dueDate empty — the system will auto-assign +7 days as default.
+   - Always use timezone ${timezone} for date computations.
 
 PARA constraints:
 - Task should belong to a project when possible.
@@ -1151,6 +1156,12 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         };
         if (modelOutput.dueDate && String(modelOutput.dueDate).includes('T')) {
           taskPayload.due_date = modelOutput.dueDate;
+        } else {
+          // Default: +7 days from now at 09:00 in user's timezone
+          const tz = input.timezone || 'Asia/Bangkok';
+          const defaultDue = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+          const parts = defaultDue.toLocaleDateString('en-CA', { timeZone: tz }).split('-');
+          taskPayload.due_date = `${parts[0]}-${parts[1]}-${parts[2]}T09:00:00`;
         }
 
         const insert = await input.supabase.from(table).insert(taskPayload).select().single();

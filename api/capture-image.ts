@@ -55,7 +55,12 @@ export default async function handler(req: any, res: any) {
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     if (!supabaseUrl || !supabaseKey || !geminiKey) {
-      return respond(500, { error: 'Missing server configuration' }, { reason: 'missing_env' });
+      const missing = [
+        !supabaseUrl && 'VITE_SUPABASE_URL',
+        !supabaseKey && 'SUPABASE_SERVICE_ROLE_KEY',
+        !geminiKey && 'GEMINI_API_KEY'
+      ].filter(Boolean);
+      return respond(500, { error: `Missing server configuration: ${missing.join(', ')}` }, { reason: 'missing_env', missing });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey, {

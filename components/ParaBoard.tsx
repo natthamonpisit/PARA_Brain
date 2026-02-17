@@ -84,105 +84,103 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
       });
 
       return (
-          <div className="pb-32 space-y-8 animate-in fade-in duration-500">
-              <div className="flex flex-col gap-2 mb-6">
-                  <h1 className="text-3xl font-bold text-slate-100">Life Dashboard</h1>
-                  <p className="text-slate-400">Your areas of responsibility at a glance.</p>
+          <div className="pb-20 space-y-5 animate-in fade-in duration-500">
+              <div className="flex flex-col gap-1 mb-4">
+                  <h1 className="text-2xl font-bold text-slate-100">Life Dashboard</h1>
+                  <p className="text-sm text-slate-400">Your areas of responsibility at a glance.</p>
               </div>
 
-              {/* AREA CARDS GRID - Responsive Auto-Fill */}
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-6">
+              {/* AREA CARDS GRID - Compact */}
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
                   {areaStats.map(({ area, stats }) => (
-                      <div 
-                        key={area.id} 
+                      <div
+                        key={area.id}
                         onClick={() => onItemClick && onItemClick(area.id)}
-                        className="group rounded-2xl border border-slate-700/80 bg-slate-900/70 p-6 hover:border-cyan-400/40 transition-all duration-300 relative overflow-hidden cursor-pointer flex flex-col"
+                        className="group rounded-xl border border-slate-700/80 bg-slate-900/70 p-3.5 hover:border-cyan-400/40 transition-all duration-300 relative overflow-hidden cursor-pointer flex flex-col"
                       >
-                          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-cyan-400 to-emerald-400"></div>
+                          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 to-emerald-400"></div>
 
-                          <div className="flex justify-between items-start mb-4">
-                              <div className="flex items-center gap-3 min-w-0">
-                                  <div className="p-2.5 bg-cyan-500/10 text-cyan-300 rounded-xl shrink-0">
-                                     <Layers className="w-6 h-6" />
+                          <div className="flex justify-between items-start mb-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                  <div className="p-1.5 bg-cyan-500/10 text-cyan-300 rounded-lg shrink-0">
+                                     <Layers className="w-4 h-4" />
                                   </div>
                                   <div className="min-w-0">
-                                     <h3 className="text-lg font-bold text-slate-100 leading-tight truncate">{area.title}</h3>
-                                     <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Area</span>
+                                     <h3 className="text-sm font-bold text-slate-100 leading-tight truncate">{area.title}</h3>
+                                     <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Area</span>
                                   </div>
                               </div>
                               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                   {onEdit && (
-                                    <button onClick={(e) => { e.stopPropagation(); onEdit(area.id); }} className="text-slate-500 hover:text-cyan-300 p-1">
-                                        <Pencil className="w-4 h-4" />
+                                    <button onClick={(e) => { e.stopPropagation(); onEdit(area.id); }} className="text-slate-500 hover:text-cyan-300 p-0.5">
+                                        <Pencil className="w-3.5 h-3.5" />
                                     </button>
                                   )}
-                                  <button onClick={(e) => { e.stopPropagation(); onDelete(area.id); }} className="text-slate-500 hover:text-rose-300 p-1">
-                                      <Trash2 className="w-4 h-4" />
+                                  <button onClick={(e) => { e.stopPropagation(); onDelete(area.id); }} className="text-slate-500 hover:text-rose-300 p-0.5">
+                                      <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                               </div>
                           </div>
 
-                          <div className="grid grid-cols-3 gap-2 mb-6 mt-auto">
-                              <div className="bg-slate-900 rounded-lg p-2 text-center border border-slate-700">
-                                  <div className="flex items-center justify-center gap-1 text-rose-300 mb-1">
-                                      <Target className="w-3.5 h-3.5" />
+                          <div className="grid grid-cols-3 gap-1.5 mb-3 mt-auto">
+                              <div className="bg-slate-900 rounded-md p-1.5 text-center border border-slate-700">
+                                  <div className="flex items-center justify-center text-rose-300 mb-0.5">
+                                      <Target className="w-3 h-3" />
                                   </div>
-                                  <div className="text-lg font-bold text-slate-100 leading-none">{stats.projects}</div>
-                                  <div className="text-[9px] text-slate-500 font-medium mt-1">Projects</div>
+                                  <div className="text-sm font-bold text-slate-100 leading-none">{stats.projects}</div>
+                                  <div className="text-[8px] text-slate-500 font-medium mt-0.5">Proj</div>
                               </div>
-                              <div className="bg-slate-900 rounded-lg p-2 text-center border border-slate-700">
-                                  <div className="flex items-center justify-center gap-1 text-emerald-300 mb-1">
-                                      <CheckSquare className="w-3.5 h-3.5" />
+                              <div className="bg-slate-900 rounded-md p-1.5 text-center border border-slate-700">
+                                  <div className="flex items-center justify-center text-emerald-300 mb-0.5">
+                                      <CheckSquare className="w-3 h-3" />
                                   </div>
-                                  <div className="text-lg font-bold text-slate-100 leading-none">{stats.tasks}</div>
-                                  <div className="text-[9px] text-slate-500 font-medium mt-1">Tasks</div>
+                                  <div className="text-sm font-bold text-slate-100 leading-none">{stats.tasks}</div>
+                                  <div className="text-[8px] text-slate-500 font-medium mt-0.5">Tasks</div>
                               </div>
-                              <div className="bg-slate-900 rounded-lg p-2 text-center border border-slate-700">
-                                  <div className="flex items-center justify-center gap-1 text-cyan-300 mb-1">
-                                      <Book className="w-3.5 h-3.5" />
+                              <div className="bg-slate-900 rounded-md p-1.5 text-center border border-slate-700">
+                                  <div className="flex items-center justify-center text-cyan-300 mb-0.5">
+                                      <Book className="w-3 h-3" />
                                   </div>
-                                  <div className="text-lg font-bold text-slate-100 leading-none">{stats.resources}</div>
-                                  <div className="text-[9px] text-slate-500 font-medium mt-1">Res</div>
+                                  <div className="text-sm font-bold text-slate-100 leading-none">{stats.resources}</div>
+                                  <div className="text-[8px] text-slate-500 font-medium mt-0.5">Res</div>
                               </div>
                           </div>
 
-                          <div className="space-y-1.5">
+                          <div className="space-y-1">
                               <div className="flex justify-between text-[10px] font-semibold text-slate-500">
-                                  <span>Task Completion</span>
+                                  <span>Completion</span>
                                   <span>{stats.progress}%</span>
                               </div>
-                              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
                                   <div className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 rounded-full transition-all duration-500" style={{ width: `${stats.progress}%` }}></div>
                               </div>
                           </div>
                       </div>
                   ))}
 
-                  {/* Add Area Placeholder */}
                   {areaStats.length === 0 && (
-                      <div className="col-span-full py-16 text-center border-2 border-dashed border-slate-700 rounded-2xl bg-slate-900/40">
-                          <Layers className="w-12 h-12 text-slate-500 mx-auto mb-3" />
-                          <h3 className="text-slate-300 font-medium">No Areas Defined</h3>
-                          <p className="text-sm text-slate-500 mt-1">Create an 'Area' (e.g., Health, Work) to see it here.</p>
+                      <div className="col-span-full py-10 text-center border-2 border-dashed border-slate-700 rounded-xl bg-slate-900/40">
+                          <Layers className="w-10 h-10 text-slate-500 mx-auto mb-2" />
+                          <h3 className="text-slate-300 font-medium text-sm">No Areas Defined</h3>
+                          <p className="text-xs text-slate-500 mt-1">Create an 'Area' (e.g., Health, Work) to see it here.</p>
                       </div>
                   )}
               </div>
 
-              {/* Unassigned Items */}
               {unassignedItems.length > 0 && (
-                  <div className="mt-12 pt-8 border-t border-slate-800">
-                      <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-cyan-300"></div>
+                  <div className="mt-6 pt-4 border-t border-slate-800">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-cyan-300"></div>
                           Unassigned / Inbox
                       </h4>
-                      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4 opacity-80 hover:opacity-100 transition-opacity">
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2 opacity-80 hover:opacity-100 transition-opacity">
                           {unassignedItems.slice(0, 6).map(item => (
-                              <div key={item.id} onClick={() => onItemClick && onItemClick(item.id)} className="bg-slate-900/70 border border-slate-700 rounded-lg p-3 flex items-center justify-between cursor-pointer hover:border-cyan-400/40 hover:bg-slate-900">
-                                  <div>
-                                      <p className="font-medium text-slate-200 text-sm truncate max-w-[160px]">{item.title}</p>
+                              <div key={item.id} onClick={() => onItemClick && onItemClick(item.id)} className="bg-slate-900/70 border border-slate-700 rounded-lg p-2 flex items-center justify-between cursor-pointer hover:border-cyan-400/40 hover:bg-slate-900">
+                                  <div className="min-w-0">
+                                      <p className="font-medium text-slate-200 text-xs truncate">{item.title}</p>
                                       <p className="text-[10px] text-slate-500">{item.type} • {item.category}</p>
                                   </div>
-                                  <ArrowRight className="w-4 h-4 text-slate-500" />
+                                  <ArrowRight className="w-3.5 h-3.5 text-slate-500 shrink-0 ml-1" />
                               </div>
                           ))}
                       </div>
@@ -314,16 +312,16 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
 
   // --- RENDER GRID / LIST VIEW (GROUPED) ---
   return (
-    <div className="pb-32 space-y-8">
+    <div className="pb-20 space-y-5">
       {Object.entries(groupedItems).map(([category, categoryItems]: [string, ParaItem[]]) => (
         <div key={category} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-xl font-bold text-slate-100">{category}</h2>
+          <div className="flex items-center gap-2 mb-2.5">
+            <h2 className="text-lg font-bold text-slate-100">{category}</h2>
             <div className="h-px flex-1 bg-slate-700"></div>
-            <span className="text-xs font-medium text-slate-500">{categoryItems.length} items</span>
+            <span className="text-[10px] font-medium text-slate-500">{categoryItems.length} items</span>
           </div>
 
-          <div className={`grid gap-4 ${viewMode === 'LIST' ? 'grid-cols-1' : 'grid-cols-[repeat(auto-fill,minmax(240px,1fr))]'}`}>
+          <div className={`grid gap-2.5 ${viewMode === 'LIST' ? 'grid-cols-1' : 'grid-cols-[repeat(auto-fill,minmax(200px,1fr))]'}`}>
             {categoryItems.map(item => {
                 // Find child resources for Project/Area cards using 'allItems'
                 let childResources: ParaItem[] | undefined = undefined;

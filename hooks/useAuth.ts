@@ -2,13 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 
-const ALLOWED_EMAIL = (() => {
-  try {
-    return String((import.meta as any)?.env?.VITE_ALLOWED_EMAIL || '').trim();
-  } catch {
-    return '';
-  }
-})();
+const ALLOWED_EMAIL = (import.meta.env.VITE_ALLOWED_EMAIL || '').trim();
 
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);

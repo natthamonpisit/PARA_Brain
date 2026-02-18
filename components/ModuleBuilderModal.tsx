@@ -84,37 +84,37 @@ export const ModuleBuilderModal: React.FC<ModuleBuilderModalProps> = ({ isOpen, 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col relative z-10 overflow-hidden border border-slate-100">
-        
-        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <Settings className="w-5 h-5 text-indigo-600" />
+      <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col relative z-10 overflow-hidden border border-slate-700">
+
+        <div className="px-6 py-4 border-b border-slate-700 bg-slate-800 flex justify-between items-center shrink-0">
+          <h3 className="font-bold text-slate-200 flex items-center gap-2">
+            <Settings className="w-5 h-5 text-cyan-400" />
             Create New Module
           </h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200">
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-200 rounded-full hover:bg-slate-700">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
-          
+
           {/* 1. Basic Info */}
           <div className="space-y-4">
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Module Details</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">Module Name</label>
-                    <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Health Tracker" className="w-full px-3 py-2 border rounded-lg text-sm" />
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">Module Name</label>
+                    <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Health Tracker" className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200" />
                 </div>
                 <div>
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">Icon</label>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">Icon</label>
                     <div className="flex gap-2 flex-wrap">
                         {AVAILABLE_ICONS.map(({name: iconName, icon: Icon}) => (
-                            <button 
+                            <button
                                 key={iconName}
                                 type="button"
                                 onClick={() => setSelectedIcon(iconName)}
-                                className={`p-2 rounded-lg border transition-all ${selectedIcon === iconName ? 'bg-indigo-50 border-indigo-500 text-indigo-600' : 'border-slate-200 text-slate-400 hover:border-slate-300'}`}
+                                className={`p-2 rounded-lg border transition-all ${selectedIcon === iconName ? 'bg-cyan-500/15 border-cyan-400 text-cyan-400' : 'border-slate-700 text-slate-500 hover:border-slate-600'}`}
                             >
                                 <Icon className="w-4 h-4" />
                             </button>
@@ -127,18 +127,18 @@ export const ModuleBuilderModal: React.FC<ModuleBuilderModalProps> = ({ isOpen, 
           {/* 2. Field Builder */}
           <div className="space-y-4">
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Data Fields</h4>
-            
+
             {/* Field List */}
             {fields.length > 0 && (
-                <div className="bg-slate-50 rounded-xl border border-slate-200 divide-y divide-slate-200">
+                <div className="bg-slate-800 rounded-xl border border-slate-700 divide-y divide-slate-700">
                     {fields.map((field, idx) => (
                         <div key={idx} className="p-3 flex items-center justify-between text-sm">
                             <div className="flex items-center gap-3">
-                                <span className="font-semibold text-slate-700">{field.label}</span>
-                                <span className="text-xs px-2 py-0.5 bg-slate-200 rounded-full text-slate-500 uppercase">{field.type}</span>
+                                <span className="font-semibold text-slate-200">{field.label}</span>
+                                <span className="text-xs px-2 py-0.5 bg-slate-700 rounded-full text-slate-400 uppercase">{field.type}</span>
                                 {field.options && <span className="text-xs text-slate-400 truncate max-w-[150px]">({field.options.join(', ')})</span>}
                             </div>
-                            <button type="button" onClick={() => handleRemoveField(idx)} className="text-slate-400 hover:text-red-500">
+                            <button type="button" onClick={() => handleRemoveField(idx)} className="text-slate-500 hover:text-red-400">
                                 <Trash2 className="w-4 h-4" />
                             </button>
                         </div>
@@ -147,13 +147,13 @@ export const ModuleBuilderModal: React.FC<ModuleBuilderModalProps> = ({ isOpen, 
             )}
 
             {/* Add Field Form */}
-            <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-3">
+            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 space-y-3">
                 <div className="grid grid-cols-12 gap-2">
                     <div className="col-span-5">
-                         <input type="text" value={newFieldLabel} onChange={(e) => setNewFieldLabel(e.target.value)} placeholder="Field Label (e.g. Weight)" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                         <input type="text" value={newFieldLabel} onChange={(e) => setNewFieldLabel(e.target.value)} placeholder="Field Label (e.g. Weight)" className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200" />
                     </div>
                     <div className="col-span-3">
-                         <select value={newFieldType} onChange={(e) => setNewFieldType(e.target.value as any)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                         <select value={newFieldType} onChange={(e) => setNewFieldType(e.target.value as any)} className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200">
                              <option value="text">Text</option>
                              <option value="number">Number</option>
                              <option value="select">Select</option>
@@ -163,10 +163,10 @@ export const ModuleBuilderModal: React.FC<ModuleBuilderModalProps> = ({ isOpen, 
                     </div>
                     <div className="col-span-4 flex gap-2">
                          {newFieldType === 'select' && (
-                             <input type="text" value={newFieldOptions} onChange={(e) => setNewFieldOptions(e.target.value)} placeholder="Options (comma sep)" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                             <input type="text" value={newFieldOptions} onChange={(e) => setNewFieldOptions(e.target.value)} placeholder="Options (comma sep)" className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200" />
                          )}
-                         <button 
-                            type="button" 
+                         <button
+                            type="button"
                             onClick={handleAddField}
                             disabled={!newFieldLabel}
                             className="ml-auto px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -180,10 +180,10 @@ export const ModuleBuilderModal: React.FC<ModuleBuilderModalProps> = ({ isOpen, 
 
         </form>
 
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-             <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
-             <button 
-                onClick={handleSubmit} 
+        <div className="px-6 py-4 border-t border-slate-700 bg-slate-800 flex justify-end gap-3">
+             <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-400 hover:bg-slate-700 rounded-lg">Cancel</button>
+             <button
+                onClick={handleSubmit}
                 disabled={isSubmitting || !name}
                 className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 shadow-lg disabled:opacity-50"
              >

@@ -72,6 +72,8 @@ interface CaptureModelOutput {
   relatedProjectTitle?: string;
   relatedAreaTitle?: string;
   createProjectIfMissing?: boolean;
+  askForParent?: boolean;
+  clarifyingQuestion?: string;
   suggestedTags?: string[];
   dueDate?: string;
   amount?: number;
@@ -495,26 +497,27 @@ async function loadCaptureContext(supabase: any): Promise<CaptureContext> {
   const [projectsRes, areasRes, tasksRes, resourcesRes, accountsRes, modulesRes] = await Promise.all([
     supabase
       .from('projects')
-      .select('id,title,category,type,related_item_ids,updated_at')
-      .order('updated_at', { ascending: false })
-      .limit(60),
-    supabase
-      .from('areas')
-      .select('id,title,name,category,updated_at')
+      .select('id,title,category,updated_at')
       .order('updated_at', { ascending: false })
       .limit(30),
     supabase
-      .from('tasks')
-      .select('id,title,category,related_item_ids,is_completed,due_date,updated_at')
+      .from('areas')
+      .select('id,title,name,updated_at')
       .order('updated_at', { ascending: false })
-      .limit(80),
+      .limit(25),
+    supabase
+      .from('tasks')
+      .select('id,title,category,is_completed,updated_at')
+      .eq('is_completed', false)
+      .order('updated_at', { ascending: false })
+      .limit(30),
     supabase
       .from('resources')
-      .select('id,title,category,content,updated_at')
+      .select('id,title,category,updated_at')
       .order('updated_at', { ascending: false })
-      .limit(40),
-    supabase.from('accounts').select('id,name').limit(20),
-    supabase.from('modules').select('id,name,schema_config').limit(20)
+      .limit(15),
+    supabase.from('accounts').select('id,name').limit(15),
+    supabase.from('modules').select('id,name').limit(10)
   ]);
 
   return {
@@ -660,78 +663,47 @@ function buildCapturePrompt(params: {
   const now = new Date();
   const nowText = now.toLocaleString('en-US', { timeZone: timezone });
 
-  const projectsText = formatContextRows(context.projects.slice(0, 25), ['id', 'title', 'category']);
-  const areasText = formatContextRows(context.areas.slice(0, 20), ['id', 'title', 'name', 'category']);
-  const tasksText = formatContextRows(context.tasks.slice(0, 25), ['id', 'title', 'category', 'is_completed']);
-  const accountsText = formatContextRows(context.accounts.slice(0, 12), ['id', 'name']);
-  const modulesText = formatContextRows(context.modules.slice(0, 12), ['id', 'name']);
+  const projectsText = formatContextRows(context.projects, ['id', 'title', 'category']);
+  const areasText = formatContextRows(context.areas, ['id', 'title']);
+  const tasksText = formatContextRows(context.tasks.slice(0, 20), ['id', 'title', 'category']);
+  const accountsText = formatContextRows(context.accounts, ['id', 'name']);
+  const modulesText = formatContextRows(context.modules, ['id', 'name']);
 
-  return `You are JAY, PARA Brain capture router.
+  const isPlanningMsg = looksLikePlanningRequest(message);
+  const hasUrls = urls.length > 0;
 
-Current time (${timezone}): ${nowText} | ISO: ${now.toISOString()}
-Inbound source: ${source}
-User message: "${message}"
-URLs detected: ${urls.length > 0 ? urls.join(', ') : 'none'}
-Duplicate hints: isDuplicate=${dedup.isDuplicate}; reason=${dedup.reason}; matchedItemId=${dedup.matchedItemId || 'none'}; matchedTable=${dedup.matchedTable || 'none'}
+  return `You are JAY, PARA Brain capture router. Respond in Thai. Return strict JSON only.
+Now: ${nowText} (${timezone}) | ISO: ${now.toISOString()} | Source: ${source}
+Msg: "${message}"${hasUrls ? `\nURLs: ${urls.join(', ')}` : ''}
+Dedup: dup=${dedup.isDuplicate}; reason=${dedup.reason}${dedup.matchedItemId ? `; id=${dedup.matchedItemId}` : ''}
 
-Core behavior:
-1. Classify intent first: CHITCHAT vs actionable capture.
-2. If CHITCHAT, set operation=CHAT and do not create data.
-3. If actionable, map into PARA/finance/module actions.
-4. Prefer linking task to an existing project.
-5. If task has no matching project but user clearly implies a project, propose relatedProjectTitle and createProjectIfMissing=true.
-6. Use dedup hints: if likely duplicate, avoid new create unless user explicitly asks to create another.
-7. Keep assistant response concise in Thai.
-7.1 If operation=CHAT, explicitly communicate that no database write was executed in this turn.
-7.2 Never claim "saved/created/completed" when operation=CHAT.
-8. If confidence is low (< ${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}) for write operation, keep operation but provide data that can be confirmed.
-9. Alfred planning mode: when user asks "how to / what should I know / direction / framework", provide starter guidance fields:
-   - goal, prerequisites[], starterTasks[], nextActions[], riskNotes[], clarifyingQuestions[]
-10. If the user asks to "จัดให้/วางให้/ช่วยแตกงาน", keep response practical and suggest concrete starter tasks that can be executed today.
-11. Prefer a single master task with clear checklist when user has broad goal and low detail.
-12. Reminder handling: When user says "remind me", "เตือนฉัน", "เตือนผม", "แจ้งเตือน", "reminder", or similar:
-   - Classify as TASK_CAPTURE with operation=CREATE, type=Tasks.
-   - Extract reminder time as dueDate in ISO 8601 with timezone offset (e.g., "2026-02-18T15:00:00+07:00").
-   - Use current time and timezone (${timezone}) to compute correct absolute datetime.
-   - Relative time: "tomorrow" = next day, "in 2 hours" = now+2h, "next Monday" = coming Monday, "วันศุกร์" = this Friday, etc.
-   - Title = the action being reminded, NOT "remind me to..." (e.g., "remind me to call Mom" → title="Call Mom").
-   - Add "reminder" to suggestedTags.
-   - Default to 09:00 in user's timezone if no specific time given.
-   - chatResponse should confirm what and when in human-readable format in user's timezone (e.g., "ตั้งเตือนเรียบร้อย! จะเตือนเรื่อง 'โทรหาแม่' พรุ่งนี้ 15:00 น.").
-13. Due date inference for all tasks: When creating a Task (type=Tasks), always try to extract or infer a dueDate:
-   - If user mentions a deadline ("by Friday", "before next week", "ภายในวันศุกร์"), compute the ISO 8601 datetime.
-   - If context implies urgency ("urgent", "ด่วน", "ASAP"), set dueDate to today or tomorrow.
-   - If no time clue at all, leave dueDate empty — the system will auto-assign +7 days as default.
-   - Always use timezone ${timezone} for date computations.
+Rules:
+1. CHITCHAT→operation=CHAT (no DB write). ACTIONABLE→map to PARA/finance/module.
+2. If operation=CHAT: never claim saved/created. Say explicitly no DB write this turn.
+3. Dedup: if isDuplicate=true, skip create unless user explicitly asks again.
+4. Low confidence (<${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}): keep operation, data; system will confirm.
+5. Reminder ("remind me/เตือน"): type=Tasks, dueDate=ISO8601+tz, title=action (not "remind me to..."), tag="reminder". Default 09:00 if no time given.
+6. dueDate: extract from deadline mentions. Urgency→today/tomorrow. No clue→leave empty (system adds +7d).
+${isPlanningMsg ? `7. Planning mode ("ทำยังไง/แนวทาง/framework"): fill goal,prerequisites[],starterTasks[],nextActions[],riskNotes[],clarifyingQuestions[].` : ''}
 
-PARA constraints:
-- Task should belong to a project when possible.
-- Project should map to an area by category or relatedAreaTitle.
-- Resource with URL should go to type=Resources unless user clearly asks for task/action.
-- Travel/Hiking rule intent: one-off trip defaults to "Side Projects & Experiments".
-- Travel with family signal should map to "Family & Relationships".
-- Travel with routine/fitness signal should map to "Health & Energy".
-Routing rules source of truth: shared/routingRules.js (version ${ROUTING_RULES_VERSION}).
+PARA (STRICT):
+P1. Project→must have Area: always set relatedAreaTitle from Existing Areas (closest fit).
+P2. Task parent order: (a)relatedProjectTitle if project exists→(b)relatedAreaTitle if area exists→(c)askForParent=true+clarifyingQuestion if unsure.
+P3. createProjectIfMissing=true only when area is also known (set relatedAreaTitle).
+P4. Never orphan Task or Project without parent.
+- URL resource→type=Resources unless user wants action.
+- Travel one-off→"Side Projects & Experiments". With family→"Family & Relationships". Fitness→"Health & Energy".
+(routing v${ROUTING_RULES_VERSION})
 
-Existing Areas:
+Areas:
 ${areasText || '(none)'}
 
-Existing Projects:
+Projects:
 ${projectsText || '(none)'}
 
-Recent Tasks:
+Tasks (pending):
 ${tasksText || '(none)'}
-
-Accounts:
-${accountsText || '(none)'}
-
-Modules:
-${modulesText || '(none)'}
-
-Runtime custom instructions:
-${customInstructions.length ? customInstructions.map((line, idx) => `${idx + 1}. ${line}`).join('\n') : '(none)'}
-
-Return strict JSON only.`;
+${accountsText ? `\nAccounts:\n${accountsText}` : ''}${modulesText ? `\nModules:\n${modulesText}` : ''}${customInstructions.length ? `\nCustom:\n${customInstructions.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}`;
 }
 
 function buildResponseSchema() {
@@ -770,6 +742,8 @@ function buildResponseSchema() {
       relatedProjectTitle: { type: Type.STRING, nullable: true },
       relatedAreaTitle: { type: Type.STRING, nullable: true },
       createProjectIfMissing: { type: Type.BOOLEAN, nullable: true },
+      askForParent: { type: Type.BOOLEAN, nullable: true },
+      clarifyingQuestion: { type: Type.STRING, nullable: true },
       suggestedTags: {
         type: Type.ARRAY,
         nullable: true,
@@ -1061,6 +1035,30 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     };
   }
 
+  // Handle askForParent: AI is unsure about parent — ask user before creating
+  if (modelOutput.askForParent && operation === 'CREATE' && !forceConfirmed) {
+    const question = String(modelOutput.clarifyingQuestion || modelOutput.chatResponse || '').trim()
+      || `ควรให้ "${String(modelOutput.title || truncate(message, 60))}" อยู่ใน Project หรือ Area ไหนครับ?`;
+    return {
+      success: true,
+      source: input.source,
+      intent,
+      confidence,
+      isActionable,
+      operation,
+      chatResponse: question,
+      actionType: 'NEEDS_PARENT_CLARIFICATION',
+      status: 'PENDING',
+      dedup,
+      meta: {
+        requiresConfirmation: true,
+        suggestedTitle: String(modelOutput.title || truncate(message, 80)),
+        writeExecuted: false,
+        dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
+      }
+    };
+  }
+
   try {
     const nowIso = new Date().toISOString();
     const baseTitle = String(modelOutput.title || '').trim() || truncate(message, 80);
@@ -1116,15 +1114,17 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
             if (existingProject?.id) {
               relatedItemIds = [existingProject.id];
             } else {
-              const area = findByTitle(context.areas, modelOutput.relatedAreaTitle || baseCategory);
+              // Find the area to link the auto-created project to
+              const areaForProject = findByTitle(context.areas, modelOutput.relatedAreaTitle || baseCategory)
+                || findByTitle(context.areas, baseCategory);
               const projectPayload: any = {
                 id: uuidv4(),
                 title: targetProjectTitle,
                 type: 'Projects',
-                category: String(modelOutput.relatedAreaTitle || baseCategory || 'General'),
+                category: String(modelOutput.relatedAreaTitle || areaForProject?.title || baseCategory || 'General'),
                 content: `Auto-created from capture: ${truncate(message, 220)}`,
                 tags: Array.from(new Set(['auto-capture', 'project', ...tags])),
-                related_item_ids: area?.id ? [area.id] : [],
+                related_item_ids: areaForProject?.id ? [areaForProject.id] : [],
                 is_completed: false,
                 created_at: nowIso,
                 updated_at: nowIso
@@ -1136,6 +1136,12 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
               if (autoProject) createdItems.push(autoProject);
             }
           }
+        }
+
+        // Fallback: if still no project, try to link directly to an Area
+        if (relatedItemIds.length === 0 && modelOutput.relatedAreaTitle) {
+          const area = findByTitle(context.areas, modelOutput.relatedAreaTitle);
+          if (area?.id) relatedItemIds = [area.id];
         }
 
         const taskPayload: any = {
@@ -1197,14 +1203,26 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         };
       }
 
+      // For Projects: resolve and link to Area
+      let nonTaskRelatedIds: string[] = [];
+      if (modelOutput.relatedItemId) {
+        nonTaskRelatedIds = [String(modelOutput.relatedItemId)];
+      } else if (paraType === 'Projects') {
+        // P1: Project MUST link to an Area — try relatedAreaTitle, then category, then best guess
+        const areaLookup = modelOutput.relatedAreaTitle || modelOutput.category || baseCategory;
+        const linkedArea = findByTitle(context.areas, areaLookup)
+          || (context.areas.length > 0 ? null : null); // only link if area found
+        if (linkedArea?.id) nonTaskRelatedIds = [linkedArea.id];
+      }
+
       const payload: any = {
         id: uuidv4(),
         title: baseTitle,
         type: paraType,
-        category: baseCategory,
+        category: String(modelOutput.relatedAreaTitle || baseCategory),
         content: String(modelOutput.summary || message),
         tags,
-        related_item_ids: modelOutput.relatedItemId ? [String(modelOutput.relatedItemId)] : [],
+        related_item_ids: nonTaskRelatedIds,
         is_completed: false,
         created_at: nowIso,
         updated_at: nowIso
@@ -1212,6 +1230,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
 
       if (paraType === 'Areas') {
         payload.name = baseTitle;
+        payload.category = baseCategory;
       }
 
       const insert = await input.supabase.from(table).insert(payload).select().single();

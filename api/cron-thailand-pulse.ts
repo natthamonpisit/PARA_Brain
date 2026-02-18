@@ -8,6 +8,7 @@ import {
   persistPulseSnapshotToDb
 } from './_lib/thailandPulsePipeline.js';
 import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
+import { requireAuth } from './_lib/authGuard.js';
 
 const defaultOwnerKey = process.env.AGENT_OWNER_KEY || 'default';
 
@@ -30,14 +31,8 @@ export default async function handler(req: any, res: any) {
     return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });
   }
 
-  const cronSecret = process.env.CRON_SECRET;
-  const providedKey =
-    req.query?.key ||
-    req.headers?.['x-cron-key'] ||
-    req.headers?.authorization?.replace('Bearer ', '');
-  if (cronSecret && providedKey !== cronSecret) {
-    return respond(401, { error: 'Unauthorized' }, { reason: 'auth_failed' });
-  }
+  const auth = requireAuth(req, [process.env.CRON_SECRET]);
+  if (!auth.ok) return respond(auth.status, auth.body, { reason: 'auth_failed' });
 
   try {
     const bodyInterests = parseBodyInterests(req);

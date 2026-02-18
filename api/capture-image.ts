@@ -2,10 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { processImageCapture } from './_lib/imageCapturePipeline.js';
 import { toCaptureLogPayload, CaptureSource } from './_lib/capturePipeline.js';
 import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
-
-function getCaptureKey(req: any): string {
-  return req.headers?.['x-capture-key'] || req.headers?.authorization?.replace('Bearer ', '') || req.query?.key || '';
-}
+import { requireAuth } from './_lib/authGuard.js';
 
 function toSource(value: any): CaptureSource {
   return String(value || '').toUpperCase() === 'TELEGRAM' ? 'TELEGRAM' : 'WEB';
@@ -37,10 +34,8 @@ export default async function handler(req: any, res: any) {
     return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });
   }
 
-  const captureSecret = process.env.CAPTURE_API_SECRET;
-  if (captureSecret && getCaptureKey(req) !== captureSecret) {
-    return respond(401, { error: 'Unauthorized' }, { reason: 'auth_failed' });
-  }
+  const auth = requireAuth(req, [process.env.CAPTURE_API_SECRET, process.env.CRON_SECRET]);
+  if (!auth.ok) return respond(auth.status, auth.body, { reason: 'auth_failed' });
 
   try {
     const source = toSource(req.body?.source);

@@ -11,6 +11,7 @@ import {
   savePulseSourcePolicyToDb
 } from './_lib/thailandPulsePipeline.js';
 import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
+import { requireAuth } from './_lib/authGuard.js';
 
 const defaultOwnerKey = process.env.AGENT_OWNER_KEY || 'default';
 
@@ -54,6 +55,9 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return respond(405, { error: 'Method not allowed' }, { reason: 'method_not_allowed' });
   }
+
+  const auth = requireAuth(req, [process.env.CRON_SECRET, process.env.CAPTURE_API_SECRET]);
+  if (!auth.ok) return respond(auth.status, auth.body, { reason: 'auth_failed' });
 
   const mode = String(req.query?.mode || req.body?.mode || 'fetch').toLowerCase();
   const ownerKey = pickOwnerKey(req.query?.ownerKey || req.body?.ownerKey);

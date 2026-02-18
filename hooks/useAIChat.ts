@@ -234,7 +234,8 @@ export const useAIChat = ({
         const response = await fetch('/api/capture-intake', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'x-capture-key': import.meta.env.VITE_CAPTURE_API_SECRET || ''
             },
             body: JSON.stringify({
                 source: 'WEB',
@@ -270,7 +271,8 @@ export const useAIChat = ({
         const response = await fetch('/api/capture-image', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'x-capture-key': import.meta.env.VITE_CAPTURE_API_SECRET || ''
             },
             body: JSON.stringify({
                 source: 'WEB',

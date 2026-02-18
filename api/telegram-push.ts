@@ -1,9 +1,13 @@
 import { sendTelegramText } from './_lib/telegram.js';
+import { requireAuth } from './_lib/authGuard.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  const auth = requireAuth(req, [process.env.CAPTURE_API_SECRET, process.env.CRON_SECRET]);
+  if (!auth.ok) return res.status(auth.status).json(auth.body);
 
   try {
     const { message } = req.body || {};

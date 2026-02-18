@@ -1,5 +1,6 @@
 import { checkAndSendReminders } from './cron-reminders.js';
 import { finalizeApiObservation, startApiObservation } from './_lib/observability.js';
+import { requireAuth } from './_lib/authGuard.js';
 
 const PULSE_UTC_HOURS = [0, 12];
 
@@ -24,14 +25,10 @@ export default async function handler(req: any, res: any) {
     return res.status(status).json(body);
   };
 
+  const auth = requireAuth(req, [process.env.CRON_SECRET]);
+  if (!auth.ok) return respond(auth.status, auth.body, { reason: 'auth_failed' });
+
   const cronSecret = process.env.CRON_SECRET || '';
-  const providedKey =
-    req.query?.key ||
-    req.headers?.['x-cron-key'] ||
-    req.headers?.authorization?.replace('Bearer ', '');
-  if (cronSecret && providedKey !== cronSecret) {
-    return respond(401, { error: 'Unauthorized' }, { reason: 'auth_failed' });
-  }
 
   const results: Record<string, any> = {};
 

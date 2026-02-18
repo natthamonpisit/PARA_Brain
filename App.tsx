@@ -18,10 +18,12 @@ import { ThailandPulseBoard } from './components/ThailandPulseBoard';
 import { ParaType, AppModule, ViewMode, ParaItem } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network, Minimize2, Maximize2, Undo2 } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
-import { useFinanceData } from './hooks/useFinanceData'; 
-import { useModuleData } from './hooks/useModuleData'; 
+import { useFinanceData } from './hooks/useFinanceData';
+import { useModuleData } from './hooks/useModuleData';
 import { useAIChat } from './hooks/useAIChat';
 import { useAgentData } from './hooks/useAgentData';
+import { useAuth } from './hooks/useAuth';
+import { LoginPage } from './components/LoginPage';
 import { classifyQuickCapture } from './services/geminiService';
 import type { PulseArticle } from './services/thailandPulseService';
 import { generateId } from './utils/helpers';
@@ -58,8 +60,11 @@ const isModuleViewType = (value: ActiveView): value is string =>
   typeof value === 'string' && !BUILTIN_VIEW_TYPES.has(value);
 
 export default function App() {
+  // --- AUTH ---
+  const { user, loading: authLoading, isAuthorized, signInWithGoogle, signOut } = useAuth();
+
   // --- CORE HOOKS ---
-  const { 
+  const {
     items, historyLogs, isLoadingDB, deleteItem, toggleComplete, exportData, importData, addItem, archiveItem, updateItem
   } = useParaData(); 
 
@@ -620,12 +625,29 @@ export default function App() {
     </div>
   );
 
+  // --- AUTH GATE ---
+  if (authLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-slate-950">
+        <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
+      </div>
+    );
+  }
+  if (!isAuthorized) {
+    return (
+      <LoginPage
+        onSignIn={signInWithGoogle}
+        error={user ? 'Access restricted. Sign in with the authorized account.' : null}
+      />
+    );
+  }
+
   if (isLoadingDB) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
     <div className="flex h-screen bg-slate-950 font-sans text-slate-100 overflow-hidden">
       
-      <Sidebar 
+      <Sidebar
         activeType={activeType} onSelectType={setActiveType}
         stats={items.reduce((acc, i) => ({...acc, [i.type]: (acc[i.type]||0)+1}), {} as any)}
         onExport={exportData} onImport={(f) => importData(f).then(() => showNotification('Restored!', 'success'))}
@@ -634,6 +656,9 @@ export default function App() {
         modules={modules} onCreateModule={() => setIsModuleBuilderOpen(true)}
         onOpenTelegram={() => setIsTelegramModalOpen(true)}
         onAnalyzeLife={handleAnalyzeLife}
+        onSignOut={signOut}
+        userEmail={user?.email}
+        userAvatar={user?.user_metadata?.avatar_url}
       />
 
       <div className="flex-1 flex flex-col min-w-0 relative h-full transition-all duration-300 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">

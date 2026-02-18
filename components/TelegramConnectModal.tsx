@@ -123,7 +123,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({ isOp
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl relative z-10 overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
+      <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl relative z-10 overflow-hidden border border-slate-700 flex flex-col max-h-[90vh]">
         
         {/* Header */}
         <div className="bg-[#229ED9] px-6 py-4 flex justify-between items-center text-white shrink-0">
@@ -137,54 +137,54 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({ isOp
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-100 bg-slate-50">
-            <button 
+        <div className="flex border-b border-slate-700 bg-slate-800">
+            <button
                 onClick={() => setActiveTab('SETUP')}
-                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'SETUP' ? 'bg-white text-[#229ED9] border-t-2 border-[#229ED9]' : 'text-slate-400'}`}
+                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'SETUP' ? 'bg-slate-900 text-[#229ED9] border-t-2 border-[#229ED9]' : 'text-slate-400'}`}
             >
                 <Zap className="w-4 h-4" /> Setup & Test
             </button>
-            <button 
+            <button
                 onClick={() => setActiveTab('LOGS')}
-                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'LOGS' ? 'bg-white text-indigo-600 border-t-2 border-indigo-600' : 'text-slate-400'}`}
+                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'LOGS' ? 'bg-slate-900 text-cyan-400 border-t-2 border-cyan-400' : 'text-slate-400'}`}
             >
                 <Terminal className="w-4 h-4" /> Live Logs (Debug)
             </button>
         </div>
 
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-white custom-scrollbar">
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-slate-900 custom-scrollbar">
             
             {/* --- SETUP TAB --- */}
             {activeTab === 'SETUP' && (
                 <>
                     {/* IMPORTANT WARNING */}
-                    <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-4 flex gap-3">
-                        <AlertTriangle className="w-5 h-5 text-cyan-600 flex-shrink-0 mt-0.5" />
+                    <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4 flex gap-3">
+                        <AlertTriangle className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
                         <div>
-                            <h4 className="font-bold text-cyan-800 text-sm">Telegram Webhook Setup</h4>
-                            <p className="text-xs text-cyan-700 mt-1 leading-relaxed">
+                            <h4 className="font-bold text-cyan-300 text-sm">Telegram Webhook Setup</h4>
+                            <p className="text-xs text-cyan-400 mt-1 leading-relaxed">
                                 Set this webhook URL in Telegram using `setWebhook` and use `TELEGRAM_WEBHOOK_SECRET` for header validation.
                             </p>
-                            <p className="text-xs font-bold text-cyan-800 mt-2">
+                            <p className="text-xs font-bold text-cyan-300 mt-2">
                                 👉 Example: `https://api.telegram.org/bot&lt;TOKEN&gt;/setWebhook?url=&lt;YOUR_URL&gt;&secret_token=&lt;YOUR_SECRET&gt;`
                             </p>
                         </div>
                     </div>
 
                     <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-slate-800 font-bold">
-                            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs">1</div>
+                        <div className="flex items-center gap-2 text-slate-200 font-bold">
+                            <div className="w-6 h-6 rounded-full bg-cyan-500/15 text-cyan-400 flex items-center justify-center text-xs">1</div>
                             <h3>Webhook Configuration</h3>
                         </div>
-                        
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                            <p className="text-xs text-slate-500 mb-2">Use this as your Telegram webhook URL</p>
+
+                        <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+                            <p className="text-xs text-slate-400 mb-2">Use this as your Telegram webhook URL</p>
                             <div className="flex gap-2">
-                                <div className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 truncate flex items-center gap-2">
-                                    <Globe className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                <div className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-400 truncate flex items-center gap-2">
+                                    <Globe className="w-3 h-3 text-slate-500 flex-shrink-0" />
                                     {webhookUrl}
                                 </div>
-                            <button onClick={handleCopy} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1">
+                            <button onClick={handleCopy} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-bold flex items-center gap-1">
                                 {copied ? <CheckCircle2 className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                                 Copy
                                 </button>
@@ -193,17 +193,17 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({ isOp
                     </div>
 
                     <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-slate-800 font-bold">
-                            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs">2</div>
+                        <div className="flex items-center gap-2 text-slate-200 font-bold">
+                            <div className="w-6 h-6 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-xs">2</div>
                             <h3>Test Outbound (Push Message)</h3>
                         </div>
 
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
-                            <textarea 
+                        <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-3">
+                            <textarea
                                 rows={2}
                                 value={testMessage}
                                 onChange={(e) => setTestMessage(e.target.value)}
-                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none resize-none"
+                                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200 outline-none resize-none"
                             />
                             {status === 'SUCCESS' && <div className="text-green-600 text-xs flex gap-1"><CheckCircle2 className="w-3 h-3"/> Sent!</div>}
                             {status === 'ERROR' && <div className="text-red-600 text-xs flex gap-1"><AlertTriangle className="w-3 h-3"/> {errorMessage}</div>}
@@ -225,20 +225,20 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({ isOp
                 <div className="h-full flex flex-col">
                     <div className="flex justify-between items-center mb-4 px-1">
                         <div>
-                            <p className="text-sm font-bold text-slate-800">System Logs</p>
-                            <p className="text-[10px] text-slate-500">Real-time interactions from Telegram webhook.</p>
+                            <p className="text-sm font-bold text-slate-200">System Logs</p>
+                            <p className="text-[10px] text-slate-400">Real-time interactions from Telegram webhook.</p>
                         </div>
                         <div className="flex gap-2">
-                            <button 
+                            <button
                                 onClick={() => setIsAutoRefresh(!isAutoRefresh)}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${isAutoRefresh ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-white text-slate-500 border-slate-200'}`}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${isAutoRefresh ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
                             >
                                 {isAutoRefresh ? <PauseCircle className="w-3.5 h-3.5" /> : <PlayCircle className="w-3.5 h-3.5" />}
                                 {isAutoRefresh ? 'Auto On' : 'Auto Off'}
                             </button>
-                            <button 
-                                onClick={() => fetchLogs()} 
-                                className="p-2 hover:bg-slate-100 rounded-lg text-indigo-600 border border-transparent hover:border-slate-200 transition-all"
+                            <button
+                                onClick={() => fetchLogs()}
+                                className="p-2 hover:bg-slate-800 rounded-lg text-cyan-400 border border-transparent hover:border-slate-700 transition-all"
                                 title="Refresh Now"
                             >
                                 <RefreshCw className={`w-4 h-4 ${loadingLogs ? 'animate-spin' : ''}`} />
@@ -247,7 +247,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({ isOp
                     </div>
 
                     {logs.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-xl py-10 bg-slate-50/50">
+                        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 border-2 border-dashed border-slate-700 rounded-xl py-10 bg-slate-800/50">
                             <Activity className="w-10 h-10 mb-2 opacity-20" />
                             <p className="text-sm">No logs found.</p>
                             <p className="text-xs mt-1">Try chatting with your Telegram bot first.</p>

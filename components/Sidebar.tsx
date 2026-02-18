@@ -1,7 +1,7 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck, Target, Newspaper, FileText } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck, Target, Newspaper, FileText, LogOut } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
@@ -20,6 +20,10 @@ interface SidebarProps {
   onOpenTelegram: () => void;
   // NEW: Analysis
   onAnalyzeLife: () => void;
+  // Auth
+  onSignOut?: () => void;
+  userEmail?: string;
+  userAvatar?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -34,7 +38,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   modules,
   onCreateModule,
   onOpenTelegram,
-  onAnalyzeLife
+  onAnalyzeLife,
+  onSignOut,
+  userEmail,
+  userAvatar
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -270,6 +277,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <History className="w-5 h-5" />
             {!isCollapsed && <span>History</span>}
           </button>
+
+          {/* User & Logout */}
+          {onSignOut && (
+            <div className={`mt-2 pt-2 border-t border-slate-800 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+              <button
+                onClick={() => onSignOut()}
+                title={isCollapsed ? 'Sign out' : ''}
+                className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3 px-3'} py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-900 hover:text-rose-300 transition-colors`}
+              >
+                {userAvatar ? (
+                  <img src={userAvatar} alt="" className="w-5 h-5 rounded-full shrink-0" referrerPolicy="no-referrer" />
+                ) : (
+                  <LogOut className="w-5 h-5 shrink-0" />
+                )}
+                {!isCollapsed && (
+                  <span className="truncate">{userEmail || 'Sign out'}</span>
+                )}
+              </button>
+            </div>
+          )}
 
         </div>
 

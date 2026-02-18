@@ -24,7 +24,6 @@ import { useAIChat } from './hooks/useAIChat';
 import { useAgentData } from './hooks/useAgentData';
 import { useAuth } from './hooks/useAuth';
 import { LoginPage } from './components/LoginPage';
-import { classifyQuickCapture } from './services/geminiService';
 import type { PulseArticle } from './services/thailandPulseService';
 import { generateId } from './utils/helpers';
 
@@ -100,9 +99,7 @@ export default function App() {
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState(''); 
-  const [quickCaptureText, setQuickCaptureText] = useState('');
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [calendarDate, setCalendarDate] = useState(new Date()); 
+  const [calendarDate, setCalendarDate] = useState(new Date());
 
   // Modals
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -390,56 +387,6 @@ export default function App() {
       }
   };
 
-  const handleQuickCapture = async () => {
-      const input = quickCaptureText.trim();
-      if (!input || isCapturing) return;
-      setIsCapturing(true);
-      try {
-          const result = await classifyQuickCapture(input, items);
-          const baseTags = Array.from(new Set([...(result.suggestedTags || []), 'capture']));
-          const now = new Date().toISOString();
-
-          if (result.confidence >= 0.75) {
-              const newItem: ParaItem = {
-                  id: generateId(),
-                  title: result.title,
-                  content: result.summary,
-                  type: result.type,
-                  category: result.category || 'Inbox',
-                  tags: baseTags,
-                  relatedItemIds: [],
-                  isAiGenerated: true,
-                  isCompleted: false,
-                  createdAt: now,
-                  updatedAt: now
-              };
-              await addItem(newItem);
-              showNotification(`Captured as ${result.type}`, 'success');
-          } else {
-              const triageItem: ParaItem = {
-                  id: generateId(),
-                  title: result.title || input.slice(0, 60),
-                  content: `[Quick Capture]\nOriginal: ${input}\nSuggested: ${result.type} / ${result.category}\nConfidence: ${Math.round(result.confidence * 100)}%`,
-                  type: ParaType.TASK,
-                  category: result.category || 'Inbox',
-                  tags: [...baseTags, 'triage-pending'],
-                  relatedItemIds: [],
-                  isAiGenerated: true,
-                  isCompleted: false,
-                  createdAt: now,
-                  updatedAt: now
-              };
-              await addItem(triageItem);
-              setActiveType('Agent');
-              showNotification(`Needs triage (${Math.round(result.confidence * 100)}%)`, 'error');
-          }
-          setQuickCaptureText('');
-      } catch (e: any) {
-          showNotification(`Capture failed: ${e.message || 'unknown error'}`, 'error');
-      } finally {
-          setIsCapturing(false);
-      }
-  };
 
   const handleResolveTriage = async (itemId: string, type: ParaType) => {
       const item = items.find(i => i.id === itemId);
@@ -683,23 +630,6 @@ export default function App() {
              </div>
           </div>
 
-          <div className="hidden lg:flex items-center gap-2 min-w-[320px] max-w-[440px] w-full">
-            <input
-              type="text"
-              value={quickCaptureText}
-              onChange={(e) => setQuickCaptureText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleQuickCapture(); }}
-              placeholder="Command capture: idea, task, project..."
-              className="w-full bg-slate-900 border border-amber-400/40 text-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-300/30"
-            />
-            <button
-              onClick={handleQuickCapture}
-              disabled={isCapturing || !quickCaptureText.trim()}
-              className="px-3 py-2 text-xs font-semibold rounded-lg bg-amber-500 text-slate-950 disabled:opacity-50"
-            >
-              {isCapturing ? 'Saving...' : 'Capture'}
-            </button>
-          </div>
 
           <div className="flex items-center gap-3 shrink-0">
             {activeType !== 'Finance' && activeType !== 'Review' && activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse' && activeType !== 'AIConfig' && !activeModule && activeType !== 'All' && (
@@ -742,23 +672,6 @@ export default function App() {
                   placeholder="Search..."
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 pl-4 pr-4 text-sm text-slate-200 focus:ring-2 focus:ring-cyan-500/20 outline-none"
               />
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={quickCaptureText}
-                  onChange={(e) => setQuickCaptureText(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleQuickCapture(); }}
-                  placeholder="Quick Capture..."
-                  className="flex-1 bg-slate-900 border border-amber-400/40 rounded-lg py-2 px-3 text-sm text-slate-200 outline-none"
-                />
-                <button
-                  onClick={handleQuickCapture}
-                  disabled={isCapturing || !quickCaptureText.trim()}
-                  className="px-3 py-2 text-xs font-semibold rounded-lg bg-amber-500 text-slate-950 disabled:opacity-50"
-                >
-                  {isCapturing ? '...' : 'Go'}
-                </button>
-              </div>
             </div>
         </div>
 

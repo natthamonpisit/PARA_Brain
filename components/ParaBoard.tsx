@@ -321,23 +321,48 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
             <span className="text-[10px] font-medium text-slate-500">{categoryItems.length} items</span>
           </div>
 
-          <div className={`grid gap-2.5 ${viewMode === 'LIST' ? 'grid-cols-1' : 'grid-cols-[repeat(auto-fill,minmax(200px,1fr))]'}`}>
+          <div className={`grid gap-2.5 ${
+            viewMode === 'LIST'
+              ? 'grid-cols-1'
+              : (activeType === ParaType.AREA || activeType === ParaType.PROJECT)
+                ? 'grid-cols-[repeat(auto-fill,minmax(340px,1fr))]'
+                : 'grid-cols-[repeat(auto-fill,minmax(200px,1fr))]'
+          }`}>
             {categoryItems.map(item => {
                 // Find child resources for Project/Area cards using 'allItems'
                 let childResources: ParaItem[] | undefined = undefined;
-                if (allItems.length > 0 && (item.type === ParaType.PROJECT || item.type === ParaType.AREA)) {
-                    childResources = allItems.filter(child => 
-                        child.type === ParaType.RESOURCE && 
-                        (child.relatedItemIds?.includes(item.id) || child.category === item.title)
-                    );
+                let relatedProjects: ParaItem[] | undefined = undefined;
+                let relatedTasks: ParaItem[] | undefined = undefined;
+
+                if (allItems.length > 0) {
+                    if (item.type === ParaType.PROJECT || item.type === ParaType.AREA) {
+                        childResources = allItems.filter(child =>
+                            child.type === ParaType.RESOURCE &&
+                            (child.relatedItemIds?.includes(item.id) || child.category === item.title)
+                        );
+                    }
+                    // Area cards: show related Projects
+                    if (item.type === ParaType.AREA) {
+                        relatedProjects = allItems.filter(child =>
+                            child.type === ParaType.PROJECT &&
+                            (child.category === item.title || child.relatedItemIds?.includes(item.id))
+                        );
+                    }
+                    // Project cards: show related Tasks
+                    if (item.type === ParaType.PROJECT) {
+                        relatedTasks = allItems.filter(child =>
+                            child.type === ParaType.TASK &&
+                            child.relatedItemIds?.includes(item.id)
+                        ).sort((a, b) => (a.isCompleted ? 1 : 0) - (b.isCompleted ? 1 : 0));
+                    }
                 }
 
                 return (
                 <div key={item.id} className="relative group">
                     {/* Checkbox Overlay */}
                     <div className={`absolute top-3 left-3 z-10 ${selectedIds.has(item.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-                        <input 
-                            type="checkbox" 
+                        <input
+                            type="checkbox"
                             checked={selectedIds.has(item.id)}
                             onChange={() => onSelect(item.id)}
                             className="w-5 h-5 rounded border-slate-500 bg-slate-900 text-cyan-400 focus:ring-cyan-500 shadow-sm"
@@ -345,8 +370,8 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                     </div>
 
                     {item.type === ParaType.TASK ? (
-                        <TaskCard 
-                            item={item} 
+                        <TaskCard
+                            item={item}
                             onDelete={onDelete}
                             onArchive={onArchive}
                             onToggleComplete={onToggleComplete}
@@ -356,15 +381,17 @@ export const ParaBoard: React.FC<ParaBoardProps> = ({
                             isSelected={selectedIds.has(item.id)}
                         />
                     ) : (
-                        <ParaCard 
-                            item={item} 
-                            onDelete={onDelete} 
+                        <ParaCard
+                            item={item}
+                            onDelete={onDelete}
                             onArchive={onArchive}
                             onEdit={onEdit}
                             onClick={onItemClick}
-                            allItemsMap={allItemsMap} 
+                            allItemsMap={allItemsMap}
                             isSelected={selectedIds.has(item.id)}
-                            childResources={childResources} // Pass found resources
+                            childResources={childResources}
+                            relatedProjects={relatedProjects}
+                            relatedTasks={relatedTasks}
                         />
                     )}
                 </div>

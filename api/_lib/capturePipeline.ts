@@ -232,6 +232,21 @@ const extractUrls = (text: string): string[] => {
   return Array.from(new Set(urls.map((u) => u.trim())));
 };
 
+async function fetchUrlTitle(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PARABrain/1.0)' },
+      signal: AbortSignal.timeout(4000)
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    return match ? match[1].trim().replace(/\s+/g, ' ').slice(0, 120) : null;
+  } catch {
+    return null;
+  }
+}
+
 const formatContextRows = (rows: any[], fields: string[]): string => {
   return rows
     .map((row) => {
@@ -658,8 +673,9 @@ function buildCapturePrompt(params: {
   dedup: DedupHints;
   urls: string[];
   customInstructions: string[];
+  urlMetaTitle?: string | null;
 }): string {
-  const { message, source, timezone, context, dedup, urls, customInstructions } = params;
+  const { message, source, timezone, context, dedup, urls, customInstructions, urlMetaTitle } = params;
   const now = new Date();
   const nowText = now.toLocaleString('en-US', { timeZone: timezone });
 
@@ -674,7 +690,7 @@ function buildCapturePrompt(params: {
 
   return `You are JAY, PARA Brain capture router. Respond in Thai. Return strict JSON only.
 Now: ${nowText} (${timezone}) | ISO: ${now.toISOString()} | Source: ${source}
-Msg: "${message}"${hasUrls ? `\nURLs: ${urls.join(', ')}` : ''}
+Msg: "${message}"${hasUrls ? `\nURLs: ${urls.join(', ')}` : ''}${urlMetaTitle ? `\nURL Title: "${urlMetaTitle}" (use this as the resource title)` : ''}
 Dedup: dup=${dedup.isDuplicate}; reason=${dedup.reason}${dedup.matchedItemId ? `; id=${dedup.matchedItemId}` : ''}
 
 Rules:
@@ -857,19 +873,22 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
   const forceConfirmed = confirmCommand.force;
   const message = normalizeMessage(confirmCommand.message);
 
-  const [context, dedup, runtimeCustomInstructions] = await Promise.all([
+  const urls = extractUrls(message);
+
+  const [context, dedup, runtimeCustomInstructions, urlMetaTitle] = await Promise.all([
     loadCaptureContext(input.supabase),
     detectDuplicateHints({
       supabase: input.supabase,
       message,
-      urls: extractUrls(message),
+      urls,
       geminiApiKey: input.geminiApiKey,
       excludeLogId: input.excludeLogId
     }),
     loadRuntimeCustomInstructions({
       supabase: input.supabase,
       ownerKey
-    })
+    }),
+    urls.length > 0 ? fetchUrlTitle(urls[0]) : Promise.resolve(null)
   ]);
 
   const prompt = buildCapturePrompt({
@@ -878,8 +897,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     timezone,
     context,
     dedup,
-    urls: extractUrls(message),
-    customInstructions: runtimeCustomInstructions
+    urls,
+    customInstructions: runtimeCustomInstructions,
+    urlMetaTitle
   });
 
   const modelOutput = await analyzeCapture({ apiKey: input.geminiApiKey, prompt });
@@ -1203,7 +1223,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         };
       }
 
-      // For Projects: resolve and link to Area
+      // For Projects/Resources: resolve parent links
       let nonTaskRelatedIds: string[] = [];
       if (modelOutput.relatedItemId) {
         nonTaskRelatedIds = [String(modelOutput.relatedItemId)];
@@ -1213,6 +1233,17 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         const linkedArea = findByTitle(context.areas, areaLookup)
           || (context.areas.length > 0 ? null : null); // only link if area found
         if (linkedArea?.id) nonTaskRelatedIds = [linkedArea.id];
+      } else if (paraType === 'Resources') {
+        // Link resource to project by title if user specified one
+        if (modelOutput.relatedProjectTitle) {
+          const project = findByTitle(context.projects, modelOutput.relatedProjectTitle);
+          if (project?.id) nonTaskRelatedIds = [project.id];
+        }
+        // Fallback: link to area
+        if (nonTaskRelatedIds.length === 0 && modelOutput.relatedAreaTitle) {
+          const area = findByTitle(context.areas, modelOutput.relatedAreaTitle);
+          if (area?.id) nonTaskRelatedIds = [area.id];
+        }
       }
 
       const payload: any = {

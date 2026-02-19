@@ -699,8 +699,20 @@ Rules:
 3. Dedup: if isDuplicate=true, skip create unless user explicitly asks again.
 4. Low confidence (<${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}): keep operation, data; system will confirm.
 5. Reminder ("remind me/เตือน"): type=Tasks, dueDate=ISO8601+tz, title=action (not "remind me to..."), tag="reminder". Default 09:00 if no time given.
-6. dueDate: extract from deadline mentions. Urgency→today/tomorrow. No clue→leave empty (system adds +7d).
-${isPlanningMsg ? `7. Planning mode ("ทำยังไง/แนวทาง/framework"): fill goal,prerequisites[],starterTasks[],nextActions[],riskNotes[],clarifyingQuestions[].` : ''}
+6. dueDate — Thai time expressions (ISO8601, timezone ${timezone}):
+   - "วันนี้"→today, "พรุ่งนี้"→+1d, "มะรืน"→+2d
+   - "อาทิตย์หน้า"/"สัปดาห์หน้า"→next Monday, "สองอาทิตย์"→+14d
+   - "ต้นเดือนหน้า"→1st of next month 09:00, "กลางเดือน"→15th this/next month, "ก่อนสิ้นเดือน"/"สิ้นเดือน"→last day of this month
+   - "วันจันทร์/อังคาร/พุธ/พฤหัส/ศุกร์/เสาร์/อาทิตย์"→next occurrence of that weekday
+   - "เช้า"→08:00, "สาย"→10:00, "เที่ยง"→12:00, "บ่าย"→14:00, "เย็น"→17:00, "ค่ำ"→19:00, "ดึก"→22:00
+   - "ด่วน"/"ด่วนมาก"/"urgent"→today 09:00, "เร็วๆนี้"→+2d
+   - No time clue→leave dueDate empty (system adds +7d 09:00)
+7. Finance shorthands:
+   - Amount: "3k"/"3K"→3000, "1.5k"→1500, "3M"→3000000, bare number→EXPENSE if context implies spending
+   - "โอน X ไป [account]"/"transfer X to [account]"→TRANSACTION type=TRANSFER, set accountId from Accounts list
+   - "ได้รับ/ได้"→INCOME, "จ่าย/ซื้อ/ค่า"→EXPENSE
+   - Multi-expense in one msg ("กาแฟ 65 + ข้าว 120"): pick the larger or most explicit one; note others in chatResponse
+${isPlanningMsg ? `8. Planning mode ("ทำยังไง/แนวทาง/framework"): fill goal,prerequisites[],starterTasks[],nextActions[],riskNotes[],clarifyingQuestions[].` : ''}
 
 PARA (STRICT):
 P1. Project→must have Area: always set relatedAreaTitle from Existing Areas (closest fit).
@@ -708,7 +720,9 @@ P2. Task parent order: (a)relatedProjectTitle if project exists→(b)relatedArea
 P3. createProjectIfMissing=true only when area is also known (set relatedAreaTitle).
 P4. Never orphan Task or Project without parent.
 - URL resource→type=Resources unless user wants action.
+- "#tag"/"@area" prefix→apply as tag/area hint. "!personal"→Area personal.
 - Travel one-off→"Side Projects & Experiments". With family→"Family & Relationships". Fitness→"Health & Energy".
+- "ซื้อ/จัด/หา X สำหรับ [project]"→Task under that project, not standalone.
 (routing v${ROUTING_RULES_VERSION})
 
 Areas:

@@ -1,12 +1,12 @@
 
 import React, { useRef, useState } from 'react';
 import { ParaType, AppModule } from '../types';
-import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck, Target, Newspaper, FileText, LogOut } from 'lucide-react';
+import { FolderKanban, LayoutGrid, Library, Archive, Box, History, X, CheckSquare, Wallet, Plus, ChevronRight, PanelLeftClose, MessageCircle, BrainCircuit, ClipboardCheck, Target, Newspaper, LogOut, Settings, CreditCard } from 'lucide-react';
 import { getModuleIcon } from './DynamicModuleBoard';
 
 interface SidebarProps {
-  activeType: ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | 'AIConfig' | string;
-  onSelectType: (type: ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | 'AIConfig' | string) => void;
+  activeType: ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | 'AIConfig' | 'Subscriptions' | string;
+  onSelectType: (type: ParaType | 'All' | 'LifeOverview' | 'ThailandPulse' | 'Finance' | 'Review' | 'Agent' | 'AIConfig' | 'Subscriptions' | string) => void;
   stats: Record<string, number>;
   onExport?: () => void;
   onImport?: (file: File) => void;
@@ -45,6 +45,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isGearOpen, setIsGearOpen] = useState(false);
+  const gearContainerRef = useRef<HTMLDivElement>(null);
 
   const menuItems = [
     { type: 'All', label: 'Mission', icon: Box, color: 'text-cyan-300' },
@@ -57,11 +59,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { type: ParaType.RESOURCE, label: 'Resources', icon: Library, color: 'text-blue-500' },
     { type: ParaType.ARCHIVE, label: 'Archives', icon: Archive, color: 'text-gray-500' },
   ];
-  const setupItems = [
-    { type: 'Agent', label: 'Agent', icon: BrainCircuit, color: 'text-indigo-400' },
-    { type: 'AIConfig', label: 'AI Config', icon: FileText, color: 'text-teal-300' }
-  ];
-
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && onImport) {
@@ -77,6 +74,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onClose();
       }
   };
+
+  React.useEffect(() => {
+    if (!isGearOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (gearContainerRef.current && !gearContainerRef.current.contains(e.target as Node)) {
+        setIsGearOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [isGearOpen]);
 
   // Width logic: Mobile uses full width/overlay. Desktop uses dynamic width.
   const desktopWidthClass = isCollapsed ? 'md:w-20' : 'md:w-64';
@@ -193,6 +201,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </button>
 
+              {/* Subscriptions */}
+              <button
+                onClick={() => handleMenuClick('Subscriptions')}
+                title={isCollapsed ? "Subscriptions" : ''}
+                className={`
+                  w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'justify-between px-3'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 mb-1
+                  ${activeType === 'Subscriptions'
+                    ? 'bg-cyan-500/12 text-cyan-200 shadow-sm border border-cyan-400/35'
+                    : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100'}
+                `}
+              >
+                <div className="flex items-center gap-3">
+                  <CreditCard className="w-5 h-5 text-violet-400" />
+                  {!isCollapsed && <span>Subscriptions</span>}
+                </div>
+              </button>
+
               {/* Dynamic Modules */}
               {modules.map(mod => (
                   <button
@@ -234,49 +259,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
              {!isCollapsed && <span>Analyze My Life</span>}
           </button>
 
-          <div className={`py-2 ${isCollapsed ? 'space-y-1' : 'space-y-1 border-t border-slate-800'}`}>
-            {!isCollapsed && (
-              <p className="px-3 pt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Setup</p>
+          {/* ⚙ Gear / Settings dropdown */}
+          <div className="relative" ref={gearContainerRef}>
+            <button
+              onClick={() => setIsGearOpen(p => !p)}
+              title="Settings"
+              className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium transition-colors
+                ${isGearOpen ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}
+            >
+              <Settings className="w-5 h-5 shrink-0" />
+              {!isCollapsed && <span>Settings</span>}
+            </button>
+
+            {isGearOpen && (
+              <div className="absolute z-50 bottom-full mb-2 left-0 w-52 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                <div className="p-1 space-y-0.5">
+
+                  <button
+                    onClick={() => { handleMenuClick('Agent'); setIsGearOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                      ${activeType === 'Agent' ? 'bg-cyan-500/12 text-cyan-200' : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'}`}
+                  >
+                    <BrainCircuit className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <span>Agent</span>
+                  </button>
+
+                  <button
+                    onClick={() => { handleMenuClick('AIConfig'); setIsGearOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                      ${activeType === 'AIConfig' ? 'bg-cyan-500/12 text-cyan-200' : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'}`}
+                  >
+                    <Settings className="w-4 h-4 text-teal-300 shrink-0" />
+                    <span>AI Config</span>
+                  </button>
+
+                  <div className="h-px bg-slate-800 my-1" />
+
+                  <button
+                    onClick={() => { onOpenTelegram(); setIsGearOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-[#229ED9] transition-colors"
+                  >
+                    <MessageCircle className="w-4 h-4 shrink-0" />
+                    <span>Connect Telegram</span>
+                  </button>
+
+                  <button
+                    onClick={() => { onShowHistory(); setIsGearOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors"
+                  >
+                    <History className="w-4 h-4 shrink-0" />
+                    <span>History</span>
+                  </button>
+
+                </div>
+              </div>
             )}
-            {setupItems.map((item) => {
-              const isActive = activeType === item.type;
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.type}
-                  onClick={() => handleMenuClick(item.type)}
-                  title={isCollapsed ? item.label : ''}
-                  className={`
-                    w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium transition-colors
-                    ${isActive
-                      ? 'bg-cyan-500/12 text-cyan-200 border border-cyan-400/35'
-                      : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100'}
-                  `}
-                >
-                  <Icon className={`w-5 h-5 ${item.color}`} />
-                  {!isCollapsed && <span>{item.label}</span>}
-                </button>
-              );
-            })}
           </div>
-
-          <button
-            onClick={onOpenTelegram}
-            title={isCollapsed ? "Connect Telegram" : ''}
-            className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-900 hover:text-[#229ED9] transition-colors`}
-          >
-             <MessageCircle className="w-5 h-5" />
-             {!isCollapsed && <span>Connect Telegram</span>}
-          </button>
-
-          <button
-            onClick={onShowHistory}
-            title={isCollapsed ? "History" : ''}
-            className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3 px-3'} py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-900 hover:text-slate-100 transition-colors`}
-          >
-            <History className="w-5 h-5" />
-            {!isCollapsed && <span>History</span>}
-          </button>
 
           {/* User & Logout */}
           {onSignOut && (

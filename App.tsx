@@ -19,6 +19,7 @@ import { ParaType, AppModule, ViewMode, ParaItem } from './types';
 import { CheckCircle2, AlertCircle, Loader2, Menu, MessageSquare, Plus, LayoutGrid, List, Table as TableIcon, Trash2, CheckSquare, Search, Calendar as CalendarIcon, Flame, Archive, Network, Minimize2, Maximize2, Undo2 } from 'lucide-react';
 import { useParaData } from './hooks/useParaData';
 import { useFinanceData } from './hooks/useFinanceData';
+import { useSubscriptionsData } from './hooks/useSubscriptionsData';
 import { useModuleData } from './hooks/useModuleData';
 import { useAIChat } from './hooks/useAIChat';
 import { useAgentData } from './hooks/useAgentData';
@@ -32,6 +33,7 @@ const FinanceBoard = React.lazy(() => import('./components/FinanceBoard').then((
 const ReviewBoard = React.lazy(() => import('./components/ReviewBoard').then((m) => ({ default: m.ReviewBoard })));
 const AgentBoard = React.lazy(() => import('./components/AgentBoard').then((m) => ({ default: m.AgentBoard })));
 const AIConfigBoard = React.lazy(() => import('./components/AIConfigBoard').then((m) => ({ default: m.AIConfigBoard })));
+const SubscriptionsBoard = React.lazy(() => import('./components/SubscriptionsBoard').then((m) => ({ default: m.SubscriptionsBoard })));
 
 type ActiveView =
   | ParaType
@@ -42,6 +44,7 @@ type ActiveView =
   | 'Review'
   | 'Agent'
   | 'AIConfig'
+  | 'Subscriptions'
   | string;
 
 const BUILTIN_VIEW_TYPES = new Set<string>([
@@ -52,6 +55,7 @@ const BUILTIN_VIEW_TYPES = new Set<string>([
   'Review',
   'Agent',
   'AIConfig',
+  'Subscriptions',
   ...Object.values(ParaType)
 ]);
 
@@ -70,6 +74,11 @@ export default function App() {
   const {
       accounts, transactions, loadFinanceData, addTransaction, addAccount
   } = useFinanceData();
+
+  const {
+      subscriptions, isLoadingSubscriptions, loadSubscriptions,
+      addSubscription, updateSubscription, deleteSubscription
+  } = useSubscriptionsData();
 
   const {
       modules, moduleItems, loadModules, loadModuleItems, createModule, addModuleItem, deleteModuleItem
@@ -125,6 +134,7 @@ export default function App() {
   useEffect(() => {
     loadFinanceData();
     loadModules();
+    loadSubscriptions();
   }, []);
 
   useEffect(() => {
@@ -563,9 +573,13 @@ export default function App() {
         ? 'World Pulse'
       : activeType === 'AIConfig'
         ? 'AI Config'
+      : activeType === 'Subscriptions'
+        ? 'Subscriptions'
         : activeType
   );
-  const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview' && activeType !== 'ThailandPulse' && activeType !== 'AIConfig';
+  const shouldShowFocusDock = activeType !== 'Agent' && activeType !== 'LifeOverview'
+    && activeType !== 'ThailandPulse' && activeType !== 'AIConfig'
+    && activeType !== 'Subscriptions';
   const boardFallback = (
     <div className="h-48 flex items-center justify-center text-slate-400">
       <Loader2 className="w-5 h-5 animate-spin" />
@@ -774,6 +788,18 @@ export default function App() {
                         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
                           <Suspense fallback={boardFallback}>
                               <AIConfigBoard />
+                          </Suspense>
+                        </div>
+                    ) : activeType === 'Subscriptions' ? (
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+                          <Suspense fallback={boardFallback}>
+                            <SubscriptionsBoard
+                              subscriptions={subscriptions}
+                              onAdd={addSubscription}
+                              onUpdate={updateSubscription}
+                              onDelete={deleteSubscription}
+                              isLoading={isLoadingSubscriptions}
+                            />
                           </Suspense>
                         </div>
                     ) : viewMode === 'CALENDAR' ? (

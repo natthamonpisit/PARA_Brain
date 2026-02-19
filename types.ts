@@ -211,3 +211,34 @@ export interface ChatMessage {
   suggestedCompletionItems?: ParaItem[];
   itemType?: ChatCreatedItemType;
 }
+
+// ─── Subscriptions ────────────────────────────────────────────────────────────
+
+export type SubscriptionStatus = 'active' | 'active_unsubscribed' | 'cancelled';
+export type BillingCycle = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export const SUBSCRIPTION_CATEGORIES = [
+  'Streaming', 'SaaS/Tools', 'Cloud/Storage', 'Music', 'Gaming',
+  'News/Media', 'Health/Fitness', 'Finance/Banking', 'Learning', 'Other'
+] as const;
+
+export interface Subscription {
+  id: string;
+  name: string;
+  category: string;
+  costMonthly: number;       // canonical monthly-equivalent cost (always stored)
+  billingAmount: number;     // what user actually pays per cycle (displayed)
+  billingCycle: BillingCycle;
+  currency: string;          // 'THB', 'USD', etc.
+  startDate?: string;
+  renewalDate: string;       // ISO date of next renewal
+  status: SubscriptionStatus;
+  website?: string;
+  accountEmail?: string;
+  notes?: string;
+  autoRenew: boolean;
+  reminderDays: number;      // default 7
+  linkedAccountId?: string;  // ref to Finance accounts
+  createdAt: string;
+  updatedAt: string;
+}

@@ -39,6 +39,15 @@ interface DedupHints {
   exactMessageNoWriteIgnored?: boolean;
 }
 
+interface SessionTurn {
+  userMessage: string;
+  intent?: string;
+  actionType?: string;
+  createdTitle?: string;
+  projectTitle?: string;
+  areaTitle?: string;
+}
+
 interface CaptureContext {
   projects: any[];
   areas: any[];
@@ -616,6 +625,56 @@ async function loadRuntimeCustomInstructions(params: {
   }
 }
 
+async function loadRecentSessionContext(params: {
+  supabase: any;
+  source: CaptureSource;
+  excludeLogId?: string;
+}): Promise<SessionTurn[]> {
+  try {
+    const windowStart = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { data, error } = await params.supabase
+      .from('system_logs')
+      .select('user_message,ai_response,action_type')
+      .eq('event_source', params.source)
+      .eq('status', 'SUCCESS')
+      .gte('created_at', windowStart)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (error) {
+      console.warn('[capturePipeline] loadRecentSessionContext failed:', error.message);
+      return [];
+    }
+
+    const rows: any[] = (data || []);
+    const turns: SessionTurn[] = [];
+    for (const row of rows.slice(0, 3)) {
+      const payload = parseLogPayload(row.ai_response);
+      const turn: SessionTurn = {
+        userMessage: String(row.user_message || '').trim(),
+        intent: payload?.intent ? String(payload.intent) : undefined,
+        actionType: row.action_type ? String(row.action_type) : undefined,
+        createdTitle: payload?.createdItem?.title
+          ? String(payload.createdItem.title)
+          : payload?.createdItems?.[0]?.title
+          ? String(payload.createdItems[0].title)
+          : undefined,
+        projectTitle: payload?.relatedProjectTitle
+          ? String(payload.relatedProjectTitle)
+          : undefined,
+        areaTitle: payload?.relatedAreaTitle
+          ? String(payload.relatedAreaTitle)
+          : undefined,
+      };
+      if (turn.userMessage) turns.push(turn);
+    }
+    return turns;
+  } catch (err: any) {
+    console.warn('[capturePipeline] loadRecentSessionContext error:', err?.message || err);
+    return [];
+  }
+}
+
 async function detectDuplicateHints(params: {
   supabase: any;
   message: string;
@@ -724,8 +783,9 @@ function buildCapturePrompt(params: {
   customInstructions: string[];
   urlMetaTitle?: string | null;
   hints?: MessageHints;
+  recentContext?: SessionTurn[];
 }): string {
-  const { message, source, timezone, context, dedup, urls, customInstructions, urlMetaTitle, hints } = params;
+  const { message, source, timezone, context, dedup, urls, customInstructions, urlMetaTitle, hints, recentContext } = params;
   const now = new Date();
   const nowText = now.toLocaleString('en-US', { timeZone: timezone });
 
@@ -734,6 +794,19 @@ function buildCapturePrompt(params: {
   const tasksText = formatContextRows(context.tasks.slice(0, 20), ['id', 'title', 'category']);
   const accountsText = formatContextRows(context.accounts, ['id', 'name']);
   const modulesText = formatContextRows(context.modules, ['id', 'name']);
+
+  const sessionContextText = (() => {
+    if (!recentContext || recentContext.length === 0) return '';
+    const lines = recentContext.map((turn, idx) => {
+      const parts: string[] = [`[Turn -${recentContext.length - idx}] User: "${truncate(turn.userMessage, 80)}"`];
+      if (turn.actionType) parts.push(`action=${turn.actionType}`);
+      if (turn.createdTitle) parts.push(`created="${turn.createdTitle}"`);
+      if (turn.projectTitle) parts.push(`project="${turn.projectTitle}"`);
+      if (turn.areaTitle) parts.push(`area="${turn.areaTitle}"`);
+      return parts.join(' → ');
+    });
+    return `\nRecent session (${recentContext.length} turn${recentContext.length > 1 ? 's' : ''}, same source, last 30min):\n${lines.join('\n')}`;
+  })();
 
   const isPlanningMsg = looksLikePlanningRequest(message);
   const hasUrls = urls.length > 0;
@@ -783,7 +856,7 @@ ${projectsText || '(none)'}
 
 Tasks (pending):
 ${tasksText || '(none)'}
-${accountsText ? `\nAccounts:\n${accountsText}` : ''}${modulesText ? `\nModules:\n${modulesText}` : ''}${customInstructions.length ? `\nCustom:\n${customInstructions.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}`;
+${accountsText ? `\nAccounts:\n${accountsText}` : ''}${modulesText ? `\nModules:\n${modulesText}` : ''}${customInstructions.length ? `\nCustom:\n${customInstructions.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}${sessionContextText}${sessionContextText ? `\nSession rule: If this message is short/ambiguous (no explicit project/area named) and a recent turn mentions a specific project, assume the same project. Override only if user names a different project.` : ''}`;
 }
 
 function buildResponseSchema() {
@@ -939,7 +1012,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
 
   const urls = extractUrls(message);
 
-  const [context, dedup, runtimeCustomInstructions, urlMetaTitle] = await Promise.all([
+  const [context, dedup, runtimeCustomInstructions, urlMetaTitle, recentContext] = await Promise.all([
     loadCaptureContext(input.supabase),
     detectDuplicateHints({
       supabase: input.supabase,
@@ -952,7 +1025,12 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       supabase: input.supabase,
       ownerKey
     }),
-    urls.length > 0 ? fetchUrlTitle(urls[0]) : Promise.resolve(null)
+    urls.length > 0 ? fetchUrlTitle(urls[0]) : Promise.resolve(null),
+    loadRecentSessionContext({
+      supabase: input.supabase,
+      source: input.source,
+      excludeLogId: input.excludeLogId
+    })
   ]);
 
   const hints = extractMessageHints(message);
@@ -966,7 +1044,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     urls,
     customInstructions: runtimeCustomInstructions,
     urlMetaTitle,
-    hints
+    hints,
+    recentContext
   });
 
   const modelOutput = await analyzeCapture({ apiKey: input.geminiApiKey, prompt });

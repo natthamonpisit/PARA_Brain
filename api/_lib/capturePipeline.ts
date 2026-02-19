@@ -96,6 +96,7 @@ interface CaptureModelOutput {
 interface ConfirmCommand {
   force: boolean;
   message: string;
+  completeTarget?: string; // set when user uses "เสร็จ:/done:" shortcut
 }
 
 export interface CapturePipelineInput {
@@ -212,12 +213,28 @@ const responseClaimsWrite = (text: string): boolean => {
 const parseConfirmCommand = (rawMessage: string): ConfirmCommand => {
   const text = normalizeMessage(rawMessage);
   if (!text) return { force: false, message: text };
-  const patterns = [
+
+  // "เสร็จ: task name" / "done: task name" → force COMPLETE intent
+  const completePatterns = [
+    /^เสร็จ\s*[:\-]\s*(.+)$/i,
+    /^done\s*[:\-]\s*(.+)$/i,
+    /^เสร็จแล้ว\s*[:\-]\s*(.+)$/i,
+    /^ทำเสร็จ\s*[:\-]\s*(.+)$/i,
+  ];
+  for (const pattern of completePatterns) {
+    const matched = text.match(pattern);
+    if (matched?.[1]) {
+      const target = normalizeMessage(matched[1]);
+      return { force: true, message: `เสร็จ: ${target}`, completeTarget: target };
+    }
+  }
+
+  const confirmPatterns = [
     /^ยืนยัน\s*[:\-]\s*(.+)$/i,
     /^confirm\s*[:\-]\s*(.+)$/i,
     /^yes\s*[:\-]\s*(.+)$/i
   ];
-  for (const pattern of patterns) {
+  for (const pattern of confirmPatterns) {
     const matched = text.match(pattern);
     if (matched?.[1]) {
       return { force: true, message: normalizeMessage(matched[1]) };
@@ -230,6 +247,20 @@ const parseConfirmCommand = (rawMessage: string): ConfirmCommand => {
 const extractUrls = (text: string): string[] => {
   const urls = text.match(/https?:\/\/[^\s)]+/gi) || [];
   return Array.from(new Set(urls.map((u) => u.trim())));
+};
+
+interface MessageHints {
+  tags: string[];       // from #tag
+  areaHint: string | null;  // from @area or !area
+}
+
+const extractMessageHints = (text: string): MessageHints => {
+  const tags = (text.match(/#([\w\u0E00-\u0E7F]+)/g) || [])
+    .map(t => t.slice(1).toLowerCase())
+    .filter(Boolean);
+  const areaMatch = text.match(/(?:^|\s)[@!]([\w\u0E00-\u0E7F]+)/);
+  const areaHint = areaMatch ? areaMatch[1] : null;
+  return { tags, areaHint };
 };
 
 async function fetchUrlTitle(url: string): Promise<string | null> {
@@ -282,6 +313,24 @@ const toSafeNumber = (value: any, fallback: number): number => {
   const n = Number(value);
   if (Number.isFinite(n)) return n;
   return fallback;
+};
+
+// Parse shorthand amounts: "3k"→3000, "1.5K"→1500, "2M"→2000000, "500"→500
+const parseAmountShorthand = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const str = String(value || '').trim().replace(/,/g, '');
+  const match = str.match(/^(\d+(?:\.\d+)?)\s*([kKมพ]|[mM]|พัน|หมื่น|แสน|ล้าน)?$/);
+  if (!match) return null;
+  const base = parseFloat(match[1]);
+  const suffix = (match[2] || '').toLowerCase();
+  const multipliers: Record<string, number> = {
+    k: 1_000, ม: 1_000, พ: 1_000, พัน: 1_000,
+    m: 1_000_000, ล้าน: 1_000_000,
+    หมื่น: 10_000, แสน: 100_000
+  };
+  const mult = multipliers[suffix] ?? 1;
+  const result = base * mult;
+  return Number.isFinite(result) ? result : null;
 };
 
 const toSafeTags = (value: any): string[] => {
@@ -674,8 +723,9 @@ function buildCapturePrompt(params: {
   urls: string[];
   customInstructions: string[];
   urlMetaTitle?: string | null;
+  hints?: MessageHints;
 }): string {
-  const { message, source, timezone, context, dedup, urls, customInstructions, urlMetaTitle } = params;
+  const { message, source, timezone, context, dedup, urls, customInstructions, urlMetaTitle, hints } = params;
   const now = new Date();
   const nowText = now.toLocaleString('en-US', { timeZone: timezone });
 
@@ -690,7 +740,7 @@ function buildCapturePrompt(params: {
 
   return `You are JAY, PARA Brain capture router. Respond in Thai. Return strict JSON only.
 Now: ${nowText} (${timezone}) | ISO: ${now.toISOString()} | Source: ${source}
-Msg: "${message}"${hasUrls ? `\nURLs: ${urls.join(', ')}` : ''}${urlMetaTitle ? `\nURL Title: "${urlMetaTitle}" (use this as the resource title)` : ''}
+Msg: "${message}"${hasUrls ? `\nURLs: ${urls.join(', ')}` : ''}${urlMetaTitle ? `\nURL Title: "${urlMetaTitle}" (use this as the resource title)` : ''}${hints?.tags.length ? `\nUser tags: ${hints.tags.map(t => `#${t}`).join(' ')} (add to suggestedTags)` : ''}${hints?.areaHint ? `\nUser area hint: "${hints.areaHint}" (use as relatedAreaTitle if area exists)` : ''}
 Dedup: dup=${dedup.isDuplicate}; reason=${dedup.reason}${dedup.matchedItemId ? `; id=${dedup.matchedItemId}` : ''}
 
 Rules:
@@ -905,6 +955,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     urls.length > 0 ? fetchUrlTitle(urls[0]) : Promise.resolve(null)
   ]);
 
+  const hints = extractMessageHints(message);
+
   const prompt = buildCapturePrompt({
     message,
     source: input.source,
@@ -913,7 +965,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     dedup,
     urls,
     customInstructions: runtimeCustomInstructions,
-    urlMetaTitle
+    urlMetaTitle,
+    hints
   });
 
   const modelOutput = await analyzeCapture({ apiKey: input.geminiApiKey, prompt });
@@ -958,6 +1011,22 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
 
   if (!isActionable && operation !== 'CHAT') {
     operation = 'CHAT';
+  }
+
+  // Short-circuit: "เสร็จ: task name" / "done: task name" bypasses AI operation
+  // Force operation=COMPLETE without needing AI to figure it out
+  if (confirmCommand.completeTarget) {
+    operation = 'COMPLETE';
+    // Override baseTitle-equivalent for the COMPLETE block to find the task
+    if (!modelOutput.relatedItemId) {
+      const foundByShortcut = findByTitle(context.tasks, confirmCommand.completeTarget);
+      if (foundByShortcut?.id) {
+        modelOutput.relatedItemId = foundByShortcut.id;
+      } else if (!modelOutput.title) {
+        // Let COMPLETE block search by title via baseTitle fallback
+        modelOutput.title = confirmCommand.completeTarget;
+      }
+    }
   }
 
   if (autoCapturePlan && isActionable && operation === 'CHAT') {
@@ -1390,7 +1459,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       const txPayload = {
         id: uuidv4(),
         description: baseTitle,
-        amount: toSafeNumber(modelOutput.amount, 0),
+        amount: parseAmountShorthand(modelOutput.amount) ?? toSafeNumber(modelOutput.amount, 0),
         type: modelOutput.transactionType || 'EXPENSE',
         category: baseCategory || 'General',
         account_id: targetAccountId,

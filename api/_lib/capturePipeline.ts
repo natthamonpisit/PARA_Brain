@@ -1123,6 +1123,34 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
           const project = findByTitle(context.projects, modelOutput.relatedProjectTitle);
           if (project?.id) {
             relatedItemIds = [project.id];
+          } else if (!modelOutput.createProjectIfMissing && !forceConfirmed) {
+            // Project name not found and not explicitly asked to create — likely a typo
+            const projectList = context.projects.slice(0, 8).map(p => `"${p.title}"`).join(', ');
+            const clarifyMsg = [
+              `หา project "${modelOutput.relatedProjectTitle}" ไม่เจอครับ`,
+              projectList ? `Project ที่มีอยู่: ${projectList}` : '',
+              `ถ้าชื่อถูกต้องและต้องการสร้าง project ใหม่ พิมพ์: ยืนยัน: ${input.userMessage}`,
+              `หรือระบุชื่อ project ที่ถูกต้องมาใหม่ได้เลยครับ`
+            ].filter(Boolean).join('\n');
+            return {
+              success: true,
+              source: input.source,
+              intent,
+              confidence,
+              isActionable,
+              operation,
+              chatResponse: clarifyMsg,
+              actionType: 'NEEDS_PROJECT_CLARIFICATION',
+              status: 'PENDING',
+              dedup,
+              meta: {
+                requiresConfirmation: true,
+                suggestedTitle: baseTitle,
+                requestedProject: modelOutput.relatedProjectTitle,
+                writeExecuted: false,
+                dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
+              }
+            };
           }
         }
 
@@ -1237,7 +1265,37 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         // Link resource to project by title if user specified one
         if (modelOutput.relatedProjectTitle) {
           const project = findByTitle(context.projects, modelOutput.relatedProjectTitle);
-          if (project?.id) nonTaskRelatedIds = [project.id];
+          if (project?.id) {
+            nonTaskRelatedIds = [project.id];
+          } else if (!forceConfirmed) {
+            // Project name not found — likely a typo, ask user to confirm
+            const projectList = context.projects.slice(0, 8).map(p => `"${p.title}"`).join(', ');
+            const clarifyMsg = [
+              `หา project "${modelOutput.relatedProjectTitle}" ไม่เจอครับ`,
+              projectList ? `Project ที่มีอยู่: ${projectList}` : '',
+              `ถ้าชื่อถูกต้อง พิมพ์: ยืนยัน: ${input.userMessage}`,
+              `หรือระบุชื่อ project ที่ถูกต้องมาใหม่ได้เลยครับ`
+            ].filter(Boolean).join('\n');
+            return {
+              success: true,
+              source: input.source,
+              intent,
+              confidence,
+              isActionable,
+              operation,
+              chatResponse: clarifyMsg,
+              actionType: 'NEEDS_PROJECT_CLARIFICATION',
+              status: 'PENDING',
+              dedup,
+              meta: {
+                requiresConfirmation: true,
+                suggestedTitle: baseTitle,
+                requestedProject: modelOutput.relatedProjectTitle,
+                writeExecuted: false,
+                dedupExactMessageNoWriteIgnored: Boolean(dedup.exactMessageNoWriteIgnored)
+              }
+            };
+          }
         }
         // Fallback: link to area
         if (nonTaskRelatedIds.length === 0 && modelOutput.relatedAreaTitle) {

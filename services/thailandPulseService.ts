@@ -93,6 +93,23 @@ const FEEDBACK_STORAGE_KEY = 'para-thailand-pulse-feedback-v1';
 const MAX_HISTORY_DAYS = 7;
 const MAX_INTERESTS = 12;
 const PULSE_API_BASE = '/api/world-pulse';
+
+const getCaptureKey = (): string => {
+  try {
+    return String((import.meta as any)?.env?.VITE_CAPTURE_API_SECRET || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+const pulseAuthHeaders = (json = false): Record<string, string> => {
+  const headers: Record<string, string> = {};
+  if (json) headers['Content-Type'] = 'application/json';
+  const key = getCaptureKey();
+  if (key) headers['x-capture-key'] = key;
+  return headers;
+};
+
 const REGION_LABEL: Record<PulseRegion, string> = {
   TH: 'Thailand',
   GLOBAL: 'Global'
@@ -304,7 +321,7 @@ export const persistPulseSnapshot = (snapshot: ThailandPulseSnapshot) => {
 
 export const fetchPulseSnapshotHistoryFromServer = async (days = 7): Promise<ThailandPulseSnapshot[]> => {
   const safeDays = Math.max(1, Math.min(30, Math.floor(Number(days) || 7)));
-  const response = await fetch(`${PULSE_API_BASE}?mode=history&days=${safeDays}`);
+  const response = await fetch(`${PULSE_API_BASE}?mode=history&days=${safeDays}`, { headers: pulseAuthHeaders() });
   if (!response.ok) {
     throw new Error(`History request failed (${response.status})`);
   }
@@ -406,7 +423,7 @@ interface PulseFetchOptions {
 export const fetchPulseSourcePolicyFromServer = async (ownerKey?: string): Promise<PulseSourcePolicy | null> => {
   const params = new URLSearchParams({ mode: 'policy' });
   if (ownerKey) params.set('ownerKey', ownerKey);
-  const response = await fetch(`${PULSE_API_BASE}?${params.toString()}`);
+  const response = await fetch(`${PULSE_API_BASE}?${params.toString()}`, { headers: pulseAuthHeaders() });
   if (!response.ok) return null;
   const payload = await response.json().catch(() => ({}));
   const policy = payload?.policy;
@@ -423,7 +440,7 @@ export const savePulseSourcePolicyToServer = async (
 ): Promise<boolean> => {
   const response = await fetch(PULSE_API_BASE, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: pulseAuthHeaders(true),
     body: JSON.stringify({
       mode: 'policy',
       ownerKey,
@@ -446,7 +463,7 @@ export const submitPulseFeedback = async (payload: {
 
   const response = await fetch(PULSE_API_BASE, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: pulseAuthHeaders(true),
     body: JSON.stringify({
       mode: 'feedback',
       ownerKey: payload.ownerKey,
@@ -483,7 +500,7 @@ export const fetchThailandPulseSnapshot = async (
     params.set('allowDomains', sanitizeDomains(options.sourcePolicy.allowDomains || []).join(','));
     params.set('denyDomains', sanitizeDomains(options.sourcePolicy.denyDomains || []).join(','));
   }
-  const response = await fetch(`${PULSE_API_BASE}?${params.toString()}`);
+  const response = await fetch(`${PULSE_API_BASE}?${params.toString()}`, { headers: pulseAuthHeaders() });
 
   if (!response.ok) {
     throw new Error(`Feed request failed (${response.status})`);

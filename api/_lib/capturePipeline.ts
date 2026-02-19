@@ -404,6 +404,32 @@ const wantsAutoCapturePlan = (message: string): boolean => {
   return patterns.some((re) => re.test(text));
 };
 
+/**
+ * Detect meta/debug questions — user asking WHY something happened or didn't happen.
+ * These should always get a real explanation, never be silently sanitized.
+ */
+const looksLikeMetaQuestion = (message: string): boolean => {
+  const text = normalizeMessage(message).toLowerCase();
+  if (!text) return false;
+  const patterns = [
+    /ทำไม(ไม่|ถึง|จึง)/,       // ทำไมไม่บันทึก, ทำไมถึงไม่สร้าง
+    /เพราะ(อะไร|ไร)/,           // เพราะอะไร
+    /ทำไม\b/,                   // ทำไม (standalone)
+    /why (didn|don|can|won|isn|aren)/i,
+    /why not/i,
+    /ไม่บันทึก.*ทำไม/,
+    /ไม่สร้าง.*ทำไม/,
+    /ไม่ทำ.*ทำไม/,
+    /explain/i,
+    /อธิบาย/,
+    /หมายความว่า/,
+    /แปลว่าอะไร/,
+    /คืออะไร/,
+    /ช่วยอธิบาย/,
+  ];
+  return patterns.some((re) => re.test(text));
+};
+
 const joinSection = (title: string, lines: string[]): string => {
   if (!lines.length) return '';
   return `${title}\n${lines.join('\n')}`;
@@ -809,20 +835,23 @@ function buildCapturePrompt(params: {
   })();
 
   const isPlanningMsg = looksLikePlanningRequest(message);
+  const isMetaQuestion = looksLikeMetaQuestion(message);
   const hasUrls = urls.length > 0;
 
   return `You are JAY, PARA Brain capture router. Respond in Thai. Return strict JSON only.
 Now: ${nowText} (${timezone}) | ISO: ${now.toISOString()} | Source: ${source}
 Msg: "${message}"${hasUrls ? `\nURLs: ${urls.join(', ')}` : ''}${urlMetaTitle ? `\nURL Title: "${urlMetaTitle}" (use this as the resource title)` : ''}${hints?.tags.length ? `\nUser tags: ${hints.tags.map(t => `#${t}`).join(' ')} (add to suggestedTags)` : ''}${hints?.areaHint ? `\nUser area hint: "${hints.areaHint}" (use as relatedAreaTitle if area exists)` : ''}
-Dedup: dup=${dedup.isDuplicate}; reason=${dedup.reason}${dedup.matchedItemId ? `; id=${dedup.matchedItemId}` : ''}
+Dedup: dup=${dedup.isDuplicate}; reason=${dedup.reason}${dedup.matchedItemId ? `; id=${dedup.matchedItemId}` : ''}${isMetaQuestion ? `\nMeta-question detected: user is asking WHY/EXPLAIN. You MUST give a clear, informative explanation in chatResponse. Do NOT reply with just "รับทราบ". Explain what happened and what to do next.` : ''}
 
 Rules:
 1. CHITCHAT→operation=CHAT (no DB write). ACTIONABLE→map to PARA/finance/module.
-2. If operation=CHAT: never claim saved/created. Say explicitly no DB write this turn.
-3. Dedup: if isDuplicate=true, skip create unless user explicitly asks again.
-4. Low confidence (<${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}): keep operation, data; system will confirm.
-5. Reminder ("remind me/เตือน"): type=Tasks, dueDate=ISO8601+tz, title=action (not "remind me to..."), tag="reminder". Default 09:00 if no time given.
-6. dueDate — Thai time expressions (ISO8601, timezone ${timezone}):
+2. URL RULE (CRITICAL): Any message containing a URL is ALWAYS actionable. Set isActionable=true, operation=CREATE, type=Resources. If user adds context like "Resource for X project" or "สำหรับโปรเจกต์ X" → set relatedProjectTitle=X. Never treat URL messages as CHITCHAT.
+3. If operation=CHAT: never claim saved/created. Be honest about no DB write this turn. BUT if user asks WHY something didn't happen, explain clearly — don't just say "รับทราบ".
+4. META-QUESTION rule: If user asks "ทำไม", "why", "explain", "อธิบาย" or any question about system behavior → operation=CHAT, isActionable=false, but chatResponse MUST contain a real explanation of what happened and how to fix it (2-4 sentences minimum). Never give a one-line non-answer.
+5. Dedup: if isDuplicate=true, skip create unless user explicitly asks again.
+6. Low confidence (<${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}): keep operation, data; system will confirm.
+7. Reminder ("remind me/เตือน"): type=Tasks, dueDate=ISO8601+tz, title=action (not "remind me to..."), tag="reminder". Default 09:00 if no time given.
+8. dueDate — Thai time expressions (ISO8601, timezone ${timezone}):
    - "วันนี้"→today, "พรุ่งนี้"→+1d, "มะรืน"→+2d
    - "อาทิตย์หน้า"/"สัปดาห์หน้า"→next Monday, "สองอาทิตย์"→+14d
    - "ต้นเดือนหน้า"→1st of next month 09:00, "กลางเดือน"→15th this/next month, "ก่อนสิ้นเดือน"/"สิ้นเดือน"→last day of this month
@@ -830,19 +859,19 @@ Rules:
    - "เช้า"→08:00, "สาย"→10:00, "เที่ยง"→12:00, "บ่าย"→14:00, "เย็น"→17:00, "ค่ำ"→19:00, "ดึก"→22:00
    - "ด่วน"/"ด่วนมาก"/"urgent"→today 09:00, "เร็วๆนี้"→+2d
    - No time clue→leave dueDate empty (system adds +7d 09:00)
-7. Finance shorthands:
+9. Finance shorthands:
    - Amount: "3k"/"3K"→3000, "1.5k"→1500, "3M"→3000000, bare number→EXPENSE if context implies spending
    - "โอน X ไป [account]"/"transfer X to [account]"→TRANSACTION type=TRANSFER, set accountId from Accounts list
    - "ได้รับ/ได้"→INCOME, "จ่าย/ซื้อ/ค่า"→EXPENSE
    - Multi-expense in one msg ("กาแฟ 65 + ข้าว 120"): pick the larger or most explicit one; note others in chatResponse
-${isPlanningMsg ? `8. Planning mode ("ทำยังไง/แนวทาง/framework"): fill goal,prerequisites[],starterTasks[],nextActions[],riskNotes[],clarifyingQuestions[].` : ''}
+${isPlanningMsg ? `10. Planning mode ("ทำยังไง/แนวทาง/framework"): fill goal,prerequisites[],starterTasks[],nextActions[],riskNotes[],clarifyingQuestions[].` : ''}
 
 PARA (STRICT):
 P1. Project→must have Area: always set relatedAreaTitle from Existing Areas (closest fit).
 P2. Task parent order: (a)relatedProjectTitle if project exists→(b)relatedAreaTitle if area exists→(c)askForParent=true+clarifyingQuestion if unsure.
 P3. createProjectIfMissing=true only when area is also known (set relatedAreaTitle).
 P4. Never orphan Task or Project without parent.
-- URL resource→type=Resources unless user wants action.
+- URL always→isActionable=true, operation=CREATE, type=Resources (unless user says it's a task/reminder).
 - "#tag"/"@area" prefix→apply as tag/area hint. "!personal"→Area personal.
 - Travel one-off→"Side Projects & Experiments". With family→"Family & Relationships". Fitness→"Health & Energy".
 - "ซื้อ/จัด/หา X สำหรับ [project]"→Task under that project, not standalone.
@@ -1057,6 +1086,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
   let chatResponse = String(modelOutput.chatResponse || '').trim() || 'รับทราบครับ';
   let chatWriteClaimSanitized = false;
   const planningRequest = looksLikePlanningRequest(message);
+  const metaQuestion = looksLikeMetaQuestion(message);
   const autoCapturePlan = ALFRED_AUTO_CAPTURE_ENABLED && planningRequest && wantsAutoCapturePlan(message);
 
   if (!modelOutput.relatedProjectTitle && modelOutput.recommendedProjectTitle) {
@@ -1092,6 +1122,19 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     operation = 'CHAT';
   }
 
+  // Server-side URL override: if message contains URL(s) and AI still classified as CHAT,
+  // force to Resource CREATE — AI should never treat URL messages as chitchat
+  if (operation === 'CHAT' && urls.length > 0 && !metaQuestion) {
+    operation = 'CREATE';
+    if (!modelOutput.type) modelOutput.type = 'Resources';
+    if (!modelOutput.title) modelOutput.title = urlMetaTitle || truncate(message.replace(/https?:\/\/\S+/g, '').trim(), 80) || 'Captured Resource';
+    if (!modelOutput.summary) modelOutput.summary = message;
+    modelOutput.isActionable = true;
+    chatResponse = chatResponse && chatResponse !== 'รับทราบครับ'
+      ? chatResponse
+      : `บันทึก Resource เรียบร้อยครับ${urlMetaTitle ? ` — "${urlMetaTitle}"` : ''}`;
+  }
+
   // Short-circuit: "เสร็จ: task name" / "done: task name" bypasses AI operation
   // Force operation=COMPLETE without needing AI to figure it out
   if (confirmCommand.completeTarget) {
@@ -1125,7 +1168,8 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     chatResponse = `${chatResponse}\n\n${alfredGuidance}`;
   }
 
-  if (operation === 'CHAT' && responseClaimsWrite(chatResponse)) {
+  // Sanitize only when AI wrongly claims a write happened — but never override meta-question answers
+  if (operation === 'CHAT' && !metaQuestion && responseClaimsWrite(chatResponse)) {
     const saveHint =
       intent === 'RESOURCE_CAPTURE'
         ? 'บันทึกเรื่องนี้เป็น Resource'
@@ -1137,6 +1181,11 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       `ถ้าต้องการให้บันทึกทันที ให้พิมพ์: ${saveHint}`
     ].join('\n');
     chatWriteClaimSanitized = true;
+  }
+
+  // If response is suspiciously short (≤10 chars) and it's a CHAT operation, signal possible bad response
+  if (operation === 'CHAT' && chatResponse.length <= 10 && !metaQuestion) {
+    chatResponse = 'รับทราบครับ ถ้าต้องการให้บันทึกหรือสร้างรายการ ให้ระบุเพิ่มเติมได้เลย';
   }
 
   if (dedup.isDuplicate && operation !== 'CHAT' && !forceConfirmed) {

@@ -245,7 +245,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             onChange={(e) => setInput(e.target.value)}
             disabled={isProcessing}
             placeholder="Type your thought..."
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-[5.2rem] py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-[5.2rem] py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
           />
           <button
             type="button"

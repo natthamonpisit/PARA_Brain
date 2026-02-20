@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import {
     ParaItem,
     ChatMessage,
@@ -8,12 +8,12 @@ import {
     Transaction,
     ModuleItem,
     ChatCreatedItemType,
-    TelegramLogPayloadV1
+    HistoryLog
 } from '../types';
 import { analyzeLifeOS, performLifeAnalysis } from '../services/geminiService';
 import { generateId } from '../utils/helpers';
-import { HistoryLog } from '../types';
-import { supabase } from '../services/supabase';
+import { useTelegramSync } from './useTelegramSync';
+import { callCaptureIntake, callCaptureImageIntake } from './useCaptureAPI';
 
 interface UseAIChatProps {
     items: ParaItem[];
@@ -57,245 +57,17 @@ export const useAIChat = ({
         upsertMessages([msg]);
     }, [upsertMessages]);
 
-    const toSafeDate = (value: any): Date => {
-        const d = new Date(value || Date.now());
-        return Number.isNaN(d.getTime()) ? new Date() : d;
-    };
+    // ── Telegram realtime sync ─────────────────────────────────────────────
+    useTelegramSync(upsertMessages);
 
-    const isItemType = (value: any): value is ChatCreatedItemType => {
-        return value === 'PARA' || value === 'TRANSACTION' || value === 'MODULE';
-    };
-
-    const toJsonPayload = (value: any): any | null => {
-        if (!value) return null;
-        if (typeof value === 'object') return value;
-        if (typeof value !== 'string') return null;
-        const raw = value.trim();
-        if (!raw || !raw.startsWith('{')) return null;
-        try {
-            const parsed = JSON.parse(raw);
-            if (typeof parsed === 'string' && parsed.trim().startsWith('{')) {
-                return JSON.parse(parsed);
-            }
-            return parsed;
-        } catch {
-            return null;
-        }
-    };
-
-    const normalizeCreatedItem = (
-        value: any,
-        itemType?: ChatCreatedItemType
-    ): ParaItem | Transaction | ModuleItem | undefined => {
-        if (!value || typeof value !== 'object') return undefined;
-        const raw = value as Record<string, any>;
-
-        if (itemType === 'TRANSACTION') {
-            return {
-                ...raw,
-                accountId: raw.accountId || raw.account_id || '',
-                transactionDate: raw.transactionDate || raw.transaction_date || raw.created_at || new Date().toISOString()
-            } as Transaction;
-        }
-
-        if (itemType === 'MODULE') {
-            return {
-                ...raw,
-                moduleId: raw.moduleId || raw.module_id || '',
-                createdAt: raw.createdAt || raw.created_at || new Date().toISOString(),
-                updatedAt: raw.updatedAt || raw.updated_at || new Date().toISOString()
-            } as ModuleItem;
-        }
-
-        return {
-            ...raw,
-            isCompleted: raw.isCompleted ?? raw.is_completed ?? false,
-            relatedItemIds: raw.relatedItemIds || raw.related_item_ids || [],
-            createdAt: raw.createdAt || raw.created_at || new Date().toISOString(),
-            updatedAt: raw.updatedAt || raw.updated_at || new Date().toISOString(),
-            dueDate: raw.dueDate || raw.due_date
-        } as ParaItem;
-    };
-
-    const parseTelegramPayload = (value: any): {
-        text: string;
-        itemType?: ChatCreatedItemType;
-        createdItem?: ParaItem | Transaction | ModuleItem;
-        createdItems?: ParaItem[];
-    } => {
-        const raw = (() => {
-            if (typeof value === 'string') return value.trim();
-            if (value && typeof value === 'object') {
-                try {
-                    return JSON.stringify(value);
-                } catch {
-                    return '[payload]';
-                }
-            }
-            return String(value || '').trim();
-        })();
-        if (!raw) return { text: '' };
-        const parsed = toJsonPayload(value) as Partial<TelegramLogPayloadV1> | null;
-        if (!parsed || typeof parsed !== 'object') {
-            return { text: raw };
-        }
-
-        const looksLikePayload =
-            parsed.contract === 'telegram_chat_v1' ||
-            (typeof parsed.chatResponse === 'string' && typeof parsed.operation === 'string');
-        if (!looksLikePayload) return { text: raw };
-
-        const text = typeof parsed.chatResponse === 'string' && parsed.chatResponse.trim()
-            ? parsed.chatResponse
-            : raw;
-        const itemType = isItemType(parsed.itemType) ? parsed.itemType : undefined;
-        const createdItem = normalizeCreatedItem(parsed.createdItem, itemType);
-        const createdItems = Array.isArray(parsed.createdItems)
-            ? parsed.createdItems
-                .map((item) => normalizeCreatedItem(item, 'PARA'))
-                .filter(Boolean) as ParaItem[]
-            : undefined;
-        return { text, itemType, createdItem, createdItems };
-    };
-
-    const mapTelegramLogToMessages = useCallback((row: any): ChatMessage[] => {
-        if (!row?.id) return [];
-        const timestamp = toSafeDate(row.created_at);
-        const incoming: ChatMessage[] = [];
-        if (row.user_message) {
-            incoming.push({
-                id: `sys:${row.id}:user`,
-                role: 'user',
-                source: 'TELEGRAM',
-                text: String(row.user_message),
-                timestamp
-            });
-        }
-        if (row.ai_response) {
-            const parsed = parseTelegramPayload(row.ai_response);
-            incoming.push({
-                id: `sys:${row.id}:assistant`,
-                role: 'assistant',
-                source: 'TELEGRAM',
-                text: parsed.text || String(row.ai_response),
-                itemType: parsed.itemType,
-                createdItem: parsed.createdItem,
-                createdItems: parsed.createdItems,
-                timestamp
-            });
-        }
-        return incoming;
-    }, []);
-
-    useEffect(() => {
-        let mounted = true;
-
-        const loadRecentTelegramMessages = async () => {
-            const { data, error } = await supabase
-                .from('system_logs')
-                .select('id,user_message,ai_response,created_at,event_source')
-                .eq('event_source', 'TELEGRAM')
-                .order('created_at', { ascending: true })
-                .limit(80);
-
-            if (!mounted || error || !data) return;
-            const incoming = data.flatMap(mapTelegramLogToMessages);
-            if (incoming.length > 0) upsertMessages(incoming);
-        };
-
-        loadRecentTelegramMessages();
-
-        const channel = supabase
-            .channel('chat-telegram-sync')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'system_logs',
-                    filter: 'event_source=eq.TELEGRAM'
-                },
-                (payload) => {
-                    const row = payload.new || payload.old;
-                    if (!row) return;
-                    const incoming = mapTelegramLogToMessages(row);
-                    if (incoming.length > 0) upsertMessages(incoming);
-                }
-            )
-            .subscribe();
-
-        return () => {
-            mounted = false;
-            supabase.removeChannel(channel);
-        };
-    }, [mapTelegramLogToMessages, upsertMessages]);
-
-    const callCaptureIntake = async (text: string): Promise<any> => {
-        const response = await fetch('/api/capture-intake', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-capture-key': import.meta.env.VITE_CAPTURE_API_SECRET || ''
-            },
-            body: JSON.stringify({
-                source: 'WEB',
-                message: text
-            })
-        });
-
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            throw new Error(body.error || `Capture API failed (${response.status})`);
-        }
-        return body;
-    };
-
-    const fileToBase64 = (file: File): Promise<string> =>
-        new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-                const raw = String(reader.result || '');
-                const cleaned = raw.replace(/^data:[^;]+;base64,/i, '');
-                if (!cleaned) {
-                    reject(new Error('Failed to encode image file'));
-                    return;
-                }
-                resolve(cleaned);
-            };
-            reader.onerror = () => reject(new Error('Failed to read image file'));
-            reader.readAsDataURL(file);
-        });
-
-    const callCaptureImageIntake = async (file: File, caption: string): Promise<any> => {
-        const imageBase64 = await fileToBase64(file);
-        const response = await fetch('/api/capture-image', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-capture-key': import.meta.env.VITE_CAPTURE_API_SECRET || ''
-            },
-            body: JSON.stringify({
-                source: 'WEB',
-                caption,
-                mimeType: file.type || 'image/jpeg',
-                imageBase64
-            })
-        });
-
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            throw new Error(body.error || `Capture image API failed (${response.status})`);
-        }
-        return body;
-    };
-
+    // ── Send text message ──────────────────────────────────────────────────
     const handleSendMessage = async (text: string) => {
         if (!text.trim()) return;
 
         addMessage({
             id: generateId(),
             role: 'user',
-            text: text,
+            text,
             source: 'WEB',
             timestamp: new Date()
         });
@@ -305,6 +77,7 @@ export const useAIChat = ({
         try {
             const recentHistory = messages.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
 
+            // ── Try capture API first ──────────────────────────────────────
             try {
                 const apiResult = await callCaptureIntake(text);
                 addMessage({
@@ -323,58 +96,43 @@ export const useAIChat = ({
                 if (apiResult.itemType === 'TRANSACTION' && onRefreshFinance) {
                     await onRefreshFinance();
                 }
-
                 if (apiResult.itemType === 'MODULE' && onRefreshModuleItems) {
                     const moduleId = apiResult?.createdItem?.moduleId || apiResult?.createdItem?.module_id;
-                    if (moduleId) {
-                        await onRefreshModuleItems(String(moduleId));
-                    }
+                    if (moduleId) await onRefreshModuleItems(String(moduleId));
                 }
                 return;
             } catch (captureError: any) {
                 console.warn('Capture API unavailable, falling back to local analyzer:', captureError?.message || captureError);
             }
-            
+
+            // ── Local Gemini fallback ──────────────────────────────────────
             const result = await analyzeLifeOS(text, {
                 paraItems: items,
                 financeContext: { accounts },
-                modules: modules,
+                modules,
                 recentContext: recentHistory
             });
 
-            // --- BATCH CREATE LOGIC (ENHANCED) ---
             if (result.operation === 'BATCH_CREATE' && result.batchItems) {
                 const createdItems: ParaItem[] = [];
-                // Map tempId (from AI) to realId (UUID)
-                const tempIdMap: Record<string, string> = {}; 
+                const tempIdMap: Record<string, string> = {};
 
-                // 1. First Pass: Create IDs for everyone so we can link them
                 result.batchItems.forEach(item => {
-                    if (item.tempId) {
-                        tempIdMap[item.tempId] = generateId();
-                    }
+                    if (item.tempId) tempIdMap[item.tempId] = generateId();
                 });
 
-                // 2. Second Pass: Create Items with correct links
-                // We assume AI sorts parents before children, but just in case, logic handles it.
                 for (const item of result.batchItems) {
                     const realId = item.tempId ? tempIdMap[item.tempId] : generateId();
-                    const finalTitle = item.title || "New Item";
-
-                    // Resolve Relations
                     let finalRelations: string[] = item.relatedItemIdsCandidates || [];
-                    
-                    // Link to parent created in THIS batch?
                     if (item.parentTempId && tempIdMap[item.parentTempId]) {
                         finalRelations.push(tempIdMap[item.parentTempId]);
                     }
-
                     const newItem: ParaItem = {
                         id: realId,
-                        title: finalTitle,
-                        content: item.summary || "",
+                        title: item.title || 'New Item',
+                        content: item.summary || '',
                         type: item.type || ParaType.TASK,
-                        category: item.category || "Inbox",
+                        category: item.category || 'Inbox',
                         tags: item.suggestedTags || [],
                         relatedItemIds: finalRelations,
                         createdAt: new Date().toISOString(),
@@ -382,7 +140,6 @@ export const useAIChat = ({
                         isAiGenerated: true,
                         isCompleted: false
                     };
-
                     await onAddItem(newItem);
                     createdItems.push(newItem);
                 }
@@ -392,20 +149,19 @@ export const useAIChat = ({
                     role: 'assistant',
                     text: result.chatResponse,
                     source: 'WEB',
-                    createdItems: createdItems,
+                    createdItems,
                     itemType: 'PARA',
                     timestamp: new Date()
                 });
 
             } else if (result.operation === 'CREATE') {
-                const finalTitle = result.title || (text.length > 30 ? text.substring(0, 30) + "..." : text);
-                
+                const finalTitle = result.title || (text.length > 30 ? text.substring(0, 30) + '...' : text);
                 const newItem: ParaItem = {
                     id: generateId(),
                     title: finalTitle,
-                    content: result.summary || text, 
+                    content: result.summary || text,
                     type: result.type || ParaType.TASK,
-                    category: result.category || "Inbox",
+                    category: result.category || 'Inbox',
                     tags: result.suggestedTags || [],
                     relatedItemIds: result.relatedItemIdsCandidates || [],
                     createdAt: new Date().toISOString(),
@@ -413,9 +169,7 @@ export const useAIChat = ({
                     isAiGenerated: true,
                     isCompleted: false
                 };
-
                 await onAddItem(newItem);
-
                 addMessage({
                     id: generateId(),
                     role: 'assistant',
@@ -426,15 +180,10 @@ export const useAIChat = ({
                     timestamp: new Date()
                 });
 
-            } else if (result.operation === 'CHAT') {
-                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', timestamp: new Date() });
-            } else if (result.operation === 'COMPLETE') {
-                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', timestamp: new Date() });
             } else if (result.operation === 'TRANSACTION') {
-                const txDesc = result.title || text;
                 const newTx: Transaction = {
                     id: generateId(),
-                    description: txDesc, 
+                    description: result.title || text,
                     amount: result.amount || 0,
                     type: result.transactionType || 'EXPENSE',
                     category: result.category || 'General',
@@ -445,29 +194,36 @@ export const useAIChat = ({
                     await onAddTransaction(newTx);
                     addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', createdItem: newTx, itemType: 'TRANSACTION', timestamp: new Date() });
                 } else {
-                     addMessage({ id: generateId(), role: 'assistant', text: "No valid account found.", source: 'WEB', timestamp: new Date() });
+                    addMessage({ id: generateId(), role: 'assistant', text: 'No valid account found.', source: 'WEB', timestamp: new Date() });
                 }
-            } else if (result.operation === 'MODULE_ITEM') {
-                if (result.targetModuleId) {
-                    const modData: Record<string, any> = {};
-                    if (result.moduleDataRaw) {
-                        result.moduleDataRaw.forEach(f => {
-                             const numVal = Number(f.value);
-                             modData[f.key] = isNaN(numVal) ? f.value : numVal;
-                        });
-                    }
-                    const newItem: ModuleItem = {
-                        id: generateId(), moduleId: result.targetModuleId, title: result.title || "New Entry", data: modData, tags: result.suggestedTags || [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-                    };
-                    await onAddModuleItem(newItem);
-                    addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', createdItem: newItem, itemType: 'MODULE', timestamp: new Date() });
+
+            } else if (result.operation === 'MODULE_ITEM' && result.targetModuleId) {
+                const modData: Record<string, any> = {};
+                if (result.moduleDataRaw) {
+                    result.moduleDataRaw.forEach(f => {
+                        const numVal = Number(f.value);
+                        modData[f.key] = isNaN(numVal) ? f.value : numVal;
+                    });
                 }
+                const newItem: ModuleItem = {
+                    id: generateId(),
+                    moduleId: result.targetModuleId,
+                    title: result.title || 'New Entry',
+                    data: modData,
+                    tags: result.suggestedTags || [],
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                await onAddModuleItem(newItem);
+                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', createdItem: newItem, itemType: 'MODULE', timestamp: new Date() });
+
             } else {
-                 addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', timestamp: new Date() });
+                // CHAT / COMPLETE / unknown
+                addMessage({ id: generateId(), role: 'assistant', text: result.chatResponse, source: 'WEB', timestamp: new Date() });
             }
 
         } catch (error: any) {
-            console.error("AI Error:", error);
+            console.error('AI Error:', error);
             const msg = String(error?.message || '');
             const userFriendly = msg.includes('API Key not found') || msg.includes('Missing server configuration')
                 ? 'Capture failed: API Key ไม่พบ — กรุณาตั้งค่า GEMINI_API_KEY ใน environment variables ของ Vercel'
@@ -478,6 +234,7 @@ export const useAIChat = ({
         }
     };
 
+    // ── Send image ─────────────────────────────────────────────────────────
     const handleSendImage = async (file: File, caption = '') => {
         if (!file) return;
         const safeCaption = String(caption || '').trim();
@@ -485,13 +242,7 @@ export const useAIChat = ({
             ? `[Image] ${safeCaption}`
             : `[Image] Uploaded image: ${file.name || 'image'}`;
 
-        addMessage({
-            id: generateId(),
-            role: 'user',
-            text: userText,
-            source: 'WEB',
-            timestamp: new Date()
-        });
+        addMessage({ id: generateId(), role: 'user', text: userText, source: 'WEB', timestamp: new Date() });
 
         setIsProcessing(true);
         try {
@@ -512,27 +263,19 @@ export const useAIChat = ({
             if (apiResult.itemType === 'TRANSACTION' && onRefreshFinance) {
                 await onRefreshFinance();
             }
-
             if (apiResult.itemType === 'MODULE' && onRefreshModuleItems) {
                 const moduleId = apiResult?.createdItem?.moduleId || apiResult?.createdItem?.module_id;
-                if (moduleId) {
-                    await onRefreshModuleItems(String(moduleId));
-                }
+                if (moduleId) await onRefreshModuleItems(String(moduleId));
             }
         } catch (error: any) {
             console.error('Image capture error:', error);
-            addMessage({
-                id: generateId(),
-                role: 'assistant',
-                text: `Error: ${error?.message || 'Failed to process image'}`,
-                source: 'WEB',
-                timestamp: new Date()
-            });
+            addMessage({ id: generateId(), role: 'assistant', text: `Error: ${error?.message || 'Failed to process image'}`, source: 'WEB', timestamp: new Date() });
         } finally {
             setIsProcessing(false);
         }
     };
 
+    // ── Misc ───────────────────────────────────────────────────────────────
     const handleChatCompletion = async (item: ParaItem) => {
         await onToggleComplete(item.id, !!item.isCompleted);
     };

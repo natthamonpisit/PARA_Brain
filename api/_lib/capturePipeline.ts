@@ -405,6 +405,26 @@ const wantsAutoCapturePlan = (message: string): boolean => {
 };
 
 /**
+ * Detect capability questions — "ทำได้มั้ย", "สามารถ...ได้มั้ย", "can you X?"
+ * These are questions, NOT commands. Should never trigger auto-create.
+ */
+const looksLikeCapabilityQuestion = (message: string): boolean => {
+  const text = normalizeMessage(message).toLowerCase();
+  if (!text) return false;
+  const patterns = [
+    /สามารถ.{0,40}(ได้มั้ย|ได้ไหม|ได้เลยไหม|ได้หรือเปล่า)/,
+    /ทำ.{0,30}(ได้มั้ย|ได้ไหม|ได้เลยไหม)/,
+    /บันทึก.{0,30}(ได้มั้ย|ได้ไหม|ได้เลยไหม)/,
+    /รับ.{0,20}(ได้มั้ย|ได้ไหม)/,
+    /can (you|it).{0,40}\?/i,
+    /is it possible/i,
+    /able to/i,
+    /support.{0,20}\?/i,
+  ];
+  return patterns.some((re) => re.test(text));
+};
+
+/**
  * Detect meta/debug questions — user asking WHY something happened or didn't happen.
  * These should always get a real explanation, never be silently sanitized.
  */
@@ -846,9 +866,10 @@ Dedup: dup=${dedup.isDuplicate}; reason=${dedup.reason}${dedup.matchedItemId ? `
 Rules:
 1. CHITCHAT→operation=CHAT (no DB write). ACTIONABLE→map to PARA/finance/module.
 2. URL RULE (CRITICAL): Any message containing a URL is ALWAYS actionable. Set isActionable=true, operation=CREATE, type=Resources. If user adds context like "Resource for X project" or "สำหรับโปรเจกต์ X" → set relatedProjectTitle=X. Never treat URL messages as CHITCHAT.
-3. If operation=CHAT: never claim saved/created. Be honest about no DB write this turn. BUT if user asks WHY something didn't happen, explain clearly — don't just say "รับทราบ".
-4. META-QUESTION rule: If user asks "ทำไม", "why", "explain", "อธิบาย" or any question about system behavior → operation=CHAT, isActionable=false, but chatResponse MUST contain a real explanation of what happened and how to fix it (2-4 sentences minimum). Never give a one-line non-answer.
-5. Dedup: if isDuplicate=true, skip create unless user explicitly asks again.
+3. CAPABILITY QUESTION RULE (CRITICAL): If the message is asking WHETHER you CAN do something — patterns like "ทำได้มั้ย", "สามารถ...ได้มั้ย", "ได้ไหม", "can you", "is it possible" — this is a QUESTION, NOT a command. Set operation=CHAT, isActionable=false. Answer by confirming the capability and asking the user to confirm: "ได้เลยครับ ต้องการให้บันทึกเลยไหม?" Never auto-execute based on a capability question.
+4. If operation=CHAT: never claim saved/created. Be honest about no DB write this turn. BUT if user asks WHY something didn't happen, explain clearly — don't just say "รับทราบ".
+5. META-QUESTION rule: If user asks "ทำไม", "why", "explain", "อธิบาย" or any question about system behavior → operation=CHAT, isActionable=false, but chatResponse MUST contain a real explanation of what happened and how to fix it (2-4 sentences minimum). Never give a one-line non-answer.
+6. Dedup: if isDuplicate=true, skip create unless user explicitly asks again.
 6. Low confidence (<${CONFIDENCE_CONFIRM_THRESHOLD.toFixed(2)}): keep operation, data; system will confirm.
 7. Reminder ("remind me/เตือน"): type=Tasks, dueDate=ISO8601+tz, title=action (not "remind me to..."), tag="reminder". Default 09:00 if no time given.
 8. dueDate — Thai time expressions (ISO8601, timezone ${timezone}):
@@ -1087,6 +1108,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
   let chatWriteClaimSanitized = false;
   const planningRequest = looksLikePlanningRequest(message);
   const metaQuestion = looksLikeMetaQuestion(message);
+  const capabilityQuestion = looksLikeCapabilityQuestion(message);
   const autoCapturePlan = ALFRED_AUTO_CAPTURE_ENABLED && planningRequest && wantsAutoCapturePlan(message);
 
   if (!modelOutput.relatedProjectTitle && modelOutput.recommendedProjectTitle) {
@@ -1120,6 +1142,13 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
 
   if (!isActionable && operation !== 'CHAT') {
     operation = 'CHAT';
+  }
+
+  // Server-side capability question override: "สามารถ X ได้มั้ย" = question, NOT command
+  // Even if AI incorrectly set isActionable=true, force back to CHAT and ask for confirmation
+  if (capabilityQuestion && operation !== 'CHAT') {
+    operation = 'CHAT';
+    chatResponse = `ได้เลยครับ! ${chatResponse}\n\nต้องการให้บันทึกเลยไหมครับ? ถ้าใช่ พิมพ์ยืนยันมาได้เลย`;
   }
 
   // Server-side URL override: if message contains URL(s) and AI still classified as CHAT,

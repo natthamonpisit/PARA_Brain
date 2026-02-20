@@ -152,10 +152,16 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
             if (selectedProjectId) relatedIds.push(selectedProjectId);
             if (selectedAreaId) relatedIds.push(selectedAreaId);
 
+            // If linked to an area, sync category to area.title so grouping works in all views
+            const linkedAreaItem = selectedAreaId
+                ? allParaItems.find(i => i.id === selectedAreaId)
+                : null;
+            const effectiveCategory = linkedAreaItem ? linkedAreaItem.title : (category || 'General');
+
             const newItem: ParaItem = {
                 id: editingItem ? editingItem.id : generateId(), // Preserve ID if editing
                 title, content, type,
-                category: category || 'General',
+                category: effectiveCategory,
                 tags: editingItem ? editingItem.tags : [], 
                 isAiGenerated: editingItem ? editingItem.isAiGenerated : false, 
                 isCompleted: editingItem ? editingItem.isCompleted : false, 

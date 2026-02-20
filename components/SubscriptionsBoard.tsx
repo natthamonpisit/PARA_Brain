@@ -86,6 +86,7 @@ export const SubscriptionsBoard: React.FC<SubscriptionsBoardProps> = ({
   const [editingSub, setEditingSub] = useState<Subscription | null>(null);
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // ── stats ──────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -154,6 +155,7 @@ export const SubscriptionsBoard: React.FC<SubscriptionsBoardProps> = ({
   const handleSave = async () => {
     if (!draft.name.trim() || !draft.renewalDate) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       const costMonthly = toMonthly(draft.billingAmount, draft.billingCycle);
       const payload = {
@@ -178,6 +180,9 @@ export const SubscriptionsBoard: React.FC<SubscriptionsBoardProps> = ({
         await onAdd(payload);
       }
       closeModal();
+    } catch (err: any) {
+      console.error('Subscription save failed:', err);
+      setSaveError(err?.message || 'Save failed — please try again');
     } finally {
       setIsSaving(false);
     }
@@ -571,6 +576,11 @@ export const SubscriptionsBoard: React.FC<SubscriptionsBoardProps> = ({
             </div>
 
             {/* Modal footer */}
+            {saveError && (
+              <div className="mx-5 mb-1 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+                ⚠ {saveError}
+              </div>
+            )}
             <div className="flex items-center justify-end gap-3 p-5 border-t border-slate-800">
               <button
                 onClick={closeModal}

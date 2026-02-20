@@ -721,6 +721,96 @@ async function loadRecentSessionContext(params: {
   }
 }
 
+// ─── JAY MEMORY & LEARNING ───────────────────────────────────────────────────
+
+interface JayMemoryEntry {
+  key: string;
+  value: string;
+  category: string;
+  confidence: number;
+  source?: string;
+}
+
+interface JayLearningEntry {
+  lesson: string;
+  category: string;
+  outcome: string;
+}
+
+async function loadJayMemory(supabase: any): Promise<JayMemoryEntry[]> {
+  try {
+    const { data, error } = await supabase
+      .from('jay_memory')
+      .select('key,value,category,confidence,source')
+      .order('last_seen', { ascending: false })
+      .limit(20);
+    if (error) { console.warn('[JAY] loadJayMemory error:', error.message); return []; }
+    return (data || []) as JayMemoryEntry[];
+  } catch (err: any) {
+    console.warn('[JAY] loadJayMemory exception:', err?.message || err);
+    return [];
+  }
+}
+
+async function loadJayLearnings(supabase: any): Promise<JayLearningEntry[]> {
+  try {
+    const { data, error } = await supabase
+      .from('jay_learning')
+      .select('lesson,category,outcome')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (error) { console.warn('[JAY] loadJayLearnings error:', error.message); return []; }
+    return (data || []) as JayLearningEntry[];
+  } catch (err: any) {
+    console.warn('[JAY] loadJayLearnings exception:', err?.message || err);
+    return [];
+  }
+}
+
+/**
+ * JAY writes a memory entry (upsert by key).
+ * Called after pipeline completes to persist what was learned about the user.
+ */
+async function writeJayMemory(
+  supabase: any,
+  entry: { key: string; value: string; category: string; confidence: number; source?: string }
+): Promise<void> {
+  try {
+    await supabase.from('jay_memory').upsert({
+      key: entry.key,
+      value: entry.value,
+      category: entry.category,
+      confidence: entry.confidence,
+      source: entry.source ?? 'inferred_from_interaction',
+      last_seen: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' });
+  } catch (err: any) {
+    console.warn('[JAY] writeJayMemory error:', err?.message || err);
+  }
+}
+
+/**
+ * JAY writes a learning entry when something notable happens.
+ * e.g. user corrected a classification, confirmed a preference, etc.
+ */
+async function writeJayLearning(
+  supabase: any,
+  entry: { lesson: string; triggerMessage?: string; outcome: string; category: string }
+): Promise<void> {
+  try {
+    await supabase.from('jay_learning').insert({
+      lesson: entry.lesson,
+      trigger_message: entry.triggerMessage ?? null,
+      outcome: entry.outcome,
+      category: entry.category,
+    });
+  } catch (err: any) {
+    console.warn('[JAY] writeJayLearning error:', err?.message || err);
+  }
+}
+
 async function detectDuplicateHints(params: {
   supabase: any;
   message: string;
@@ -830,8 +920,10 @@ function buildCapturePrompt(params: {
   urlMetaTitle?: string | null;
   hints?: MessageHints;
   recentContext?: SessionTurn[];
+  jayMemory?: JayMemoryEntry[];
+  jayLearnings?: JayLearningEntry[];
 }): string {
-  const { message, source, timezone, context, dedup, urls, customInstructions, urlMetaTitle, hints, recentContext } = params;
+  const { message, source, timezone, context, dedup, urls, customInstructions, urlMetaTitle, hints, recentContext, jayMemory, jayLearnings } = params;
   const now = new Date();
   const nowText = now.toLocaleString('en-US', { timeZone: timezone });
 
@@ -852,6 +944,20 @@ function buildCapturePrompt(params: {
       return parts.join(' → ');
     });
     return `\nRecent session (${recentContext.length} turn${recentContext.length > 1 ? 's' : ''}, same source, last 30min):\n${lines.join('\n')}`;
+  })();
+
+  // ── JAY Memory block ──────────────────────────────────────────────────────
+  const memoryText = (() => {
+    if (!jayMemory || jayMemory.length === 0) return '';
+    const lines = jayMemory.map(m => `[${m.category}] ${m.key}: ${truncate(m.value, 120)}`);
+    return `\nJAY Memory (สิ่งที่ฉันจำเกี่ยวกับพี่):\n${lines.join('\n')}`;
+  })();
+
+  // ── JAY Learnings block ───────────────────────────────────────────────────
+  const learningsText = (() => {
+    if (!jayLearnings || jayLearnings.length === 0) return '';
+    const lines = jayLearnings.map(l => `[${l.category}/${l.outcome}] ${truncate(l.lesson, 120)}`);
+    return `\nJAY Learnings (สิ่งที่เรียนรู้จากการคุยก่อนหน้า):\n${lines.join('\n')}`;
   })();
 
   const isPlanningMsg = looksLikePlanningRequest(message);
@@ -912,7 +1018,7 @@ ${projectsText || '(none)'}
 
 Tasks (pending):
 ${tasksText || '(none)'}
-${accountsText ? `\nAccounts:\n${accountsText}` : ''}${modulesText ? `\nModules:\n${modulesText}` : ''}${customInstructions.length ? `\nCustom:\n${customInstructions.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}${sessionContextText}${sessionContextText ? `\nSession rule: If this message is short/ambiguous (no explicit project/area named) and a recent turn mentions a specific project, assume the same project. Override only if user names a different project.` : ''}`;
+${accountsText ? `\nAccounts:\n${accountsText}` : ''}${modulesText ? `\nModules:\n${modulesText}` : ''}${customInstructions.length ? `\nCustom:\n${customInstructions.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}${memoryText}${learningsText}${sessionContextText}${sessionContextText ? `\nSession rule: If this message is short/ambiguous (no explicit project/area named) and a recent turn mentions a specific project, assume the same project. Override only if user names a different project.` : ''}`;
 }
 
 function buildResponseSchema() {
@@ -1068,7 +1174,7 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
 
   const urls = extractUrls(message);
 
-  const [context, dedup, runtimeCustomInstructions, urlMetaTitle, recentContext] = await Promise.all([
+  const [context, dedup, runtimeCustomInstructions, urlMetaTitle, recentContext, jayMemory, jayLearnings] = await Promise.all([
     loadCaptureContext(input.supabase),
     detectDuplicateHints({
       supabase: input.supabase,
@@ -1086,7 +1192,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       supabase: input.supabase,
       source: input.source,
       excludeLogId: input.excludeLogId
-    })
+    }),
+    loadJayMemory(input.supabase),
+    loadJayLearnings(input.supabase)
   ]);
 
   const hints = extractMessageHints(message);
@@ -1101,7 +1209,9 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
     customInstructions: runtimeCustomInstructions,
     urlMetaTitle,
     hints,
-    recentContext
+    recentContext,
+    jayMemory,
+    jayLearnings
   });
 
   const modelOutput = await analyzeCapture({ apiKey: input.geminiApiKey, prompt });
@@ -1468,6 +1578,26 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         if (insert.error) throw new Error(insert.error.message);
         createdItems.push(insert.data);
 
+        // Fire-and-forget: JAY learns routing pattern
+        void (async () => {
+          const projName = String(modelOutput.relatedProjectTitle || '').trim();
+          if (projName) {
+            await writeJayMemory(input.supabase, {
+              key: `preferred_project_for_${intent.toLowerCase()}`,
+              value: projName,
+              category: 'project_context',
+              confidence: confidence,
+              source: 'inferred_from_capture'
+            });
+          }
+          await writeJayLearning(input.supabase, {
+            lesson: `บันทึก Task "${baseTitle}" สำเร็จ → project: ${projName || 'none'}, area: ${String(modelOutput.relatedAreaTitle || '').trim() || 'none'}`,
+            triggerMessage: message,
+            outcome: 'confirmation',
+            category: 'routing'
+          });
+        })();
+
         return {
           success: true,
           source: input.source,
@@ -1571,6 +1701,16 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
       const insert = await input.supabase.from(table).insert(payload).select().single();
       if (insert.error) throw new Error(insert.error.message);
 
+      // Fire-and-forget: learn from this capture
+      void (async () => {
+        await writeJayLearning(input.supabase, {
+          lesson: `บันทึก ${paraType} "${baseTitle}" สำเร็จ → area: ${String(modelOutput.relatedAreaTitle || '').trim() || 'none'}`,
+          triggerMessage: message,
+          outcome: 'confirmation',
+          category: 'routing'
+        });
+      })();
+
       return {
         success: true,
         source: input.source,
@@ -1631,6 +1771,27 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
 
       const insert = await input.supabase.from('transactions').insert(txPayload).select().single();
       if (insert.error) throw new Error(insert.error.message);
+
+      // Fire-and-forget: learn finance pattern
+      void (async () => {
+        const txType = String(modelOutput.transactionType || 'EXPENSE');
+        await writeJayLearning(input.supabase, {
+          lesson: `บันทึก Transaction "${baseTitle}" amount=${txPayload.amount} type=${txType} category=${baseCategory}`,
+          triggerMessage: message,
+          outcome: 'confirmation',
+          category: 'finance'
+        });
+        // Remember finance category preference if meaningful
+        if (baseCategory && baseCategory !== 'General' && baseCategory !== 'Inbox') {
+          await writeJayMemory(input.supabase, {
+            key: `finance_category_${txType.toLowerCase()}`,
+            value: baseCategory,
+            category: 'finance',
+            confidence: 0.7,
+            source: 'inferred_from_transaction'
+          });
+        }
+      })();
 
       return {
         success: true,
@@ -1757,6 +1918,16 @@ export async function runCapturePipeline(input: CapturePipelineInput): Promise<C
         .single();
 
       if (update.error) throw new Error(update.error.message);
+
+      // Fire-and-forget: JAY learns task completion pattern
+      void (async () => {
+        await writeJayLearning(input.supabase, {
+          lesson: `Task completed: "${baseTitle}" — user used "เสร็จ" shortcut`,
+          triggerMessage: message,
+          outcome: 'confirmation',
+          category: 'routing'
+        });
+      })();
 
       return {
         success: true,
